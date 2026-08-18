@@ -1,0 +1,39 @@
+{
+  "package": "@huggingface/jinja",
+  "version": "0.5.9",
+  "nodeVersion": "v26.7.0",
+  "commit": "41585aa8e776e0e4e1430ac2aad24506f74c3110",
+  "tarball": "https://registry.npmjs.org/@huggingface/jinja/-/jinja-0.5.9.tgz",
+  "integrity": "sha512-uWTG+l3VJRsl7EXxYizuL3P+cCPoc3cRqbWWRcQN0FhejRfbdq0RNhCmbY/YDtnTcz9icdLYuLDjsnz4d8JMuw==",
+  "sha256": "69941ebbbbc0b1c200d04cd99613e67cba4c3d92815d9add5a4b3491f0e74548",
+  "fixtureRevision": "initial",
+  "contextShadowsGlobals": true,
+  "astNodes": [
+    "Statement", "Program", "If", "For", "Break", "Continue", "SetStatement", "Macro",
+    "Comment", "Expression", "MemberExpression", "CallExpression", "Identifier",
+    "IntegerLiteral", "FloatLiteral", "StringLiteral", "ArrayLiteral", "TupleLiteral",
+    "ObjectLiteral", "BinaryExpression", "FilterExpression", "FilterStatement",
+    "SelectExpression", "TestExpression", "UnaryExpression", "SliceExpression",
+    "KeywordArgumentExpression", "SpreadExpression", "CallStatement", "Ternary"
+  ],
+  "globals": [
+    { "name": "false", "arity": 0, "hostSupplied": false },
+    { "name": "true", "arity": 0, "hostSupplied": false },
+    { "name": "none", "arity": 0, "hostSupplied": false },
+    { "name": "raise_exception", "arity": 1, "hostSupplied": false },
+    { "name": "range", "arity": "1..3", "hostSupplied": false },
+    { "name": "strftime_now", "arity": 1, "hostSupplied": false },
+    { "name": "True", "arity": 0, "hostSupplied": false },
+    { "name": "False", "arity": 0, "hostSupplied": false },
+    { "name": "None", "arity": 0, "hostSupplied": false }
+  ],
+  "files": {
+    "src/ast.ts": "4e74da8d513ad575dd9ce6864db44ab8fa0f5eb5a7d9a903477617edf058faf0",
+    "src/format.ts": "ae4dd933ed99e933153c713667219d18a9689069560caecbfbf9c995d6674fd0",
+    "src/index.ts": "e05449bc732104e1956f4d5ba28a9c81de93fd0716e46f67d0e30c247bc924a0",
+    "src/lexer.ts": "582d40b40e0bf51400376b5b0a114d046762ad858b0f7f1c6909c62d90811429",
+    "src/parser.ts": "9036cdc609d69b4d5fdc32f10760c6506fe3cf525f9548d2c76cb0ff2043c35d",
+    "src/runtime.ts": "270bacbd2994a80200ac361dc25b0f6b7e1896f216bce83ba9182bbd454e928c",
+    "src/utils.ts": "57e44b8f45dc64d5ef9c51fa6bfb84994430aa99adc27dfe7c6eda87011484c9"
+  }
+}

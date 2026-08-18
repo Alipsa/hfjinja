@@ -1,0 +1,118 @@
+plugins {
+  id 'java-library'
+  id 'maven-publish'
+}
+
+group = 'se.alipsa'
+version = '0.1.0-SNAPSHOT'
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(21)
+  }
+  withSourcesJar()
+  withJavadocJar()
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  testImplementation platform('org.junit:junit-bom:5.12.2')
+  testImplementation 'org.junit.jupiter:junit-jupiter'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(Test).configureEach {
+  useJUnitPlatform()
+  // Gradle runs test outputs on the test classpath, allowing white-box internal.* tests while the
+  // published module continues to export only se.alipsa.hfjinja. A future module-path test suite
+  // must use --patch-module and qualified opens rather than widening module-info.java.
+}
+
+tasks.register('upstreamVerify') {
+  group = 'verification'
+  description = 'Verifies pinned upstream provenance without fetching network data.'
+  dependsOn tasks.named('classes')
+  doLast {
+    def lock = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
+    if (!lock.isFile()) {
+      throw new GradleException('Missing upstream/upstream-lock.json')
+    }
+    def parsed = new groovy.json.JsonSlurper().parse(lock)
+    ['package', 'version', 'nodeVersion', 'commit', 'tarball', 'integrity', 'sha256',
+     'fixtureRevision', 'astNodes', 'globals', 'files'].each {
+      if (!parsed.containsKey(it)) {
+        throw new GradleException("Upstream lock is missing '${it}'")
+      }
+    }
+    if (!(parsed.files instanceof Map) || parsed.files.isEmpty()) {
+      throw new GradleException('Upstream lock has no source file hashes')
+    }
+    parsed.files.each { relativePath, expectedHash ->
+      def source = layout.projectDirectory.file("upstream/vendor/${relativePath}").asFile
+      if (!source.isFile()) {
+        throw new GradleException("Vendored upstream file is missing: ${relativePath}")
+      }
+      def digest = java.security.MessageDigest.getInstance('SHA-256')
+          .digest(source.bytes)
+          .collect { String.format('%02x', it) }
+          .join()
+      if (digest != expectedHash) {
+        throw new GradleException("Vendored upstream hash mismatch: ${relativePath}")
+      }
+    }
+    def astSource = layout.projectDirectory.file('upstream/vendor/src/ast.ts').asFile
+    def discoveredNodes = (astSource.text =~ /(?m)^export class\s+([A-Za-z0-9_]+)/)
+        .collect { it[1] }
+    if (discoveredNodes != parsed.astNodes) {
+      throw new GradleException('AST inventory does not match vendored ast.ts')
+    }
+    def astAllowlist = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
+    if (!astAllowlist.isFile()) {
+      throw new GradleException('Missing upstream/ast-allowlist.json')
+    }
+    def declaredNodes = new groovy.json.JsonSlurper().parse(astAllowlist)
+    def unaccountedNodes = discoveredNodes.findAll { !declaredNodes.containsKey(it) }
+    if (!unaccountedNodes.isEmpty()) {
+      throw new GradleException("Unaccounted AST nodes: ${unaccountedNodes.join(', ')}")
+    }
+    def mapping = layout.projectDirectory.file('upstream/mapping.yml').asFile
+    if (!mapping.isFile()) {
+      throw new GradleException('Missing upstream/mapping.yml')
+    }
+    parsed.files.each { relativePath, expectedHash ->
+      def basename = new File(relativePath).name
+      if (!mapping.text.contains("${basename}:")) {
+        throw new GradleException("No mapping entry for upstream file: ${relativePath}")
+      }
+      if (mapping.text.contains("${basename}:\n  reviewed-no-port-impact:")
+          && !mapping.text.contains("sha256: ${expectedHash}")) {
+        throw new GradleException("Stale reviewed-no-port-impact hash: ${relativePath}")
+      }
+    }
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('upstreamVerify')
+}
+
+publishing {
+  publications {
+    maven(MavenPublication) {
+      from components.java
+      pom {
+        name = 'hfjinja'
+        description = 'Dependency-free Java port of @huggingface/jinja.'
+        licenses {
+          license {
+            name = 'MIT License'
+            url = 'https://opensource.org/license/mit'
+          }
+        }
+      }
+    }
+  }
+}
