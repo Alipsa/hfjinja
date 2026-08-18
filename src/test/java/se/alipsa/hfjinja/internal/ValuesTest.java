@@ -25,6 +25,17 @@ class ValuesTest {
   }
 
   @Test
+  void rejectsHugeExponentsWithoutExpandingThem() {
+    assertConversionFailure(new BigDecimal("1E+100000000"));
+  }
+
+  @Test
+  void acceptsSubnormalNumbersUsingTheJsShortestForm() {
+    assertEquals(new FloatValue(Double.MIN_VALUE), Values.fromHost(new BigDecimal("5E-324")));
+    assertEquals(new FloatValue(Double.MIN_VALUE), Values.fromHost(Double.MIN_VALUE));
+  }
+
+  @Test
   void distinguishesNullAndCopiesNestedValues() {
     var value = assertInstanceOf(
         ObjectValue.class, Values.fromHost(Map.of("items", java.util.Arrays.asList(1, null))));
@@ -38,6 +49,23 @@ class ValuesTest {
     cycle.add(cycle);
     assertConversionFailure(cycle);
     assertConversionFailure(Map.of(1, "no"));
+  }
+
+  @Test
+  void reusesConvertedDagNodesInsteadOfRewalkingThem() {
+    var shared = List.of("value");
+    var converted = assertInstanceOf(ArrayValue.class, Values.fromHost(List.of(shared, shared)));
+    assertEquals(converted.values().get(0), converted.values().get(1));
+    org.junit.jupiter.api.Assertions.assertSame(converted.values().get(0), converted.values().get(1));
+  }
+
+  @Test
+  void convertsDeepSharedDagWithoutExponentialWork() {
+    Object graph = List.of("leaf");
+    for (int depth = 0; depth < 40; depth++) {
+      graph = List.of(graph, graph);
+    }
+    assertInstanceOf(ArrayValue.class, Values.fromHost(graph));
   }
 
   private static void assertConversionFailure(Object input) {

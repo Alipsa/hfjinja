@@ -2,6 +2,8 @@ package se.alipsa.hfjinja.internal;
 
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -57,10 +59,13 @@ final class Values {
   private Values() {}
 
   static Value fromHost(Object input) {
-    return fromHost(input, new IdentityHashMap<>());
+    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>());
   }
 
-  private static Value fromHost(Object input, IdentityHashMap<Object, Boolean> ancestors) {
+  private static Value fromHost(
+      Object input,
+      IdentityHashMap<Object, Value> converted,
+      IdentityHashMap<Object, Boolean> visiting) {
     if (input == null) {
       return NullValue.INSTANCE;
     }
@@ -74,68 +79,85 @@ final class Values {
       return numberValue(number);
     }
     if (input.getClass().isArray()) {
-      requireAcyclic(input, ancestors);
+      var existing = converted.get(input);
+      if (existing != null) {
+        return existing;
+      }
+      requireAcyclic(input, visiting);
       try {
         var values = new ArrayList<Value>(Array.getLength(input));
         for (int index = 0; index < Array.getLength(input); index++) {
-          values.add(fromHost(Array.get(input, index), ancestors));
+          values.add(fromHost(Array.get(input, index), converted, visiting));
         }
-        return new ArrayValue(values);
+        var value = new ArrayValue(values);
+        converted.put(input, value);
+        return value;
       } finally {
-        ancestors.remove(input);
+        visiting.remove(input);
       }
     }
     if (input instanceof List<?> list) {
-      requireAcyclic(input, ancestors);
+      var existing = converted.get(input);
+      if (existing != null) {
+        return existing;
+      }
+      requireAcyclic(input, visiting);
       try {
         var values = new ArrayList<Value>(list.size());
         for (Object item : list) {
-          values.add(fromHost(item, ancestors));
+          values.add(fromHost(item, converted, visiting));
         }
-        return new ArrayValue(values);
+        var value = new ArrayValue(values);
+        converted.put(input, value);
+        return value;
       } finally {
-        ancestors.remove(input);
+        visiting.remove(input);
       }
     }
     if (input instanceof Map<?, ?> map) {
-      requireAcyclic(input, ancestors);
+      var existing = converted.get(input);
+      if (existing != null) {
+        return existing;
+      }
+      requireAcyclic(input, visiting);
       try {
         var values = new LinkedHashMap<String, Value>(map.size());
         for (var entry : map.entrySet()) {
           if (!(entry.getKey() instanceof String key)) {
             throw conversion("Map keys must be strings");
           }
-          values.put(key, fromHost(entry.getValue(), ancestors));
+          values.put(key, fromHost(entry.getValue(), converted, visiting));
         }
-        return new ObjectValue(values);
+        var value = new ObjectValue(values);
+        converted.put(input, value);
+        return value;
       } finally {
-        ancestors.remove(input);
+        visiting.remove(input);
       }
     }
     throw conversion("Unsupported host value type: " + input.getClass().getName());
   }
 
   private static Value numberValue(Number number) {
-    final String canonical;
+    final BigDecimal inputDecimal;
     try {
-      canonical = new BigDecimal(number.toString()).stripTrailingZeros().toPlainString();
+      inputDecimal = new BigDecimal(number.toString()).stripTrailingZeros();
     } catch (NumberFormatException exception) {
       throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
     }
+    final String canonical = formatJsDecimal(inputDecimal);
 
-    final double value;
-    try {
-      value = Double.parseDouble(canonical);
-    } catch (NumberFormatException exception) {
-      throw conversion("Number is outside the JavaScript numeric range: " + canonical);
-    }
+    final double value = number instanceof Double || number instanceof Float
+        ? number.doubleValue()
+        : Double.parseDouble(inputDecimal.toString());
     if (!Double.isFinite(value)) {
       throw conversion("Number must be finite: " + canonical);
     }
-    if (!shortestJsDecimal(value).equals(canonical)) {
+    if (!(number instanceof Double || number instanceof Float)
+        && !shortestJsDecimal(value).equals(canonical)) {
       throw conversion("Number is not representable as a JavaScript number: " + canonical);
     }
-    if (isIntegral(canonical)) {
+    if (inputDecimal.scale() <= 0) {
       if (Math.abs(value) > MAX_SAFE_INTEGER) {
         throw conversion("Integer is outside the JavaScript safe-integer range: " + canonical);
       }
@@ -144,12 +166,30 @@ final class Values {
     return new FloatValue(value);
   }
 
-  private static boolean isIntegral(String decimal) {
-    return !decimal.contains(".");
+  private static String shortestJsDecimal(double value) {
+    var exact = new BigDecimal(value);
+    for (int precision = 1; precision <= 17; precision++) {
+      var candidate = exact.round(new MathContext(precision, RoundingMode.HALF_EVEN)).stripTrailingZeros();
+      if (Double.parseDouble(candidate.toString()) == value) {
+        return formatJsDecimal(candidate);
+      }
+    }
+    throw new IllegalStateException("No JavaScript round-trip decimal for finite double");
   }
 
-  private static String shortestJsDecimal(double value) {
-    return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString();
+  private static String formatJsDecimal(BigDecimal decimal) {
+    if (decimal.signum() == 0) {
+      return "0";
+    }
+    var normalized = decimal.stripTrailingZeros();
+    var exponent = normalized.precision() - normalized.scale() - 1;
+    if (exponent >= -6 && exponent < 21) {
+      return normalized.toPlainString();
+    }
+    var digits = normalized.unscaledValue().abs().toString();
+    var mantissa = digits.length() == 1 ? digits : digits.charAt(0) + "." + digits.substring(1);
+    var sign = normalized.signum() < 0 ? "-" : "";
+    return sign + mantissa + "e" + (exponent >= 0 ? "+" : "") + exponent;
   }
 
   private static void requireAcyclic(Object input, IdentityHashMap<Object, Boolean> ancestors) {

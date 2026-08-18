@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: tools/sync-upstream/sync-upstream {verify|report}" >&2
+  exit 64
+}
+
+case "${1:-}" in
+  verify)
+    exec ./gradlew upstreamVerify
+    ;;
+  report)
+    git diff --stat -- upstream/vendor upstream/upstream-lock.json upstream/mapping.yml
+    ;;
+  *)
+    usage
+    ;;
+esac
