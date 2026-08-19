@@ -55,7 +55,6 @@
     "src/runtime.ts": "270bacbd2994a80200ac361dc25b0f6b7e1896f216bce83ba9182bbd454e928c",
     "src/utils.ts": "57e44b8f45dc64d5ef9c51fa6bfb84994430aa99adc27dfe7c6eda87011484c9",
     "test/.gitignore": "b4cebe9db79849ac0107d2f500436d6600f107bbc1c5e497da35a9f1871b8349",
-    "test/e2e.test.js": "1a54ef2ed41ee14ee63959b2d7edd421d725e45c50a96ca9116cb20baebad126",
     "test/format.test.js": "671b51c7a62c86910232ddeaf4ed116507ab5ecf834351bfc1ce194956916164",
     "test/interpreter.test.js": "d36218b3e789f94f754bd6e1e3bfa5b8f28838d685c5a7790e900104d2db2d1a",
     "test/memory.test.js": "75486508062a0b0bd3e227de82f804a61be6e2487a95b5fdc359524417d3665f",

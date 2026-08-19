@@ -12,14 +12,15 @@ exact model repository, immutable revision, template path, and applicable licens
 | `mistralai/Mistral-7B-Instruct-v0.3` at `c170c708c41dac9275d15a8fff4eca08d52bab71` | Apache-2.0 | Template text may be retained after recording the template path, Apache-2.0 notice, and model-card attribution. |
 | All other Qwen models, including Qwen2.5 3B and 72B variants | Not preapproved | Do not retain template text or rendered output. A hash-only case is permitted; text or output requires a fixture-specific review. |
 | All Llama models | Model-version-specific Llama Community License | Do not retain template text or rendered output by default. A hash-only case stores only the reviewed source revision/path and SHA-256 digests of the template and expected output. Text or output may be added only after a separate review confirms the applicable license, attribution, redistribution, naming, and acceptable-use terms. |
-| Any model not listed above | Not preapproved | Do not retain template text or rendered output. A hash-only case following the Llama form is permitted; text or output requires a fixture-specific review that adds an exact repository-and-revision row here and records its notice requirements. |
+| Any repository-and-revision pair not listed above | Not preapproved | Do not retain template text or rendered output. A hash-only case following the Llama form is permitted; text or output requires a fixture-specific review that adds an exact repository-and-revision row here and records its notice requirements. |
 
 ## Current fixture set
 
-No model chat-template text or model-derived output is committed. The first Llama case must commit
-only the hash-only metadata described above. The first retained Qwen or Mistral case must add its
-source record and license notice in the same change; copied templates and generated output are not
-implicitly covered by the upstream MIT notice.
+No model chat-template text or model-derived output is committed. The model-bearing upstream e2e
+fixture is intentionally not vendored because its template text and outputs are not covered by this
+policy. The first Llama case must commit only the hash-only metadata described above. The first
+retained Qwen or Mistral case must add its source record and license notice in the same change;
+copied templates and generated output are not implicitly covered by the upstream MIT notice.
 
 ## Sources reviewed
 

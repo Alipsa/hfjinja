@@ -65,13 +65,19 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    Hash-only records carry no model expression:
 
    ```json
-   {"templateSha256":"...","expectedSha256":"...","modelRepo":"...",
-    "modelRevision":"...","templatePath":"...","context":{},"expected":null}
+   {"templateSha256":"...","modelRepo":"...","modelRevision":"...",
+    "templatePath":"...","context":{},"expected":{"sha256":"..."}}
    ```
 
-   `template`/`expected.text` and the `templateSha256`/`expectedSha256` pair are mutually
-   exclusive. A hash-only runner obtains the template outside the repository, verifies its digest
-   before rendering, and compares the digest of its rendered output to `expectedSha256`.
+   `template`/`expected.text` and `templateSha256`/`expected.sha256` are mutually exclusive. A
+   hash-only failure instead uses `"expected":{"errorCategory":"..."}`. Hash-only records may
+   retain self-authored test context but no model template or rendered output.
+
+   The normal build never downloads a model or silently skips a hash-only case. An explicit corpus
+   invocation receives externally supplied fixture material, verifies `templateSha256` before
+   rendering, and either compares the UTF-8 SHA-256 of its exact rendered output to
+   `expected.sha256` or compares the error category. No newline normalization is applied; invalid
+   UTF-8 fixture material is a harness failure.
 
    The `strftime_now` entry is illustrative only: its presence is determined after WP1a's global
    inventory. `instant`, `zone`, and `globals` are optional. Expected failures carry an
@@ -80,9 +86,10 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    oracle shim. Patterns extract interpolated message values (for example a filter name) rather
    than matching literals. Every known upstream error maps explicitly; an unmatched message fails
    the harness loudly and never defaults to a category.
-3. Build the upstream-test-to-corpus converter. Automate extraction from vendored `.test.ts` unit
-   and e2e sources where structurally representable; retain reviewed manual transcriptions only
-   for unsupported harness constructs and real-model templates, with source locations recorded.
+3. Build the upstream-test-to-corpus converter. Automate extraction from vendored non-model unit
+   and e2e sources where structurally representable. Exclude model-bearing sources unless their
+   fixture form is approved by the licensing policy; retain reviewed manual transcriptions only for
+   unsupported harness constructs and approved real-model templates, with source locations recorded.
 4. Implement Node and Java corpus runners. The versioned shim always supplies fixed time/zone and
    every non-built-in record global; built-in globals run independently. Apply an external
    wall-clock timeout to each process and report it as a harness failure, never a parity result.
