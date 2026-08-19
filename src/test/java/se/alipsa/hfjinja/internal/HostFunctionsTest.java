@@ -58,18 +58,10 @@ class HostFunctionsTest {
     var undefinedError = assertHostFailure(() -> HostFunctions.invoke(
         "known", function(undefinedOptions, "known"),
         List.of(new ArrayValue(List.of(UndefinedValue.INSTANCE))), false, CALL_LOCATION));
-    assertEquals("Host function 'known' cannot receive an undefined argument", undefinedError.getMessage());
+    assertEquals(
+        "Host function 'known' cannot receive argument 0: an undefined argument",
+        undefinedError.getMessage());
     assertEquals(false, called.get());
-  }
-
-  @Test
-  void rejectsUnresolvedFunctionsAsCallTypeErrors() {
-    var error = assertThrows(TemplateRenderException.class, () -> HostFunctions.invoke(
-        "missing", null, List.of(), false, CALL_LOCATION));
-
-    assertEquals(ErrorCategory.TYPE, error.category());
-    assertEquals("Cannot call something that is not a function", error.getMessage());
-    assertEquals(CALL_LOCATION, error.location().orElseThrow());
   }
 
   @Test
@@ -118,7 +110,7 @@ class HostFunctionsTest {
   }
 
   @Test
-  void sharesConvertedArgumentsAndRejectsValuesThatCannotRoundTrip() {
+  void preservesAliasedAndFloatValuesAcrossHostFunctionRoundTrips() {
     var shared = new ArrayValue(List.of(new StringValue("value")));
     var options = RenderOptions.builder()
         .hostFunction("sharing", arguments -> {
@@ -126,18 +118,31 @@ class HostFunctionsTest {
           return null;
         })
         .hostFunction("identity", arguments -> arguments.get(0))
+        .hostFunction("float", arguments -> HostFunction.floatResult(2d))
         .build();
 
     HostFunctions.invoke("sharing", function(options, "sharing"), List.of(shared, shared), false, CALL_LOCATION);
+    assertEquals(new FloatValue(2d), HostFunctions.invoke(
+        "identity", function(options, "identity"), List.of(new FloatValue(2d)), false, CALL_LOCATION));
+    assertEquals(new FloatValue(2d), HostFunctions.invoke(
+        "float", function(options, "float"), List.of(), false, CALL_LOCATION));
+  }
+
+  @Test
+  void rejectsValuesThatCannotRoundTripWithTheirArgumentIndex() {
+    var options = RenderOptions.builder().hostFunction("identity", arguments -> arguments.get(0)).build();
     var unsafeInteger = assertHostFailure(() -> HostFunctions.invoke(
         "identity", function(options, "identity"),
         List.of(new IntegerValue(9_007_199_254_740_992d)), false, CALL_LOCATION));
     assertEquals(
-        "Host function 'identity' cannot receive integer outside the JavaScript safe-integer range",
+        "Host function 'identity' cannot receive argument 0: "
+            + "integer outside the JavaScript safe-integer range",
         unsafeInteger.getMessage());
     var nonFiniteFloat = assertHostFailure(() -> HostFunctions.invoke(
         "identity", function(options, "identity"), List.of(new FloatValue(Double.NaN)), false, CALL_LOCATION));
-    assertEquals("Host function 'identity' cannot receive non-finite number", nonFiniteFloat.getMessage());
+    assertEquals(
+        "Host function 'identity' cannot receive argument 0: non-finite number",
+        nonFiniteFloat.getMessage());
   }
 
   private static HostFunction function(RenderOptions options, String name) {

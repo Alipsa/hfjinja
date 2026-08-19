@@ -119,7 +119,10 @@ pinned context-versus-global shadowing order from `index.ts`. Host functions are
 template functions and receive converted, inert
 positional argument values (scalars and recursively immutable lists/maps only, never caller
 objects). A HostFunction call with keyword arguments fails as `HOST_FUNCTION`; keyword arguments
-are not represented in this v1 API. Its return value undergoes the same closed conversion above; a
+are not represented in this v1 API. Template `undefined` cannot be represented at this closed Java
+boundary, so a HostFunction call containing it (including nested in a list or map) fails as
+`HOST_FUNCTION` rather than silently converting it to `null`. Its return value undergoes the same
+closed conversion above; a
 conversion violation is a `TemplateRenderException` in `HOST_FUNCTION`, never a raw
 `ClassCastException`. Any `RuntimeException` thrown by the function is likewise wrapped in a
 location-bearing `TemplateRenderException` in `HOST_FUNCTION`. `Appendable` write failures are

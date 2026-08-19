@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import se.alipsa.hfjinja.ErrorCategory;
+import se.alipsa.hfjinja.HostFunction;
 import se.alipsa.hfjinja.TemplateRenderException;
 
 /** Internal, closed template value model. */
@@ -69,23 +70,22 @@ final class Values {
    * Converts a runtime value into an inert value for a {@code HostFunction}. Collections are copied
    * and made immutable so a function can neither observe nor mutate interpreter state.
    */
-  static Object toHost(Value value) {
-    Objects.requireNonNull(value, "value");
-    return toHost(value, new IdentityHashMap<>());
-  }
-
-  static Object toHost(Value value, IdentityHashMap<Value, Object> converted) {
+  static Object toHost(
+      Value value,
+      IdentityHashMap<Value, Object> converted,
+      IdentityHashMap<Object, Value> sourceValues) {
     Objects.requireNonNull(value, "value");
     Objects.requireNonNull(converted, "converted");
+    Objects.requireNonNull(sourceValues, "sourceValues");
     // Values are immutable and only originate from acyclic host input, so this map preserves DAG
     // sharing rather than needing a separate cycle guard.
     return switch (value) {
       case UndefinedValue ignored -> throw new UndefinedHostValueException();
       case NullValue ignored -> null;
-      case BooleanValue booleanValue -> booleanValue.value();
-      case IntegerValue integerValue -> hostInteger(integerValue.value());
-      case FloatValue floatValue -> hostFloat(floatValue.value());
-      case StringValue stringValue -> stringValue.value();
+      case BooleanValue booleanValue -> sourceValue(booleanValue.value(), value, sourceValues);
+      case IntegerValue integerValue -> sourceValue(hostInteger(integerValue.value()), value, sourceValues);
+      case FloatValue floatValue -> sourceValue(hostFloat(floatValue.value()), value, sourceValues);
+      case StringValue stringValue -> sourceValue(stringValue.value(), value, sourceValues);
       case ArrayValue arrayValue -> {
         var existing = converted.get(arrayValue);
         if (existing != null) {
@@ -93,10 +93,11 @@ final class Values {
         }
         var values = new ArrayList<Object>(arrayValue.values().size());
         for (var item : arrayValue.values()) {
-          values.add(toHost(item, converted));
+          values.add(toHost(item, converted, sourceValues));
         }
         var hostValue = Collections.unmodifiableList(values);
         converted.put(arrayValue, hostValue);
+        sourceValues.put(hostValue, value);
         yield hostValue;
       }
       case ObjectValue objectValue -> {
@@ -106,13 +107,20 @@ final class Values {
         }
         var values = new LinkedHashMap<String, Object>(objectValue.values().size());
         for (var entry : objectValue.values().entrySet()) {
-          values.put(entry.getKey(), toHost(entry.getValue(), converted));
+          values.put(entry.getKey(), toHost(entry.getValue(), converted, sourceValues));
         }
         var hostValue = Collections.unmodifiableMap(values);
         converted.put(objectValue, hostValue);
+        sourceValues.put(hostValue, value);
         yield hostValue;
       }
     };
+  }
+
+  private static Object sourceValue(
+      Object hostValue, Value sourceValue, IdentityHashMap<Object, Value> sourceValues) {
+    sourceValues.put(hostValue, sourceValue);
+    return hostValue;
   }
 
   private static Object hostInteger(double value) {
@@ -145,12 +153,37 @@ final class Values {
     }
   }
 
+  static Value fromHostFunctionReturn(Object input, IdentityHashMap<Object, Value> sourceValues) {
+    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), sourceValues, true);
+  }
+
   private static Value fromHost(
       Object input,
       IdentityHashMap<Object, Value> converted,
       IdentityHashMap<Object, Boolean> visiting) {
+    return fromHost(input, converted, visiting, null, false);
+  }
+
+  private static Value fromHost(
+      Object input,
+      IdentityHashMap<Object, Value> converted,
+      IdentityHashMap<Object, Boolean> visiting,
+      IdentityHashMap<Object, Value> sourceValues,
+      boolean allowFloatResult) {
+    if (sourceValues != null) {
+      var sourceValue = sourceValues.get(input);
+      if (sourceValue != null) {
+        return sourceValue;
+      }
+    }
     if (input == null) {
       return NullValue.INSTANCE;
+    }
+    if (allowFloatResult && input instanceof HostFunction.FloatResult floatResult) {
+      if (!Double.isFinite(floatResult.value())) {
+        throw conversion("Number must be finite: " + floatResult.value());
+      }
+      return new FloatValue(floatResult.value());
     }
     if (input instanceof String string) {
       return new StringValue(string);
@@ -171,7 +204,7 @@ final class Values {
         int length = Array.getLength(input);
         var values = new ArrayList<Value>(length);
         for (int index = 0; index < length; index++) {
-          values.add(fromHost(Array.get(input, index), converted, visiting));
+          values.add(fromHost(Array.get(input, index), converted, visiting, sourceValues, allowFloatResult));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -189,7 +222,7 @@ final class Values {
       try {
         var values = new ArrayList<Value>(list.size());
         for (Object item : list) {
-          values.add(fromHost(item, converted, visiting));
+          values.add(fromHost(item, converted, visiting, sourceValues, allowFloatResult));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -210,7 +243,7 @@ final class Values {
           if (!(entry.getKey() instanceof String key)) {
             throw conversion("Map keys must be strings");
           }
-          values.put(key, fromHost(entry.getValue(), converted, visiting));
+          values.put(key, fromHost(entry.getValue(), converted, visiting, sourceValues, allowFloatResult));
         }
         var value = new ObjectValue(values);
         converted.put(input, value);
