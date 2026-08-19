@@ -131,8 +131,9 @@ results. `Appendable` write failures are reported as `OUTPUT` errors.
 ## Compatibility and upstream updates
 
 hfjinja targets one explicit upstream package revision, currently `@huggingface/jinja` 0.5.9.
-The package source is committed under `upstream/vendor/`; `upstream/upstream-lock.json` records the
-tarball integrity, commit, Node oracle version, global inventory, and source hashes.
+Selected, policy-approved package source is committed under `upstream/vendor/`;
+`upstream/upstream-lock.json` records the tarball integrity, commit, Node oracle version, global
+inventory, source hashes, and policy exclusions.
 
 ```bash
 ./gradlew check
@@ -151,7 +152,7 @@ comparison uses documented categories only. Python `transformers`/Jinja2 output 
 src/main/java/se/alipsa/hfjinja/  public API
 src/main/java/.../internal/       lexer, parser, AST, values, interpreter
 src/test/                         unit, compatibility, safety, and concurrency tests
-upstream/vendor/                  pinned @huggingface/jinja source
+upstream/vendor/                  selected, policy-approved @huggingface/jinja source
 upstream/upstream-lock.json       provenance and global inventory
 upstream/mapping.yml              source-to-Java mapping ledger
 req/                              requirements and implementation plan
@@ -162,4 +163,5 @@ req/                              requirements and implementation plan
 hfjinja is released under the [MIT License](LICENSE). It retains attribution for vendored upstream
 MIT source in [NOTICE](NOTICE). Retained model-template fixtures include their applicable license
 and notice requirements; where those terms make text vendoring unsuitable, the project uses
-hash-only fixtures.
+hash-only fixtures. See the [model fixture licensing policy](req/model-fixture-policy.md) for the
+approved fixture forms.

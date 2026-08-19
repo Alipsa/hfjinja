@@ -26,9 +26,10 @@ ordered so that provenance and a repeatable oracle exist before behavior is port
 3. Add `LICENSE`, `NOTICE`, Maven publication metadata, CI for `check` and `upstreamVerify`, and
    dependency/SBOM reporting.
 4. Implement the lock reader and offline `upstreamVerify` task. It verifies package/version
-   against the vendored package, source hashes, fixture revision, and AST/global inventories. It
-   records commit, tarball integrity/SHA-256, and Node version as provenance metadata that remains
-   unverifiable offline until the deferred `fetch` workflow lands.
+   against the vendored package, source hashes, fixture revision, AST/global inventories, and the
+   required policy-exclusion records; it rejects a malformed exclusion record or an excluded file
+   present in the vendor tree. It records commit, tarball integrity/SHA-256, and Node version as
+   provenance metadata that remains unverifiable offline until the deferred `fetch` workflow lands.
 5. Implement `sync-upstream report` and `verify`. `report` emits mapped-file impact and invalid
    no-impact-record hashes. `refresh-lock` updates vendored file hashes only; AST and global
    inventories require explicit review and lock updates. The networked `fetch` workflow is deferred
@@ -46,6 +47,8 @@ upstream diff report.
    context/global shadowing order. Record the inventory in the lock and behavior in mapped tests.
 4. Make the model-template licensing determination before committing model template text. Record
    notices in `NOTICE`; retain a hash-only Llama case where its terms make vendoring unsuitable.
+   The current decision is recorded in `model-fixture-policy.md` and permits no model template text
+   until a fixture-specific source and license record is added.
 
 Deliverables: `upstreamVerify` detects stale ledger entries; the AST/global inventories and
 milestone ledger are complete; the model fixture form is approved. WP1a blocks WP2 and WP3.
@@ -59,6 +62,24 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
     "globals":{"strftime_now":{"kind":"strftime_now"}},"expected":{"text":"..."}}
    ```
 
+   Text-bearing records are used only for fixture revisions approved for text/output retention.
+   Hash-only records carry no model expression:
+
+   ```json
+   {"templateSha256":"...","modelRepo":"...","modelRevision":"...",
+    "templatePath":"...","context":{},"expected":{"sha256":"..."}}
+   ```
+
+   `template`/`expected.text` and `templateSha256`/`expected.sha256` are mutually exclusive. A
+   hash-only failure instead uses `"expected":{"errorCategory":"..."}`. Hash-only records may
+   retain self-authored test context but no model template or rendered output.
+
+   The normal build never downloads a model and does not execute hash-only corpus cases. An explicit
+   corpus invocation receives externally supplied fixture material, fails loudly if it is absent or
+   fails `templateSha256`, and either compares the UTF-8 SHA-256 of its exact rendered output to
+   `expected.sha256` or compares the error category. No newline normalization is applied; invalid
+   UTF-8 fixture material is a harness failure.
+
    The `strftime_now` entry is illustrative only: its presence is determined after WP1a's global
    inventory. `instant`, `zone`, and `globals` are optional. Expected failures carry an
    `ErrorCategory`.
@@ -66,9 +87,10 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    oracle shim. Patterns extract interpolated message values (for example a filter name) rather
    than matching literals. Every known upstream error maps explicitly; an unmatched message fails
    the harness loudly and never defaults to a category.
-3. Build the upstream-test-to-corpus converter. Automate extraction from vendored `.test.ts` unit
-   and e2e sources where structurally representable; retain reviewed manual transcriptions only
-   for unsupported harness constructs and real-model templates, with source locations recorded.
+3. Build the upstream-test-to-corpus converter. Automate extraction from vendored non-model unit
+   sources where structurally representable. The upstream e2e source is excluded in full because it
+   contains model-derived material. Retain reviewed manual transcriptions only for unsupported
+   harness constructs and approved real-model templates, with source locations recorded.
 4. Implement Node and Java corpus runners. The versioned shim always supplies fixed time/zone and
    every non-built-in record global; built-in globals run independently. Apply an external
    wall-clock timeout to each process and report it as a harness failure, never a parity result.
