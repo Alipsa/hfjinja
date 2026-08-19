@@ -28,10 +28,10 @@ ordered so that provenance and a repeatable oracle exist before behavior is port
 4. Implement the lock reader and offline `upstreamVerify` task. It verifies package/version,
    commit, tarball integrity/SHA-256, Node version, source hashes, fixture revision, and global
    inventory.
-5. Implement `sync-upstream fetch`, `report`, and `verify`. `fetch` records npm `dist.integrity`
-   on trust-on-first-use; `report` emits mapped-file impact and invalid no-impact-record hashes.
-   `refresh-lock` updates vendored file hashes only; AST and global inventories require explicit
-   review and lock updates.
+5. Implement `sync-upstream report` and `verify`. `report` emits mapped-file impact and invalid
+   no-impact-record hashes. `refresh-lock` updates vendored file hashes only; AST and global
+   inventories require explicit review and lock updates. The networked `fetch` workflow is deferred
+   until an upstream update workflow is implemented.
 
 Deliverables: green offline build; a real 0.5.9 lock and vendor tree; `NOTICE`; a reviewable
 upstream diff report.

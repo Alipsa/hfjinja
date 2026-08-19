@@ -31,12 +31,24 @@ tasks.withType(Test).configureEach {
   // must use --patch-module and qualified opens rather than widening module-info.java.
 }
 
+def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
+def astAllowlistFile = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
+def mappingFile = layout.projectDirectory.file('upstream/mapping.yml').asFile
+def vendorDir = layout.projectDirectory.dir('upstream/vendor').asFile
+def packageMetadataFile = new File(vendorDir, 'package.json')
+def astSourceFile = new File(vendorDir, 'src/ast.ts')
+def runtimeSourceFile = new File(vendorDir, 'src/runtime.ts')
+def utilsSourceFile = new File(vendorDir, 'src/utils.ts')
+def upstreamVerifyMarker = layout.buildDirectory.file('upstreamVerify/verified').get().asFile
+
 tasks.register('upstreamVerify') {
   group = 'verification'
   description = 'Verifies pinned upstream provenance without fetching network data.'
-  def vendorRoot = layout.projectDirectory.dir('upstream/vendor')
   def vendorFiles = {
-    def vendorRootPath = vendorRoot.asFile.toPath()
+    def vendorRootPath = vendorDir.toPath()
+    if (!java.nio.file.Files.isDirectory(vendorRootPath)) {
+      return []
+    }
     def stream = java.nio.file.Files.walk(vendorRootPath)
     try {
       stream
@@ -55,17 +67,19 @@ tasks.register('upstreamVerify') {
       stream.close()
     }
   }
-  inputs.file(layout.projectDirectory.file('upstream/upstream-lock.json'))
-  inputs.file(layout.projectDirectory.file('upstream/ast-allowlist.json'))
-  inputs.file(layout.projectDirectory.file('upstream/mapping.yml'))
+  inputs.file(upstreamLockFile)
+  inputs.file(astAllowlistFile)
+  inputs.file(mappingFile)
   inputs.files(vendorFiles)
-  outputs.file(layout.buildDirectory.file('upstreamVerify/verified'))
+  outputs.file(upstreamVerifyMarker)
   doLast {
-    def lock = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
-    if (!lock.isFile()) {
+    if (!upstreamLockFile.isFile()) {
       throw new GradleException('Missing upstream/upstream-lock.json')
     }
-    def parsed = new groovy.json.JsonSlurper().parse(lock)
+    if (!vendorDir.isDirectory()) {
+      throw new GradleException('Missing upstream/vendor')
+    }
+    def parsed = new groovy.json.JsonSlurper().parse(upstreamLockFile)
     ['package', 'version', 'nodeVersion', 'commit', 'tarball', 'integrity', 'sha256',
      'fixtureRevision', 'astNodes', 'globals', 'files'].each {
       if (!parsed.containsKey(it)) {
@@ -83,15 +97,14 @@ tasks.register('upstreamVerify') {
             && parsed.fixtureRevision != 'initial')) {
       throw new GradleException('Upstream lock contains invalid provenance metadata')
     }
-    def packageMetadata = new groovy.json.JsonSlurper().parse(
-        layout.projectDirectory.file('upstream/vendor/package.json').asFile)
+    def packageMetadata = new groovy.json.JsonSlurper().parse(packageMetadataFile)
     if (packageMetadata.name != parsed.package || packageMetadata.version != parsed.version) {
       throw new GradleException('Upstream lock package/version does not match vendored package.json')
     }
     if (!(parsed.files instanceof Map) || parsed.files.isEmpty()) {
       throw new GradleException('Upstream lock has no source file hashes')
     }
-    def vendorRootPath = vendorRoot.asFile.toPath()
+    def vendorRootPath = vendorDir.toPath()
     def vendorPaths = vendorFiles()
         .collect { vendorRootPath.relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) }
         .toSet()
@@ -102,7 +115,7 @@ tasks.register('upstreamVerify') {
           "Upstream lock file hashes do not cover exactly the vendored tree; missing=${missingHashes}, stale=${staleHashes}")
     }
     parsed.files.each { relativePath, expectedHash ->
-      def source = layout.projectDirectory.file("upstream/vendor/${relativePath}").asFile
+      def source = new File(vendorDir, relativePath)
       if (!source.isFile()) {
         throw new GradleException("Vendored upstream file is missing: ${relativePath}")
       }
@@ -114,8 +127,7 @@ tasks.register('upstreamVerify') {
         throw new GradleException("Vendored upstream hash mismatch: ${relativePath}")
       }
     }
-    def astSource = layout.projectDirectory.file('upstream/vendor/src/ast.ts').asFile
-    def discoveredNodes = (astSource.text =~ /(?m)^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/)
+    def discoveredNodes = (astSourceFile.text =~ /(?m)^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/)
         .collect { it[1] }
     if (discoveredNodes.toSet() != parsed.astNodes.toSet()) {
       def missing = discoveredNodes.findAll { !parsed.astNodes.contains(it) }
@@ -135,8 +147,7 @@ tasks.register('upstreamVerify') {
     if (!invalidGlobals.isEmpty()) {
       throw new GradleException("Upstream lock has invalid global inventory entries: ${invalidGlobals}")
     }
-    def runtimeSource = layout.projectDirectory.file('upstream/vendor/src/runtime.ts').asFile
-    def discoveredGlobals = (runtimeSource.text =~ /env\.set\("([A-Za-z_][A-Za-z0-9_]*)",/)
+    def discoveredGlobals = (runtimeSourceFile.text =~ /env\.set\("([A-Za-z_][A-Za-z0-9_]*)",/)
         .collect { it[1] }
     def lockedGlobals = parsed.globals.collect { it.name }
     if (discoveredGlobals.toSet() != lockedGlobals.toSet() || discoveredGlobals.size() != lockedGlobals.size()) {
@@ -144,7 +155,7 @@ tasks.register('upstreamVerify') {
       def stale = lockedGlobals.findAll { !discoveredGlobals.contains(it) }
       throw new GradleException("Global inventory mismatch; missing=${missing}, stale=${stale}")
     }
-    def utilsSource = layout.projectDirectory.file('upstream/vendor/src/utils.ts').asFile.text
+    def utilsSource = utilsSourceFile.text
     def functionArity = { functionName ->
       def match = utilsSource =~ "export\\s+function\\s+${functionName}\\(([^)]*)\\)"
       if (!match.find()) {
@@ -163,22 +174,20 @@ tasks.register('upstreamVerify') {
     if (lockedArities != expectedArities) {
       throw new GradleException("Global arity inventory mismatch; expected=${expectedArities}, actual=${lockedArities}")
     }
-    def astAllowlist = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
-    if (!astAllowlist.isFile()) {
+    if (!astAllowlistFile.isFile()) {
       throw new GradleException('Missing upstream/ast-allowlist.json')
     }
-    def declaredNodes = new groovy.json.JsonSlurper().parse(astAllowlist)
+    def declaredNodes = new groovy.json.JsonSlurper().parse(astAllowlistFile)
     def unaccountedNodes = discoveredNodes.findAll { !declaredNodes.containsKey(it) }
     if (!unaccountedNodes.isEmpty()) {
       throw new GradleException("Unaccounted AST nodes: ${unaccountedNodes.join(', ')}")
     }
-    def mapping = layout.projectDirectory.file('upstream/mapping.yml').asFile
-    if (!mapping.isFile()) {
+    if (!mappingFile.isFile()) {
       throw new GradleException('Missing upstream/mapping.yml')
     }
     def mappingEntries = [:]
     def currentMapping = null
-    mapping.eachLine { line ->
+    mappingFile.eachLine { line ->
       def section = line =~ /^([A-Za-z0-9_.-]+\.ts):\s*$/
       if (section.matches()) {
         currentMapping = section.group(1)
@@ -236,9 +245,8 @@ tasks.register('upstreamVerify') {
     if (!staleMappings.isEmpty()) {
       throw new GradleException("Mapping entries do not correspond to upstream source: ${staleMappings}")
     }
-    def marker = layout.buildDirectory.file('upstreamVerify/verified').get().asFile
-    marker.parentFile.mkdirs()
-    marker.text = 'verified\n'
+    upstreamVerifyMarker.parentFile.mkdirs()
+    upstreamVerifyMarker.text = 'verified\n'
   }
 }
 

@@ -8,6 +8,8 @@ with compatibility pinned to a reviewed version of
 It is designed for JVM model clients that need reproducible rendering of Llama, Qwen, Mistral, and
 tool-use templates—not as a general-purpose or Python-compatible Jinja2 engine.
 
+Building the project requires a locally installed JDK 21 available through `JAVA_HOME` or `PATH`.
+
 > Status: the repository is under active implementation. The intended v1 behavior and public API
 > are described below; see the [implementation plan](req/implementation-plan.md) for progress.
 
