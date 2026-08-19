@@ -31,6 +31,71 @@ tasks.withType(Test).configureEach {
   // must use --patch-module and qualified opens rather than widening module-info.java.
 }
 
+def nodeCorpusTestMarker = layout.buildDirectory.file('nodeCorpusTest/verified').get().asFile
+def nodeOracleVersionMarker = layout.buildDirectory.file('nodeOracleVersion/verified').get().asFile
+def nodeCorpusVerifyMarker = layout.buildDirectory.file('nodeCorpusVerify/verified').get().asFile
+
+tasks.register('nodeCorpusTest', Exec) {
+  group = 'verification'
+  description = 'Tests the versioned differential-corpus schema and error classifier.'
+  executable = 'node'
+  args '--test', 'tools/corpus/corpus.test.mjs'
+  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/corpus.test.mjs',
+      'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json')
+  outputs.file(nodeCorpusTestMarker).withPropertyName('verifiedMarker')
+  doLast {
+    nodeCorpusTestMarker.parentFile.mkdirs()
+    nodeCorpusTestMarker.text = 'verified\n'
+  }
+}
+
+tasks.register('nodeOracleVersion', Exec) {
+  group = 'verification'
+  description = 'Requires the exact Node version pinned for the differential oracle.'
+  executable = 'node'
+  args 'tools/corpus/check-node-version.mjs', '--lock', 'upstream/upstream-lock.json'
+  inputs.files('tools/corpus/check-node-version.mjs', 'upstream/upstream-lock.json')
+  outputs.file(nodeOracleVersionMarker).withPropertyName('verifiedMarker')
+  outputs.upToDateWhen { false }
+  doLast {
+    nodeOracleVersionMarker.parentFile.mkdirs()
+    nodeOracleVersionMarker.text = 'verified\n'
+  }
+}
+
+tasks.register('nodeCorpusVerify', Exec) {
+  group = 'verification'
+  description = 'Checks text-bearing corpus cases against the pinned Node oracle.'
+  executable = 'node'
+  args 'tools/corpus/run-node-oracle.mjs', '--corpus', 'src/test/resources/corpus/v1.jsonl',
+      '--patterns', 'tools/corpus/error-patterns-0.5.9.json', '--lock', 'upstream/upstream-lock.json'
+  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/run-node-oracle.mjs',
+      'tools/corpus/error-patterns-0.5.9.json', 'src/test/resources/corpus/v1.jsonl',
+      'upstream/vendor/dist/index.js', 'upstream/upstream-lock.json')
+  outputs.file(nodeCorpusVerifyMarker).withPropertyName('verifiedMarker')
+  doLast {
+    nodeCorpusVerifyMarker.parentFile.mkdirs()
+    nodeCorpusVerifyMarker.text = 'verified\n'
+  }
+}
+
+def corpusCoverageReport = layout.buildDirectory.file('reports/corpus-coverage.md').get().asFile
+tasks.register('corpusCoverage', Exec) {
+  group = 'verification'
+  description = 'Checks extracted corpus fixtures and writes their upstream coverage report.'
+  executable = 'node'
+  args 'tools/corpus/convert-upstream-tests.mjs', '--check', "--report=${corpusCoverageReport.absolutePath}"
+  inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs',
+      'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json',
+      fileTree('upstream/vendor/test') { include '**/*.test.js' })
+  outputs.file(corpusCoverageReport)
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeOracleVersion'), tasks.named('nodeCorpusVerify'),
+      tasks.named('corpusCoverage'), tasks.named('upstreamVerify')
+}
+
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
 def astAllowlistFile = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
 def mappingFile = layout.projectDirectory.file('upstream/mapping.yml').asFile
@@ -261,8 +326,20 @@ tasks.register('upstreamVerify') {
   }
 }
 
-tasks.named('check') {
-  dependsOn tasks.named('upstreamVerify')
+def upstreamVerification = tasks.named('upstreamVerify')
+def nodeVersionVerification = tasks.named('nodeOracleVersion')
+def nodeTimeoutSeconds = [nodeCorpusTest: 120, nodeCorpusVerify: 300, corpusCoverage: 120, nodeOracleVersion: 30]
+['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage', 'nodeOracleVersion'].each { taskName ->
+  tasks.named(taskName) {
+    dependsOn upstreamVerification
+    mustRunAfter upstreamVerification
+    timeout = java.time.Duration.ofSeconds(nodeTimeoutSeconds[taskName])
+  }
+}
+['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage'].each { taskName ->
+  tasks.named(taskName) {
+    dependsOn nodeVersionVerification
+  }
 }
 
 publishing {

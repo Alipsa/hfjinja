@@ -1,0 +1,9 @@
+{
+  "version": "@huggingface/jinja@0.5.9",
+  "patterns": [
+    {
+      "regex": "^Unknown variable: (?<name>.+)$",
+      "category": "UNDEFINED_OR_ACCESS"
+    }
+  ]
+}

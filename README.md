@@ -9,6 +9,7 @@ It is designed for JVM model clients that need reproducible rendering of Llama, 
 tool-use templates—not as a general-purpose or Python-compatible Jinja2 engine.
 
 Building the project requires a locally installed JDK 21 available through `JAVA_HOME` or `PATH`.
+Running `./gradlew check` also requires exactly Node.js 26.7.0, the pinned oracle version.
 
 > Status: the repository is under active implementation. The intended v1 behavior and public API
 > are described below; see the [implementation plan](req/implementation-plan.md) for progress.
@@ -142,6 +143,11 @@ inventory, source hashes, and policy exclusions.
 The command runs unit tests and `upstreamVerify`, which works without network access and fails on
 changed vendor hashes, stale mappings, unaccounted AST nodes, or stale no-impact reviews. Updating
 the pin is an explicit, reviewed sync change—not an incidental dependency upgrade.
+
+The test build runs the pinned Node oracle over `src/test/resources/corpus/v1.jsonl`; this is a
+test-time tool only, not a library runtime dependency. Hash-only records are intentionally skipped
+by the normal build and require supplied external fixture material.
+`build/reports/corpus-coverage.md` lists the upstream cases currently represented by the corpus.
 
 Successful compatibility output compares byte-for-byte against the pinned Node package. Error
 comparison uses documented categories only. Python `transformers`/Jinja2 output is not an oracle.
