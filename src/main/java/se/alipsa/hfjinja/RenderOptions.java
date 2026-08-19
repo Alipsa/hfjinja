@@ -11,7 +11,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Immutable render-time clock, zone, and explicitly named host functions. */
+/** Immutable render-time options with optional clock/zone settings and explicitly named host functions. */
 public final class RenderOptions {
   private static final Set<String> BUILTIN_GLOBALS =
       Set.of("false", "true", "none", "raise_exception", "range", "strftime_now", "True", "False", "None");

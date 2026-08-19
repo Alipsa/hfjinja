@@ -71,5 +71,9 @@ class PublicApiTest {
         .build());
     assertThrows(IllegalArgumentException.class,
         () -> RenderOptions.builder().hostFunction("range", formatter).build());
+    assertThrows(IllegalArgumentException.class,
+        () -> RenderOptions.builder().hostFunction(" ", formatter));
+    assertThrows(NullPointerException.class,
+        () -> RenderOptions.builder().hostFunction("format_tool", null));
   }
 }
