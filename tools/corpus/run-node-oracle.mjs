@@ -1,30 +1,43 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { errorClassifier, readCorpus, sha256Utf8, validateCorpus } from './corpus.mjs';
+import { corpusLine, errorClassifier, readCorpus, sha256Utf8, validateCorpus } from './corpus.mjs';
 
 const argumentsByName = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   if (!option.startsWith('--') || process.argv[index + 1] === undefined) {
-    throw new Error('Usage: run-node-oracle.mjs --corpus <jsonl> --patterns <json>');
+    throw new Error('Usage: run-node-oracle.mjs --corpus <jsonl> --patterns <json> --lock <json>');
   }
   argumentsByName.set(option.slice(2), process.argv[index + 1]);
 }
 const corpusPath = argumentsByName.get('corpus');
 const patternsPath = argumentsByName.get('patterns');
-if (!corpusPath || !patternsPath) {
-  throw new Error('Usage: run-node-oracle.mjs --corpus <jsonl> --patterns <json>');
+const lockPath = argumentsByName.get('lock');
+if (!corpusPath || !patternsPath || !lockPath) {
+  throw new Error('Usage: run-node-oracle.mjs --corpus <jsonl> --patterns <json> --lock <json>');
 }
 
+const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+if (process.version !== lock.nodeVersion) {
+  throw new Error(`Node oracle version ${process.version} does not match lock ${lock.nodeVersion}`);
+}
 const { Template } = await import(pathToFileURL(resolve('upstream/vendor/dist/index.js')).href);
-const classifyError = await errorClassifier(patternsPath);
+const classifyError = await errorClassifier(patternsPath, `${lock.package}@${lock.version}`);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
 let failures = 0;
+let executed = 0;
+let skipped = 0;
 for (const [index, record] of records.entries()) {
-  const label = `${corpusPath}:${index + 1} (${record?.id ?? 'unknown'})`;
-  if (record.templateSha256) continue;
+  const label = `${corpusPath}:${corpusLine(record, index + 1)} (${record?.id ?? 'unknown'})`;
+  if (record.templateSha256) {
+    skipped++;
+    console.log(`SKIP ${record.id} hash-only fixture`);
+    continue;
+  }
+  executed++;
   try {
     const output = render(record, Template);
     if (Object.hasOwn(record.expected, 'errorCategory')) {
@@ -52,6 +65,8 @@ for (const [index, record] of records.entries()) {
     }
   }
 }
+console.log(`SUMMARY executed=${executed} skipped=${skipped}`);
+if (!executed) fail(corpusPath, 'no text-bearing corpus records were executed');
 if (failures) process.exitCode = 1;
 
 function fail(label, message) {

@@ -9,23 +9,34 @@ const recordKeys = new Set([
   'id', 'source', 'template', 'templateSha256', 'modelRepo', 'modelRevision', 'templatePath',
   'context', 'instant', 'zone', 'globals', 'expected',
 ]);
+const lineNumber = Symbol('lineNumber');
 
 export async function readCorpus(path) {
   const content = await readFile(path, 'utf8');
-  return content.split(/\r?\n/).filter(Boolean).map((line, index) => {
+  const records = [];
+  for (const [index, line] of content.split(/\r?\n/).entries()) {
+    if (!line) continue;
     try {
-      return JSON.parse(line);
+      const record = JSON.parse(line);
+      Object.defineProperty(record, lineNumber, {value: index + 1});
+      records.push(record);
     } catch (error) {
       throw new Error(`${path}:${index + 1}: invalid JSON: ${error.message}`);
     }
-  });
+  }
+  return records;
+}
+
+export function corpusLine(record, fallback) {
+  return record[lineNumber] ?? fallback;
 }
 
 export function validateCorpus(records, label = 'corpus') {
   const ids = new Set();
   for (const [index, record] of records.entries()) {
-    validateRecord(record, `${label}:${index + 1}`);
-    if (ids.has(record.id)) throw new Error(`${label}:${index + 1}: duplicate id ${record.id}`);
+    const recordLabel = `${label}:${corpusLine(record, index + 1)}`;
+    validateRecord(record, recordLabel);
+    if (ids.has(record.id)) throw new Error(`${recordLabel}: duplicate id ${record.id}`);
     ids.add(record.id);
   }
 }
@@ -46,6 +57,9 @@ export function validateRecord(record, label = 'record') {
       || !nonBlank(record.templatePath))) {
     throw new Error(`${label}: hash-only records require modelRepo, 40-hex modelRevision, and templatePath`);
   }
+  if (record.instant !== undefined && record.zone === undefined) {
+    throw new Error(`${label}: instant requires an explicit zone`);
+  }
   if (record.instant !== undefined && (!(typeof record.instant === 'string' && /^\d{4}-\d{2}-\d{2}T.*Z$/.test(record.instant))
       || Number.isNaN(Date.parse(record.instant)))) {
     throw new Error(`${label}: instant must be an ISO-8601 instant`);
@@ -59,10 +73,13 @@ export function sha256Utf8(value) {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-export async function errorClassifier(path) {
+export async function errorClassifier(path, expectedVersion) {
   const definition = JSON.parse(await readFile(path, 'utf8'));
-  if (!isObject(definition) || !Array.isArray(definition.patterns)) {
+  if (!isObject(definition) || !nonBlank(definition.version) || !Array.isArray(definition.patterns)) {
     throw new Error(`Invalid error pattern table: ${path}`);
+  }
+  if (expectedVersion !== undefined && definition.version !== expectedVersion) {
+    throw new Error(`Error pattern table version ${definition.version} does not match ${expectedVersion}`);
   }
   const patterns = definition.patterns.map((pattern, index) => {
     if (!isObject(pattern) || !nonBlank(pattern.regex) || !categories.has(pattern.category)) {

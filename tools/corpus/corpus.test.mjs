@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { errorClassifier, sha256Utf8, validateCorpus, validateRecord } from './corpus.mjs';
+import { corpusLine, errorClassifier, readCorpus, sha256Utf8, validateCorpus, validateRecord } from './corpus.mjs';
 
 test('accepts text and hash-only record forms', () => {
   validateRecord({
@@ -25,7 +25,8 @@ test('accepts text and hash-only record forms', () => {
 test('rejects duplicate ids and malformed deterministic-time fields', () => {
   const record = {id: 'duplicate', source: 'test', template: 'hello', context: {}, expected: {text: 'hello'}};
   assert.throws(() => validateCorpus([record, record]), /duplicate id/);
-  assert.throws(() => validateRecord({...record, instant: '2026-08-19'}), /ISO-8601/);
+  assert.throws(() => validateRecord({...record, instant: '2026-08-19', zone: 'UTC'}), /ISO-8601/);
+  assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z'}), /requires an explicit zone/);
   assert.throws(() => validateRecord({...record, zone: 'not a zone'}), /IANA/);
 });
 
@@ -49,9 +50,26 @@ test('rejects mixed fixture forms and invalid expected results', () => {
 });
 
 test('fails loudly for an unmatched upstream error', async () => {
-  const classify = await errorClassifier('tools/corpus/error-patterns-0.5.9.json');
+  const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
+  const classify = await errorClassifier('tools/corpus/error-patterns-0.5.9.json', `${lock.package}@${lock.version}`);
   assert.equal(classify('Unknown variable: absent'), 'UNDEFINED_OR_ACCESS');
   assert.throws(() => classify('unmapped upstream error'), /Unmatched upstream error/);
+  await assert.rejects(
+    errorClassifier('tools/corpus/error-patterns-0.5.9.json', '@huggingface/jinja@other'), /does not match/,
+  );
+});
+
+test('preserves physical JSONL line numbers across blank lines', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-lines-'));
+  const path = join(directory, 'corpus.jsonl');
+  try {
+    await writeFile(path, '{"id":"first"}\n\n{"id":"third"}\n', 'utf8');
+    const records = await readCorpus(path);
+    assert.equal(corpusLine(records[0]), 1);
+    assert.equal(corpusLine(records[1]), 3);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });
 
 test('reports harness mismatches and unmatched upstream errors per record', async () => {
@@ -62,9 +80,21 @@ test('reports harness mismatches and unmatched upstream errors per record', asyn
   ]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /expected error=SYNTAX, got output="Hello"/);
-  assert.doesNotMatch(result.stderr, /Unmatched upstream error.*output mismatch/);
+  assert.doesNotMatch(result.stderr, /FAIL .*expected-error.*output mismatch/);
   assert.match(result.stderr, /Unmatched upstream error.*Unexpected token/);
   assert.match(result.stdout, /PASS after-error/);
+});
+
+test('reports skipped hash-only records and rejects an all-hash-only run', async () => {
+  const result = await runOracle([{
+    id: 'hash-only', source: 'test', templateSha256: sha256Utf8('template'), modelRepo: 'example/model',
+    modelRevision: 'a'.repeat(40), templatePath: 'tokenizer_config.json', context: {},
+    expected: {sha256: sha256Utf8('output')},
+  }]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /SKIP hash-only hash-only fixture/);
+  assert.match(result.stdout, /SUMMARY executed=0 skipped=1/);
+  assert.match(result.stderr, /no text-bearing corpus records were executed/);
 });
 
 async function runOracle(records) {
@@ -74,7 +104,7 @@ async function runOracle(records) {
     await writeFile(corpus, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`, 'utf8');
     return spawnSync(process.execPath, [
       'tools/corpus/run-node-oracle.mjs', '--corpus', corpus,
-      '--patterns', 'tools/corpus/error-patterns-0.5.9.json',
+      '--patterns', 'tools/corpus/error-patterns-0.5.9.json', '--lock', 'upstream/upstream-lock.json',
     ], {encoding: 'utf8'});
   } finally {
     await rm(directory, {recursive: true, force: true});

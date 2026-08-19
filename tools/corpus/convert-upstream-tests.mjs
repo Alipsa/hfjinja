@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { readCorpus, validateRecord } from './corpus.mjs';
 
 const sourcePath = 'upstream/vendor/test/templates.test.js';
 const corpusPath = 'src/test/resources/corpus/v1.jsonl';
+const lockPath = 'upstream/upstream-lock.json';
 const selected = new Map([
   ['NO_TEMPLATE', 'templates.no-template'],
   ['FOR_LOOP', 'templates.for-loop'],
@@ -35,6 +36,9 @@ if (options.has('--check')) {
       throw new Error(`${corpusPath}: ${record.id} differs from ${record.source}; rerun the reviewed converter`);
     }
   }
+  const generatedIds = new Set(generated.map((record) => record.id));
+  const staleIds = [...actual.keys()].filter((id) => id.startsWith('templates.') && !generatedIds.has(id));
+  if (staleIds.length) throw new Error(`${corpusPath}: stale extracted fixtures: ${staleIds.join(', ')}`);
 }
 
 const reportOption = [...options].find((option) => option.startsWith('--report='));
@@ -60,22 +64,36 @@ function propertyLine(source, name) {
 }
 
 function sameFixture(actual, generated) {
-  return actual.source === generated.source
+  return Object.keys(actual).length === Object.keys(generated).length
+    && actual.source === generated.source
     && actual.template === generated.template
     && JSON.stringify(actual.context) === JSON.stringify(generated.context)
     && actual.expected?.text === generated.expected.text;
 }
 
 async function writeCoverage(path, generated) {
-  const testFiles = ['format.test.js', 'interpreter.test.js', 'memory.test.js', 'templates.test.js', 'utils.test.js'];
+  const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+  const testFiles = await testSources('upstream/vendor/test');
+  const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
+    .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
     `Automatically extracted fixture definitions: ${generated.length}`,
-    'Excluded e2e sources: 1 (removed by the model-fixture licensing policy)', '',
+    `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',
     '## Extracted fixtures', '', '| Corpus id | Upstream source |', '| --- | --- |',
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
     'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription.', '',
   ];
   await writeFile(resolve(path), lines.join('\n'), 'utf8');
+}
+
+async function testSources(directory, relative = '') {
+  const entries = await readdir(directory, {withFileTypes: true});
+  const files = await Promise.all(entries.map(async (entry) => {
+    const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) return testSources(`${directory}/${entry.name}`, entryRelative);
+    return entry.isFile() && entry.name.endsWith('.test.js') ? [entryRelative] : [];
+  }));
+  return files.flat().sort();
 }
