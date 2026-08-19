@@ -24,12 +24,12 @@ final class HostFunctions {
     Objects.requireNonNull(name, "name");
     Objects.requireNonNull(positionalArguments, "positionalArguments");
     Objects.requireNonNull(location, "location");
-    if (hasKeywordArguments) {
-      throw failure("Host function '" + name + "' does not accept keyword arguments", null, location);
-    }
     var function = options.hostFunctions().get(name);
     if (function == null) {
       throw failure("Unknown host function: " + name, null, location);
+    }
+    if (hasKeywordArguments) {
+      throw failure("Host function '" + name + "' does not accept keyword arguments", null, location);
     }
 
     final Object result;
@@ -47,8 +47,9 @@ final class HostFunctions {
 
   private static List<Object> hostArguments(List<Value> positionalArguments) {
     var arguments = new ArrayList<Object>(positionalArguments.size());
-    for (var argument : positionalArguments) {
-      arguments.add(Values.toHost(Objects.requireNonNull(argument, "positional argument")));
+    for (int index = 0; index < positionalArguments.size(); index++) {
+      arguments.add(Values.toHost(Objects.requireNonNull(
+          positionalArguments.get(index), "positionalArguments[" + index + "]")));
     }
     return Collections.unmodifiableList(arguments);
   }

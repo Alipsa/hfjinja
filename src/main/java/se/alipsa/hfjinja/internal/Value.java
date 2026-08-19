@@ -70,10 +70,13 @@ final class Values {
    * and made immutable so a function can neither observe nor mutate interpreter state.
    */
   static Object toHost(Value value) {
+    Objects.requireNonNull(value, "value");
     return toHost(value, new IdentityHashMap<>());
   }
 
   private static Object toHost(Value value, IdentityHashMap<Value, Object> converted) {
+    // Values are immutable and only originate from acyclic host input, so this map preserves DAG
+    // sharing rather than needing a separate cycle guard.
     return switch (value) {
       case UndefinedValue ignored -> null;
       case NullValue ignored -> null;
