@@ -35,17 +35,9 @@ enum NullValue implements Value {
 
 record BooleanValue(boolean value) implements Value {}
 
-record IntegerValue(double value) implements Value {
-  IntegerValue {
-    value = Values.normalizeZero(value);
-  }
-}
+record IntegerValue(double value) implements Value {}
 
-record FloatValue(double value) implements Value {
-  FloatValue {
-    value = Values.normalizeZero(value);
-  }
-}
+record FloatValue(double value) implements Value {}
 
 record StringValue(String value) implements Value {}
 
@@ -177,13 +169,13 @@ final class Values {
       if (Math.abs(value) > MAX_SAFE_INTEGER) {
         throw conversion("Integer is outside the JavaScript safe-integer range: " + canonical);
       }
-      return new IntegerValue(value);
+      return new IntegerValue(normalizeHostZero(value));
     }
-    return new FloatValue(value);
+    return new FloatValue(normalizeHostZero(value));
   }
 
-  /** JavaScript does not preserve negative zero for equality or rendering, so collapse it to +0. */
-  static double normalizeZero(double value) {
+  /** Host values have no observable signed zero, unlike runtime arithmetic such as {@code 1 / -0}. */
+  private static double normalizeHostZero(double value) {
     return value == 0d ? 0d : value;
   }
 

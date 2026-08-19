@@ -16,6 +16,7 @@ case "${1:-}" in
     git diff --stat -- upstream/vendor upstream/upstream-lock.json upstream/mapping.yml
     ;;
   refresh-lock)
+    echo "refresh-lock updates only vendored file hashes; review AST/global inventories manually." >&2
     node <<'NODE'
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -30,7 +31,8 @@ for (const tracked of execFileSync('git', ['ls-files', '-z', '--', root]).toStri
   const relative = tracked.slice(root.length);
   files[relative] = crypto.createHash('sha256').update(fs.readFileSync(tracked)).digest('hex');
 }
-lock.files = Object.fromEntries(Object.entries(files).sort());
+lock.files = Object.fromEntries(Object.entries(files).sort(([left], [right]) =>
+  left < right ? -1 : left > right ? 1 : 0));
 fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
 NODE
     ;;

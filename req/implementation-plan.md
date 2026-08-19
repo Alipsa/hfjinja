@@ -30,6 +30,8 @@ ordered so that provenance and a repeatable oracle exist before behavior is port
    inventory.
 5. Implement `sync-upstream fetch`, `report`, and `verify`. `fetch` records npm `dist.integrity`
    on trust-on-first-use; `report` emits mapped-file impact and invalid no-impact-record hashes.
+   `refresh-lock` updates vendored file hashes only; AST and global inventories require explicit
+   review and lock updates.
 
 Deliverables: green offline build; a real 0.5.9 lock and vendor tree; `NOTICE`; a reviewable
 upstream diff report.

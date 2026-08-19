@@ -35,10 +35,30 @@ tasks.register('upstreamVerify') {
   group = 'verification'
   description = 'Verifies pinned upstream provenance without fetching network data.'
   def vendorRoot = layout.projectDirectory.dir('upstream/vendor')
+  def vendorFiles = {
+    def vendorRootPath = vendorRoot.asFile.toPath()
+    def stream = java.nio.file.Files.walk(vendorRootPath)
+    try {
+      stream
+          .filter { java.nio.file.Files.isRegularFile(it) }
+          .filter { path ->
+            def relativePath = vendorRootPath.relativize(path).toString().replace(File.separatorChar, '/' as char)
+            relativePath != '.DS_Store'
+                && !relativePath.endsWith('/.DS_Store')
+                && !relativePath.startsWith('node_modules/')
+                && !relativePath.contains('/node_modules/')
+                && !relativePath.startsWith('__snapshots__/')
+                && !relativePath.contains('/__snapshots__/')
+          }
+          .collect { it.toFile() }
+    } finally {
+      stream.close()
+    }
+  }
   inputs.file(layout.projectDirectory.file('upstream/upstream-lock.json'))
   inputs.file(layout.projectDirectory.file('upstream/ast-allowlist.json'))
   inputs.file(layout.projectDirectory.file('upstream/mapping.yml'))
-  inputs.files(fileTree(vendorRoot))
+  inputs.files(vendorFiles)
   outputs.file(layout.buildDirectory.file('upstreamVerify/verified'))
   doLast {
     def lock = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
@@ -71,17 +91,9 @@ tasks.register('upstreamVerify') {
     if (!(parsed.files instanceof Map) || parsed.files.isEmpty()) {
       throw new GradleException('Upstream lock has no source file hashes')
     }
-    def git = new ProcessBuilder('git', 'ls-files', '-z', '--', 'upstream/vendor')
-        .directory(layout.projectDirectory.asFile)
-        .start()
-    def gitOutput = git.inputStream.text
-    def gitError = git.errorStream.text
-    if (git.waitFor() != 0) {
-      throw new GradleException("Cannot list tracked vendored files: ${gitError.trim()}")
-    }
-    def vendorPaths = gitOutput.split('\\u0000')
-        .findAll { !it.isEmpty() }
-        .collect { it.substring('upstream/vendor/'.length()) }
+    def vendorRootPath = vendorRoot.asFile.toPath()
+    def vendorPaths = vendorFiles()
+        .collect { vendorRootPath.relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) }
         .toSet()
     if (parsed.files.keySet().toSet() != vendorPaths) {
       def missingHashes = vendorPaths - parsed.files.keySet().toSet()

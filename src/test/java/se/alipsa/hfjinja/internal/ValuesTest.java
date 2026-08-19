@@ -62,8 +62,9 @@ class ValuesTest {
   @Test
   void normalizesNegativeZero() {
     assertEquals(new IntegerValue(0d), Values.fromHost(-0.0d));
-    assertEquals(new FloatValue(0d), new FloatValue(-0.0d));
-    assertEquals(0L, Double.doubleToRawLongBits(new FloatValue(-0.0d).value()));
+    assertEquals(0L, Double.doubleToRawLongBits(((IntegerValue) Values.fromHost(-0.0d)).value()));
+    assertEquals(Long.MIN_VALUE, Double.doubleToRawLongBits(new FloatValue(-0.0d).value()));
+    assertEquals(Double.NEGATIVE_INFINITY, 1d / new FloatValue(-0.0d).value());
   }
 
   @Test
