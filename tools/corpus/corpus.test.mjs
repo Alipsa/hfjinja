@@ -119,7 +119,16 @@ test('uses a fixed UTC clock when a text record omits time fields', async () => 
   assert.match(result.stdout, /PASS default-time/);
 });
 
-async function runOracle(records) {
+test('uses fixed English collation when locale-sensitive sorting is rendered', async () => {
+  const result = await runOracle([{
+    id: 'default-collation', source: 'test', template: '{{ d | tojson(sort_keys=true) }}',
+    context: {d: {z: 1, ä: 2, a: 3}}, expected: {text: '{"a": 3, "ä": 2, "z": 1}'},
+  }], {LC_ALL: 'sv_SE.UTF-8', LANG: 'sv_SE.UTF-8'});
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /PASS default-collation/);
+});
+
+async function runOracle(records, environment = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-'));
   const corpus = join(directory, 'corpus.jsonl');
   try {
@@ -127,7 +136,7 @@ async function runOracle(records) {
     return spawnSync(process.execPath, [
       'tools/corpus/run-node-oracle.mjs', '--corpus', corpus,
       '--patterns', 'tools/corpus/error-patterns-0.5.9.json', '--lock', 'upstream/upstream-lock.json',
-    ], {encoding: 'utf8'});
+    ], {encoding: 'utf8', env: {...process.env, ...environment}});
   } finally {
     await rm(directory, {recursive: true, force: true});
   }

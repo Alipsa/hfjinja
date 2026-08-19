@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import vm from 'node:vm';
 import { readCorpus, validateCorpus, validateRecord } from './corpus.mjs';
@@ -21,9 +21,11 @@ if (!options.has('--check')) throw new Error('Usage: convert-upstream-tests.mjs 
 const source = await readFile(sourcePath, 'utf8');
 const capture = extractConstants(source);
 const upstreamFixtureCount = Object.keys(capture.templates).length;
+const templateStringsEnd = source.indexOf('\nconst TEST_PARSED', source.indexOf('const TEST_STRINGS = {'));
+if (templateStringsEnd < 0) throw new Error(`Could not locate TEST_STRINGS boundary in ${sourcePath}`);
 const generated = [...selected].map(([upstreamName, id]) => ({
   id,
-  source: `${sourcePath}:${propertyLine(source, upstreamName)}`,
+  source: `${sourcePath}:${propertyLine(source, upstreamName, templateStringsEnd)}`,
   template: capture.templates[upstreamName],
   context: capture.contexts[upstreamName],
   expected: {text: capture.outputs[upstreamName]},
@@ -65,8 +67,9 @@ function extractConstants(source) {
   return {templates: capture.TEST_STRINGS, contexts: capture.TEST_CONTEXT, outputs: capture.EXPECTED_OUTPUTS};
 }
 
-function propertyLine(source, name) {
-  const match = new RegExp(`^[^\\S\\r\\n]*${name}:`, 'm').exec(source);
+function propertyLine(source, name, end) {
+  const templateStrings = source.slice(0, end);
+  const match = new RegExp(`^[^\\S\\r\\n]*${name}:`, 'm').exec(templateStrings);
   if (!match) throw new Error(`Could not locate ${name} in ${sourcePath}`);
   return source.slice(0, match.index).split('\n').length;
 }
@@ -75,8 +78,16 @@ function sameFixture(actual, generated) {
   return Object.keys(actual).length === Object.keys(generated).length
     && actual.source === generated.source
     && actual.template === generated.template
-    && JSON.stringify(actual.context) === JSON.stringify(generated.context)
+    && canonicalJson(actual.context) === canonicalJson(generated.context)
     && actual.expected?.text === generated.expected.text;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function writeCoverage(path, generated, upstreamFixtureCount) {
@@ -99,12 +110,27 @@ async function writeCoverage(path, generated, upstreamFixtureCount) {
   await writeFile(reportPath, lines.join('\n'), 'utf8');
 }
 
-async function testSources(directory, relative = '') {
+async function testSources(directory, relative = '', seen = new Set()) {
+  let resolved;
+  try {
+    resolved = await realpath(directory);
+  } catch {
+    return [];
+  }
+  if (seen.has(resolved)) return [];
+  const visited = new Set(seen).add(resolved);
   const entries = await readdir(directory, {withFileTypes: true});
   const files = await Promise.all(entries.map(async (entry) => {
     const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) return testSources(`${directory}/${entry.name}`, entryRelative);
-    return entry.isFile() && entry.name.endsWith('.test.js') ? [entryRelative] : [];
+    const entryPath = `${directory}/${entry.name}`;
+    let target;
+    try {
+      target = entry.isSymbolicLink() ? await stat(entryPath) : undefined;
+    } catch {
+      return [];
+    }
+    if (entry.isDirectory() || target?.isDirectory()) return testSources(entryPath, entryRelative, visited);
+    return (entry.isFile() || target?.isFile()) && entry.name.endsWith('.test.js') ? [entryRelative] : [];
   }));
   return files.flat().sort();
 }

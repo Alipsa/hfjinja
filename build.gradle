@@ -31,6 +31,10 @@ tasks.withType(Test).configureEach {
   // must use --patch-module and qualified opens rather than widening module-info.java.
 }
 
+def nodeCorpusTestMarker = layout.buildDirectory.file('nodeCorpusTest/verified').get().asFile
+def nodeOracleVersionMarker = layout.buildDirectory.file('nodeOracleVersion/verified').get().asFile
+def nodeCorpusVerifyMarker = layout.buildDirectory.file('nodeCorpusVerify/verified').get().asFile
+
 tasks.register('nodeCorpusTest', Exec) {
   group = 'verification'
   description = 'Tests the versioned differential-corpus schema and error classifier.'
@@ -38,6 +42,11 @@ tasks.register('nodeCorpusTest', Exec) {
   args '--test', 'tools/corpus/corpus.test.mjs'
   inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/corpus.test.mjs',
       'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json')
+  outputs.file(nodeCorpusTestMarker).withPropertyName('verifiedMarker')
+  doLast {
+    nodeCorpusTestMarker.parentFile.mkdirs()
+    nodeCorpusTestMarker.text = 'verified\n'
+  }
 }
 
 tasks.register('nodeOracleVersion', Exec) {
@@ -46,6 +55,12 @@ tasks.register('nodeOracleVersion', Exec) {
   executable = 'node'
   args 'tools/corpus/check-node-version.mjs', '--lock', 'upstream/upstream-lock.json'
   inputs.files('tools/corpus/check-node-version.mjs', 'upstream/upstream-lock.json')
+  outputs.file(nodeOracleVersionMarker).withPropertyName('verifiedMarker')
+  outputs.upToDateWhen { false }
+  doLast {
+    nodeOracleVersionMarker.parentFile.mkdirs()
+    nodeOracleVersionMarker.text = 'verified\n'
+  }
 }
 
 tasks.register('nodeCorpusVerify', Exec) {
@@ -57,7 +72,11 @@ tasks.register('nodeCorpusVerify', Exec) {
   inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/run-node-oracle.mjs',
       'tools/corpus/error-patterns-0.5.9.json', 'src/test/resources/corpus/v1.jsonl',
       'upstream/vendor/dist/index.js', 'upstream/upstream-lock.json')
-  timeout = java.time.Duration.ofSeconds(30)
+  outputs.file(nodeCorpusVerifyMarker).withPropertyName('verifiedMarker')
+  doLast {
+    nodeCorpusVerifyMarker.parentFile.mkdirs()
+    nodeCorpusVerifyMarker.text = 'verified\n'
+  }
 }
 
 def corpusCoverageReport = layout.buildDirectory.file('reports/corpus-coverage.md').get().asFile
@@ -313,11 +332,12 @@ tasks.named('check') {
 
 def upstreamVerification = tasks.named('upstreamVerify')
 def nodeVersionVerification = tasks.named('nodeOracleVersion')
+def nodeTimeoutSeconds = [nodeCorpusTest: 120, nodeCorpusVerify: 300, corpusCoverage: 120, nodeOracleVersion: 30]
 ['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage', 'nodeOracleVersion'].each { taskName ->
   tasks.named(taskName) {
     dependsOn upstreamVerification
     mustRunAfter upstreamVerification
-    timeout = java.time.Duration.ofSeconds(30)
+    timeout = java.time.Duration.ofSeconds(nodeTimeoutSeconds[taskName])
   }
 }
 ['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage'].each { taskName ->

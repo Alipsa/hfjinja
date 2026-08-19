@@ -80,6 +80,7 @@ function fail(label, message) {
 function render(record, TemplateClass) {
   const nativeDate = globalThis.Date;
   const nativeDateTimeFormat = Intl.DateTimeFormat;
+  const nativeLocaleCompare = String.prototype.localeCompare;
   const nativeZone = process.env.TZ;
   try {
     const instant = new nativeDate(record.instant ?? defaultInstant).valueOf();
@@ -90,11 +91,15 @@ function render(record, TemplateClass) {
     Intl.DateTimeFormat = class extends nativeDateTimeFormat {
       constructor(locales, options) { super(locales ?? defaultLocale, options); }
     };
+    String.prototype.localeCompare = function localeCompare(other, locales, options) {
+      return nativeLocaleCompare.call(this, other, locales ?? defaultLocale, options);
+    };
     process.env.TZ = record.zone ?? defaultZone;
     return new TemplateClass(record.template).render(record.context);
   } finally {
     globalThis.Date = nativeDate;
     Intl.DateTimeFormat = nativeDateTimeFormat;
+    String.prototype.localeCompare = nativeLocaleCompare;
     if (nativeZone === undefined) delete process.env.TZ;
     else process.env.TZ = nativeZone;
   }
