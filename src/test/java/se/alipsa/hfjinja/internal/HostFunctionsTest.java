@@ -74,6 +74,7 @@ class HostFunctionsTest {
     var options = RenderOptions.builder()
         .hostFunction("throws", arguments -> { throw functionFailure; })
         .hostFunction("badReturn", arguments -> 'x')
+        .hostFunction("wideReturn", arguments -> 1L << 60)
         .build();
 
     var thrownError = assertHostFailure(
@@ -86,6 +87,13 @@ class HostFunctionsTest {
     assertEquals("Host function 'badReturn' returned an unsupported value", returnError.getMessage());
     var conversionCause = assertInstanceOf(TemplateRenderException.class, returnError.getCause());
     assertEquals(ErrorCategory.HOST_CONVERSION, conversionCause.category());
+
+    var wideReturn = assertHostFailure(() -> HostFunctions.invoke(
+        "wideReturn", function(options, "wideReturn"), List.of(), false, CALL_LOCATION));
+    var wideConversionCause = assertInstanceOf(TemplateRenderException.class, wideReturn.getCause());
+    assertEquals(
+        "Integer is outside the JavaScript safe-integer range: 1152921504606846976",
+        wideConversionCause.getMessage());
   }
 
   @Test
@@ -168,6 +176,8 @@ class HostFunctionsTest {
         "wide", function(options, "wide"), List.of(new IntegerValue(1L << 60)), false, CALL_LOCATION));
     assertEquals(new IntegerValue(Double.NaN), HostFunctions.invoke(
         "integerNan", function(options, "integerNan"), List.of(new IntegerValue(Double.NaN)), false, CALL_LOCATION));
+    assertEquals(new IntegerValue(-0d), HostFunctions.invoke(
+        "integerNan", function(options, "integerNan"), List.of(new IntegerValue(-0d)), false, CALL_LOCATION));
   }
 
   @Test

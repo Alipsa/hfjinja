@@ -87,10 +87,9 @@ final class Values {
       case BooleanValue booleanValue -> booleanValue.value();
       case IntegerValue integerValue -> {
         var hostValue = hostInteger(integerValue.value());
-        // Safe integers reconstruct faithfully from a Long. Larger runtime integers do not pass
-        // the normal host converter, so retain their exact source when a function echoes one.
-        // Do not memoize all boxed Longs: JVM boxing caches would conflate distinct signed zeros.
-        yield !(Math.abs(integerValue.value()) <= MAX_SAFE_INTEGER)
+        // Safe integers reconstruct faithfully from a Long. Larger runtime integers and -0 do
+        // not, so retain their exact source when a function echoes one.
+        yield !(Math.abs(integerValue.value()) <= MAX_SAFE_INTEGER) || isNegativeZero(integerValue.value())
             ? sourceValue(hostValue, value, sourceValues)
             : hostValue;
       }
@@ -103,7 +102,13 @@ final class Values {
         }
         var values = new ArrayList<Object>(arrayValue.values().size());
         for (int index = 0; index < arrayValue.values().size(); index++) {
-          values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path.index(index)));
+          var pathLength = path.length();
+          path.appendIndex(index);
+          try {
+            values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path));
+          } finally {
+            path.restore(pathLength);
+          }
         }
         var hostValue = Collections.unmodifiableList(values);
         converted.put(arrayValue, hostValue);
@@ -117,8 +122,13 @@ final class Values {
         }
         var values = new LinkedHashMap<String, Object>(objectValue.values().size());
         for (var entry : objectValue.values().entrySet()) {
-          values.put(entry.getKey(), toHost(
-              entry.getValue(), converted, sourceValues, path.key(entry.getKey())));
+          var pathLength = path.length();
+          path.appendKey(entry.getKey());
+          try {
+            values.put(entry.getKey(), toHost(entry.getValue(), converted, sourceValues, path));
+          } finally {
+            path.restore(pathLength);
+          }
         }
         var hostValue = Collections.unmodifiableMap(values);
         converted.put(objectValue, hostValue);
@@ -135,24 +145,17 @@ final class Values {
   }
 
   private static Object hostInteger(double value) {
-    if (Double.isFinite(value) && value >= -0x1.0p63 && value < 0x1.0p63) {
-      return freshLong((long) value);
+    if (isNegativeZero(value)) {
+      return Double.valueOf(value);
     }
-    return freshDouble(value);
-  }
-
-  @SuppressWarnings("removal")
-  private static Long freshLong(long value) {
-    return new Long(value);
-  }
-
-  @SuppressWarnings("removal")
-  private static Double freshDouble(double value) {
-    return new Double(value);
+    if (Double.isFinite(value) && value >= -0x1.0p63 && value < 0x1.0p63) {
+      return Long.valueOf((long) value);
+    }
+    return Double.valueOf(value);
   }
 
   private static Double hostFloat(double value) {
-    return freshDouble(value);
+    return Double.valueOf(value);
   }
 
   static final class UndefinedHostValueException extends RuntimeException {
@@ -163,48 +166,35 @@ final class Values {
     }
   }
 
-  /** Builds a diagnostic path only if an undefined value actually reaches the host boundary. */
+  /** Defers construction of a diagnostic path string until undefined reaches the host boundary. */
   static final class HostPath {
-    private final HostPath parent;
-    private final String key;
-    private final int index;
-    private final boolean isIndex;
-
-    private HostPath(HostPath parent, String key, int index, boolean isIndex) {
-      this.parent = parent;
-      this.key = key;
-      this.index = index;
-      this.isIndex = isIndex;
-    }
+    private final StringBuilder description;
 
     static HostPath argument(int index) {
-      return new HostPath(null, null, index, true);
+      return new HostPath("argument " + index);
     }
 
-    HostPath index(int index) {
-      return new HostPath(this, null, index, true);
+    private HostPath(String description) {
+      this.description = new StringBuilder(description);
     }
 
-    HostPath key(String key) {
-      return new HostPath(this, Objects.requireNonNull(key, "key"), 0, false);
+    int length() {
+      return description.length();
+    }
+
+    void appendIndex(int index) {
+      description.append('[').append(index).append(']');
+    }
+
+    void appendKey(String key) {
+      description.append('.').append(Objects.requireNonNull(key, "key"));
+    }
+
+    void restore(int length) {
+      description.setLength(length);
     }
 
     String describe() {
-      var segments = new ArrayList<HostPath>();
-      for (HostPath segment = this; segment != null; segment = segment.parent) {
-        segments.add(segment);
-      }
-      var description = new StringBuilder();
-      for (int position = segments.size() - 1; position >= 0; position--) {
-        var segment = segments.get(position);
-        if (position == segments.size() - 1) {
-          description.append("argument ").append(segment.index);
-        } else if (segment.isIndex) {
-          description.append('[').append(segment.index).append(']');
-        } else {
-          description.append('.').append(segment.key);
-        }
-      }
       return description.toString();
     }
   }
@@ -336,14 +326,14 @@ final class Values {
     if (!Double.isFinite(value)) {
       throw conversion("Number must be finite: " + canonical);
     }
+    if (inputDecimal.scale() <= 0 && Math.abs(value) > MAX_SAFE_INTEGER) {
+      throw conversion("Integer is outside the JavaScript safe-integer range: " + canonical);
+    }
     if (!(number instanceof Double)
         && !shortestJsDecimal(value).equals(canonical)) {
       throw conversion("Number is not representable as a JavaScript number: " + canonical);
     }
     if (inputDecimal.scale() <= 0) {
-      if (Math.abs(value) > MAX_SAFE_INTEGER) {
-        throw conversion("Integer is outside the JavaScript safe-integer range: " + canonical);
-      }
       return new IntegerValue(normalizeHostZero(value));
     }
     return new FloatValue(normalizeHostZero(value));
@@ -352,6 +342,10 @@ final class Values {
   /** Host values have no observable signed zero, unlike runtime arithmetic such as {@code 1 / -0}. */
   private static double normalizeHostZero(double value) {
     return value == 0d ? 0d : value;
+  }
+
+  private static boolean isNegativeZero(double value) {
+    return Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0d);
   }
 
   private static String shortestJsDecimal(double value) {

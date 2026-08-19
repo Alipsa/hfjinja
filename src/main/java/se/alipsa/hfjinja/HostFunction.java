@@ -12,7 +12,8 @@ import java.util.List;
  * same closed host-value boundary as render context values. Return {@link FloatResult} whenever
  * retaining a float result whose value is integral matters; an ordinary {@link Double} return is
  * converted by value and therefore becomes an integer in that case. Return {@link IntegerResult}
- * for a computed integral result outside the JavaScript safe-integer range.
+ * for a computed integral result outside the JavaScript safe-integer range. Returning an ordinary
+ * {@link Long} outside that range is rejected; use {@link #integerResult(double)} instead.
  */
 @FunctionalInterface
 public interface HostFunction {

@@ -71,6 +71,11 @@ class ValuesTest {
   }
 
   @Test
+  void rejectsIntegerResultOutsideHostFunctionReturns() {
+    assertConversionFailure(HostFunction.integerResult(1L << 60));
+  }
+
+  @Test
   void supportsCommonNumberSubclassesAndRejectsUnsupportedHostValues() {
     assertEquals(new IntegerValue(7d), Values.fromHost(new AtomicInteger(7)));
     assertEquals(new IntegerValue(42d), Values.fromHost(new BigInteger("42")));
