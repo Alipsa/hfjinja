@@ -44,6 +44,8 @@ def upstreamVerifyMarker = layout.buildDirectory.file('upstreamVerify/verified')
 tasks.register('upstreamVerify') {
   group = 'verification'
   description = 'Verifies pinned upstream provenance without fetching network data.'
+  // Keep this inclusion contract in sync with refresh-lock: regular files (including file
+  // symlinks), excluding .DS_Store and node_modules/__snapshots__ at any depth.
   def vendorFiles = {
     def vendorRootPath = vendorDir.toPath()
     if (!java.nio.file.Files.isDirectory(vendorRootPath)) {
@@ -57,8 +59,10 @@ tasks.register('upstreamVerify') {
             def relativePath = vendorRootPath.relativize(path).toString().replace(File.separatorChar, '/' as char)
             relativePath != '.DS_Store'
                 && !relativePath.endsWith('/.DS_Store')
+                && relativePath != 'node_modules'
                 && !relativePath.startsWith('node_modules/')
                 && !relativePath.contains('/node_modules/')
+                && relativePath != '__snapshots__'
                 && !relativePath.startsWith('__snapshots__/')
                 && !relativePath.contains('/__snapshots__/')
           }

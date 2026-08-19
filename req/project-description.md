@@ -182,12 +182,16 @@ Provide `tools/sync-upstream` as a reviewed Gradle task or small Java CLI:
 
 1. `fetch --version X` downloads the npm tarball only when explicitly requested, verifies npm
    registry `dist.integrity` on trust-on-first-use, records the derived SHA-256 and the integrity
-   value in the lock, verifies every `excludedFiles` digest against the extracted tarball before
-   removing the excluded paths, extracts the approved files, and updates the lock. The generated
-   diff report is the review gate for accepting a new version.
+   value in the lock, and verifies every current-version `excludedFiles` digest against the
+   extracted tarball before removing the excluded paths. For a version change, it instead records
+   candidate exclusion digests from the extracted tarball; reviewers approve their paths, reasons,
+   and new digests in the diff report before they replace the lock entries. It then extracts the
+   approved files and updates the lock. The generated diff report is the review gate for accepting
+   a new version.
 2. `report` compares vendor content to the lock and generates `build/reports/upstream-diff.md`:
    changed files, changed line counts, changed exports/tests, and mapped Java areas.
-3. `verify` runs offline and fails on a missing/changed vendor hash, stale lock, or stale mapping.
+3. `verify` runs offline and fails on a missing/changed vendor hash, malformed or missing policy
+   exclusions, a present policy-excluded file, stale lock, or stale mapping.
 
 ### Mapping ledger and differential oracle
 

@@ -94,6 +94,8 @@ const lockPath = 'upstream/upstream-lock.json';
 const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
 const files = {};
 const excluded = new Set(Object.keys(lock.excludedFiles ?? {}));
+// Keep this inclusion contract in sync with upstreamVerify: regular files (including file
+// symlinks), excluding .DS_Store and node_modules/__snapshots__ at any depth.
 const ignored = (relative) => relative === '.DS_Store'
   || relative.endsWith('/.DS_Store')
   || relative === 'node_modules'
@@ -108,7 +110,8 @@ const vendorFiles = (directory, relative = '') => fs.readdirSync(directory, {wit
     if (ignored(entryRelative)) return [];
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return vendorFiles(entryPath, entryRelative);
-    return entry.isFile() ? [[entryRelative, entryPath]] : [];
+    return (entry.isFile() || (entry.isSymbolicLink() && fs.statSync(entryPath).isFile()))
+      ? [[entryRelative, entryPath]] : [];
   });
 for (const [relative, file] of vendorFiles(root)) {
   if (excluded.has(relative)) {
