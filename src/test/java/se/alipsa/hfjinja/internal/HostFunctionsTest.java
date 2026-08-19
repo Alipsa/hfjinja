@@ -170,6 +170,8 @@ class HostFunctionsTest {
     var options = RenderOptions.builder()
         .hostFunction("wide", arguments -> HostFunction.integerResult(((Long) arguments.get(0)) + 0L))
         .hostFunction("integerNan", arguments -> arguments.get(0))
+        .hostFunction("negativeFloat", arguments -> HostFunction.floatResult(-0d))
+        .hostFunction("negativeInteger", arguments -> HostFunction.integerResult(-0d))
         .build();
 
     assertEquals(new IntegerValue(1L << 60), HostFunctions.invoke(
@@ -178,6 +180,10 @@ class HostFunctionsTest {
         "integerNan", function(options, "integerNan"), List.of(new IntegerValue(Double.NaN)), false, CALL_LOCATION));
     assertEquals(new IntegerValue(-0d), HostFunctions.invoke(
         "integerNan", function(options, "integerNan"), List.of(new IntegerValue(-0d)), false, CALL_LOCATION));
+    assertEquals(new FloatValue(-0d), HostFunctions.invoke(
+        "negativeFloat", function(options, "negativeFloat"), List.of(), false, CALL_LOCATION));
+    assertEquals(new IntegerValue(-0d), HostFunctions.invoke(
+        "negativeInteger", function(options, "negativeInteger"), List.of(), false, CALL_LOCATION));
   }
 
   @Test

@@ -140,6 +140,9 @@ final class Values {
 
   private static Object sourceValue(
       Object hostValue, Value sourceValue, IdentityHashMap<Object, Value> sourceValues) {
+    // Host functions receive ordinary Java scalar types. An exact scalar argument object returned
+    // unchanged is the only signal that it should retain its runtime int/float tag; computed boxed
+    // values convert by value and must use FloatResult or IntegerResult when that tag matters.
     sourceValues.putIfAbsent(hostValue, sourceValue);
     return hostValue;
   }
@@ -229,13 +232,13 @@ final class Values {
       if (!Double.isFinite(floatResult.value())) {
         throw conversion("Number must be finite: " + floatResult.value());
       }
-      return new FloatValue(normalizeHostZero(floatResult.value()));
+      return new FloatValue(floatResult.value());
     }
     if (allowFloatResult && input instanceof HostFunction.IntegerResult integerResult) {
       if (!Double.isFinite(integerResult.value()) || integerResult.value() != Math.rint(integerResult.value())) {
         throw conversion("Integer result must be finite and integral: " + integerResult.value());
       }
-      return new IntegerValue(normalizeHostZero(integerResult.value()));
+      return new IntegerValue(integerResult.value());
     }
     if (input instanceof String string) {
       return new StringValue(string);
