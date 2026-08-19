@@ -162,4 +162,5 @@ req/                              requirements and implementation plan
 hfjinja is released under the [MIT License](LICENSE). It retains attribution for vendored upstream
 MIT source in [NOTICE](NOTICE). Retained model-template fixtures include their applicable license
 and notice requirements; where those terms make text vendoring unsuitable, the project uses
-hash-only fixtures.
+hash-only fixtures. See the [model fixture licensing policy](req/model-fixture-policy.md) for the
+approved fixture forms.

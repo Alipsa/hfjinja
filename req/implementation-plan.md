@@ -46,6 +46,8 @@ upstream diff report.
    context/global shadowing order. Record the inventory in the lock and behavior in mapped tests.
 4. Make the model-template licensing determination before committing model template text. Record
    notices in `NOTICE`; retain a hash-only Llama case where its terms make vendoring unsuitable.
+   The current decision is recorded in `model-fixture-policy.md` and permits no model template text
+   until a fixture-specific source and license record is added.
 
 Deliverables: `upstreamVerify` detects stale ledger entries; the AST/global inventories and
 milestone ledger are complete; the model fixture form is approved. WP1a blocks WP2 and WP3.
