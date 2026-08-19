@@ -10,3 +10,9 @@ license and attribution requirements have been recorded here.
 Model fixture intake is governed by req/model-fixture-policy.md. It records that no Llama template
 text is retained by default and that future Qwen/Mistral template imports carry their own source and
 license notices.
+
+## Model fixtures
+
+| Model repository | Revision | Template path | License | Retained form | Notice |
+| --- | --- | --- | --- | --- | --- |
+| _No model fixtures are currently committed._ | | | | | |
