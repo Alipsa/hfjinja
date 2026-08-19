@@ -70,8 +70,8 @@ tasks.register('upstreamVerify') {
   inputs.file(upstreamLockFile).withPropertyName('upstreamLock')
   inputs.file(astAllowlistFile).withPropertyName('astAllowlist')
   inputs.file(mappingFile).withPropertyName('mapping')
-  inputs.files(vendorFiles)
-  outputs.file(upstreamVerifyMarker)
+  inputs.files(vendorFiles).withPropertyName('vendorTree')
+  outputs.file(upstreamVerifyMarker).withPropertyName('verifiedMarker')
   doLast {
     if (!vendorDir.isDirectory()) {
       throw new GradleException('Missing upstream/vendor')
