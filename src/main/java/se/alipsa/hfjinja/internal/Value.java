@@ -74,7 +74,9 @@ final class Values {
     return toHost(value, new IdentityHashMap<>());
   }
 
-  private static Object toHost(Value value, IdentityHashMap<Value, Object> converted) {
+  static Object toHost(Value value, IdentityHashMap<Value, Object> converted) {
+    Objects.requireNonNull(value, "value");
+    Objects.requireNonNull(converted, "converted");
     // Values are immutable and only originate from acyclic host input, so this map preserves DAG
     // sharing rather than needing a separate cycle guard.
     return switch (value) {
@@ -82,7 +84,7 @@ final class Values {
       case NullValue ignored -> null;
       case BooleanValue booleanValue -> booleanValue.value();
       case IntegerValue integerValue -> hostInteger(integerValue.value());
-      case FloatValue floatValue -> floatValue.value();
+      case FloatValue floatValue -> hostFloat(floatValue.value());
       case StringValue stringValue -> stringValue.value();
       case ArrayValue arrayValue -> {
         var existing = converted.get(arrayValue);
@@ -114,8 +116,15 @@ final class Values {
   }
 
   private static Object hostInteger(double value) {
-    if (Double.isFinite(value) && value >= Long.MIN_VALUE && value <= Long.MAX_VALUE) {
+    if (Double.isFinite(value) && Math.abs(value) <= MAX_SAFE_INTEGER) {
       return Long.valueOf((long) value);
+    }
+    throw new UnsupportedHostValueException("integer outside the JavaScript safe-integer range");
+  }
+
+  private static double hostFloat(double value) {
+    if (!Double.isFinite(value)) {
+      throw new UnsupportedHostValueException("non-finite number");
     }
     return value;
   }
@@ -123,7 +132,17 @@ final class Values {
   static final class UndefinedHostValueException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
-    private UndefinedHostValueException() {}
+    private UndefinedHostValueException() {
+      super("an undefined argument");
+    }
+  }
+
+  static final class UnsupportedHostValueException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
+    private UnsupportedHostValueException(String message) {
+      super(message);
+    }
   }
 
   private static Value fromHost(
@@ -211,7 +230,7 @@ final class Values {
     final BigDecimal inputDecimal;
     try {
       inputDecimal = new BigDecimal(number.toString()).stripTrailingZeros();
-    } catch (NumberFormatException exception) {
+    } catch (RuntimeException exception) {
       throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
     }
     final String canonical = formatJsDecimal(inputDecimal);

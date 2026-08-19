@@ -1,8 +1,8 @@
 package se.alipsa.hfjinja.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Arrays;
@@ -63,6 +63,16 @@ class HostFunctionsTest {
   }
 
   @Test
+  void rejectsUnresolvedFunctionsAsCallTypeErrors() {
+    var error = assertThrows(TemplateRenderException.class, () -> HostFunctions.invoke(
+        "missing", null, List.of(), false, CALL_LOCATION));
+
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals("Cannot call something that is not a function", error.getMessage());
+    assertEquals(CALL_LOCATION, error.location().orElseThrow());
+  }
+
+  @Test
   void wrapsHostExceptionsAndInvalidReturnValuesAtTheCallLocation() {
     var functionFailure = new IllegalStateException("broken");
     var options = RenderOptions.builder()
@@ -103,7 +113,31 @@ class HostFunctionsTest {
         "identity", function(options, "identity"), List.of(new IntegerValue(3d)), false, CALL_LOCATION));
     var malformedError = assertHostFailure(() -> HostFunctions.invoke(
         "malformed", function(options, "malformed"), List.of(), false, CALL_LOCATION));
-    assertInstanceOf(NullPointerException.class, malformedError.getCause());
+    var conversionCause = assertInstanceOf(TemplateRenderException.class, malformedError.getCause());
+    assertEquals(ErrorCategory.HOST_CONVERSION, conversionCause.category());
+  }
+
+  @Test
+  void sharesConvertedArgumentsAndRejectsValuesThatCannotRoundTrip() {
+    var shared = new ArrayValue(List.of(new StringValue("value")));
+    var options = RenderOptions.builder()
+        .hostFunction("sharing", arguments -> {
+          assertSame(arguments.get(0), arguments.get(1));
+          return null;
+        })
+        .hostFunction("identity", arguments -> arguments.get(0))
+        .build();
+
+    HostFunctions.invoke("sharing", function(options, "sharing"), List.of(shared, shared), false, CALL_LOCATION);
+    var unsafeInteger = assertHostFailure(() -> HostFunctions.invoke(
+        "identity", function(options, "identity"),
+        List.of(new IntegerValue(9_007_199_254_740_992d)), false, CALL_LOCATION));
+    assertEquals(
+        "Host function 'identity' cannot receive integer outside the JavaScript safe-integer range",
+        unsafeInteger.getMessage());
+    var nonFiniteFloat = assertHostFailure(() -> HostFunctions.invoke(
+        "identity", function(options, "identity"), List.of(new FloatValue(Double.NaN)), false, CALL_LOCATION));
+    assertEquals("Host function 'identity' cannot receive non-finite number", nonFiniteFloat.getMessage());
   }
 
   private static HostFunction function(RenderOptions options, String name) {

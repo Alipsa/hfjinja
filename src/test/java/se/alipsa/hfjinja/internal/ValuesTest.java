@@ -52,6 +52,19 @@ class ValuesTest {
   }
 
   @Test
+  void wrapsMalformedNumberTextAsAConversionFailure() {
+    Number malformed = new Number() {
+      @Override public int intValue() { return 0; }
+      @Override public long longValue() { return 0; }
+      @Override public float floatValue() { return 0; }
+      @Override public double doubleValue() { return 0; }
+      @Override public String toString() { return null; }
+    };
+
+    assertConversionFailure(malformed);
+  }
+
+  @Test
   void supportsCommonNumberSubclassesAndRejectsUnsupportedHostValues() {
     assertEquals(new IntegerValue(7d), Values.fromHost(new AtomicInteger(7)));
     assertEquals(new IntegerValue(42d), Values.fromHost(new BigInteger("42")));
