@@ -20,6 +20,7 @@ if (!options.has('--check')) throw new Error('Usage: convert-upstream-tests.mjs 
 
 const source = await readFile(sourcePath, 'utf8');
 const capture = extractConstants(source);
+const upstreamFixtureCount = Object.keys(capture.templates).length;
 const generated = [...selected].map(([upstreamName, id]) => ({
   id,
   source: `${sourcePath}:${propertyLine(source, upstreamName)}`,
@@ -45,14 +46,18 @@ if (options.has('--check')) {
 }
 
 const reportOption = [...options].find((option) => option.startsWith('--report='));
-if (reportOption) await writeCoverage(reportOption.slice('--report='.length), generated);
+if (reportOption) await writeCoverage(reportOption.slice('--report='.length), generated, upstreamFixtureCount);
 
 function extractConstants(source) {
-  const executable = source.replace(/^import .*;\n/gm, '');
+  const executable = source.replace(/^(?:import[\s\S]*?;\s*)+/, '');
   const context = {describe: () => {}};
-  vm.runInNewContext(`${executable}\nglobalThis.capture = {TEST_STRINGS, TEST_CONTEXT, EXPECTED_OUTPUTS};`, context, {
-    filename: sourcePath,
-  });
+  try {
+    vm.runInNewContext(`${executable}\nglobalThis.capture = {TEST_STRINGS, TEST_CONTEXT, EXPECTED_OUTPUTS};`, context, {
+      filename: sourcePath,
+    });
+  } catch (error) {
+    throw new Error(`Could not extract corpus constants from ${sourcePath}: ${error.message}`);
+  }
   const capture = context.capture;
   if (!capture || !capture.TEST_STRINGS || !capture.TEST_CONTEXT || !capture.EXPECTED_OUTPUTS) {
     throw new Error(`Could not extract corpus constants from ${sourcePath}`);
@@ -74,7 +79,7 @@ function sameFixture(actual, generated) {
     && actual.expected?.text === generated.expected.text;
 }
 
-async function writeCoverage(path, generated) {
+async function writeCoverage(path, generated, upstreamFixtureCount) {
   const lock = JSON.parse(await readFile(lockPath, 'utf8'));
   const testFiles = await testSources('upstream/vendor/test');
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
@@ -82,6 +87,7 @@ async function writeCoverage(path, generated) {
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
+    `Vendored template fixture definitions: ${upstreamFixtureCount}`,
     `Automatically extracted fixture definitions: ${generated.length}`,
     `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',
     '## Extracted fixtures', '', '| Corpus id | Upstream source |', '| --- | --- |',

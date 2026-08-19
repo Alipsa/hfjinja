@@ -27,7 +27,8 @@ test('rejects duplicate ids and malformed deterministic-time fields', () => {
   assert.throws(() => validateCorpus([record, record]), /duplicate id/);
   assert.throws(() => validateRecord({...record, instant: '2026-08-19', zone: 'UTC'}), /ISO-8601/);
   assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z'}), /requires an explicit zone/);
-  assert.throws(() => validateRecord({...record, zone: 'not a zone'}), /IANA/);
+  assert.throws(() => validateRecord({...record, zone: 'UTC'}), /requires an explicit instant/);
+  assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z', zone: 'not a zone'}), /IANA/);
   assert.throws(() => validateRecord({...record, globals: {strftime_now: {kind: 'strftime_now'}}}), /not supported/);
 });
 
@@ -111,8 +112,8 @@ test('reports skipped hash-only records and rejects an all-hash-only run', async
 
 test('uses a fixed UTC clock when a text record omits time fields', async () => {
   const result = await runOracle([{
-    id: 'default-time', source: 'test', template: "{{ strftime_now('%Y-%m-%d %H:%M') }}",
-    context: {}, expected: {text: '2000-01-02 03:04'},
+    id: 'default-time', source: 'test', template: "{{ strftime_now('%Y-%m-%d %H:%M %B') }}",
+    context: {}, expected: {text: '2000-01-02 03:04 January'},
   }]);
   assert.equal(result.status, 0);
   assert.match(result.stdout, /PASS default-time/);

@@ -32,6 +32,7 @@ let executed = 0;
 let skipped = 0;
 const defaultInstant = '2000-01-02T03:04:05Z';
 const defaultZone = 'UTC';
+const defaultLocale = 'en-US';
 for (const [index, record] of records.entries()) {
   const label = `${corpusPath}:${corpusLine(record, index + 1)} (${record?.id ?? 'unknown'})`;
   if (record.templateSha256) {
@@ -78,6 +79,7 @@ function fail(label, message) {
 
 function render(record, TemplateClass) {
   const nativeDate = globalThis.Date;
+  const nativeDateTimeFormat = Intl.DateTimeFormat;
   const nativeZone = process.env.TZ;
   try {
     const instant = new nativeDate(record.instant ?? defaultInstant).valueOf();
@@ -85,10 +87,14 @@ function render(record, TemplateClass) {
       constructor(...arguments_) { super(...(arguments_.length ? arguments_ : [instant])); }
       static now() { return instant; }
     };
+    Intl.DateTimeFormat = class extends nativeDateTimeFormat {
+      constructor(locales, options) { super(locales ?? defaultLocale, options); }
+    };
     process.env.TZ = record.zone ?? defaultZone;
     return new TemplateClass(record.template).render(record.context);
   } finally {
     globalThis.Date = nativeDate;
+    Intl.DateTimeFormat = nativeDateTimeFormat;
     if (nativeZone === undefined) delete process.env.TZ;
     else process.env.TZ = nativeZone;
   }

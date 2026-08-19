@@ -81,8 +81,8 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    UTF-8 fixture material is a harness failure.
 
    The `strftime_now` entry is illustrative only: it is a built-in and the runner always supplies
-   a fixed instant/zone (defaulting to `2000-01-02T03:04:05Z` and `UTC`). `instant` and `zone`
-   override that pair together; `globals` is reserved until the pinned Template API can inject
+   a fixed instant/zone/locale (defaulting to `2000-01-02T03:04:05Z`, `UTC`, and `en-US`).
+   `instant` and `zone` override that pair together; `globals` is reserved until the pinned Template API can inject
    non-built-in globals. Expected failures carry an `ErrorCategory`.
 2. Implement the versioned Node-message-to-`ErrorCategory` pattern mapping table as part of the
    oracle shim. Patterns extract interpolated message values (for example a filter name) rather

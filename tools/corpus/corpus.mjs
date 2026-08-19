@@ -62,6 +62,9 @@ export function validateRecord(record, label = 'record') {
   if (record.instant !== undefined && record.zone === undefined) {
     throw new Error(`${label}: instant requires an explicit zone`);
   }
+  if (record.zone !== undefined && record.instant === undefined) {
+    throw new Error(`${label}: zone requires an explicit instant`);
+  }
   if (record.instant !== undefined && (!(typeof record.instant === 'string' && /^\d{4}-\d{2}-\d{2}T.*Z$/.test(record.instant))
       || Number.isNaN(Date.parse(record.instant)))) {
     throw new Error(`${label}: instant must be an ISO-8601 instant`);
