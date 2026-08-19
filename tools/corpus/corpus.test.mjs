@@ -45,6 +45,10 @@ test('rejects mixed fixture forms and invalid expected results', () => {
     id: 'bad-hash', source: 'test', template: 'hello', templateSha256: 'bad', context: {},
     expected: {text: 'hello'},
   }), /exactly one/);
+  assert.throws(() => validateRecord({
+    id: 'text-with-provenance', source: 'test', template: 'hello', modelRepo: 'example/model', context: {},
+    expected: {text: 'hello'},
+  }), /must not include hash-only provenance/);
   validateRecord({id: 'empty', source: 'test', template: '', context: {}, expected: {text: ''}});
   assert.throws(() => validateRecord({
     id: 'unknown-key', source: 'test', template: 'hello', context: {}, expected: {text: 'hello'}, typoInstant: 'x',

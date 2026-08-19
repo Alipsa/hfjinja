@@ -59,6 +59,9 @@ export function validateRecord(record, label = 'record') {
       || !nonBlank(record.templatePath))) {
     throw new Error(`${label}: hash-only records require modelRepo, 40-hex modelRevision, and templatePath`);
   }
+  if (text && ['modelRepo', 'modelRevision', 'templatePath'].some((field) => record[field] !== undefined)) {
+    throw new Error(`${label}: text records must not include hash-only provenance metadata`);
+  }
   if (record.instant !== undefined && record.zone === undefined) {
     throw new Error(`${label}: instant requires an explicit zone`);
   }
