@@ -1,3 +1,4 @@
+# This lightweight ledger intentionally uses inline flow lists; upstreamVerify validates that form.
 ast.ts:
   milestone: M1
   status: planned

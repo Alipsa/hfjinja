@@ -60,13 +60,17 @@ class ValuesTest {
   }
 
   @Test
-  void normalizesNegativeZeroAndUsesJavaScriptNumericEquality() {
+  void normalizesNegativeZero() {
     assertEquals(new IntegerValue(0d), Values.fromHost(-0.0d));
     assertEquals(new FloatValue(0d), new FloatValue(-0.0d));
-    org.junit.jupiter.api.Assertions.assertTrue(
-        Values.templateEquals(new IntegerValue(0d), new FloatValue(-0.0d)));
-    org.junit.jupiter.api.Assertions.assertFalse(
-        Values.templateEquals(new FloatValue(Double.NaN), new FloatValue(Double.NaN)));
+    assertEquals(0L, Double.doubleToRawLongBits(new FloatValue(-0.0d).value()));
+  }
+
+  @Test
+  void pinsFloatBoundaryConversions() {
+    assertConversionFailure(Float.MAX_VALUE);
+    assertEquals(new FloatValue(1.4e-45), Values.fromHost(Float.MIN_VALUE));
+    assertEquals(new IntegerValue(0d), Values.fromHost(-0.0f));
   }
 
   @Test

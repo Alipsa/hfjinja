@@ -37,17 +37,13 @@ record BooleanValue(boolean value) implements Value {}
 
 record IntegerValue(double value) implements Value {
   IntegerValue {
-    if (value == 0d) {
-      value = 0d;
-    }
+    value = Values.normalizeZero(value);
   }
 }
 
 record FloatValue(double value) implements Value {
   FloatValue {
-    if (value == 0d) {
-      value = 0d;
-    }
+    value = Values.normalizeZero(value);
   }
 }
 
@@ -186,27 +182,9 @@ final class Values {
     return new FloatValue(value);
   }
 
-  /** Implements JavaScript strict equality without relying on Java record equality. */
-  static boolean templateEquals(Value left, Value right) {
-    if (left instanceof IntegerValue leftNumber && right instanceof IntegerValue rightNumber) {
-      return leftNumber.value() == rightNumber.value();
-    }
-    if (left instanceof FloatValue leftNumber && right instanceof FloatValue rightNumber) {
-      return leftNumber.value() == rightNumber.value();
-    }
-    if (left instanceof IntegerValue leftNumber && right instanceof FloatValue rightNumber) {
-      return leftNumber.value() == rightNumber.value();
-    }
-    if (left instanceof FloatValue leftNumber && right instanceof IntegerValue rightNumber) {
-      return leftNumber.value() == rightNumber.value();
-    }
-    if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
-      return leftString.value().equals(rightString.value());
-    }
-    if (left instanceof BooleanValue leftBoolean && right instanceof BooleanValue rightBoolean) {
-      return leftBoolean.value() == rightBoolean.value();
-    }
-    return left == right;
+  /** JavaScript does not preserve negative zero for equality or rendering, so collapse it to +0. */
+  static double normalizeZero(double value) {
+    return value == 0d ? 0d : value;
   }
 
   private static String shortestJsDecimal(double value) {

@@ -21,11 +21,6 @@ public final class Template {
     return new Template(source);
   }
 
-  /** Returns the exact source supplied when this template was parsed. */
-  public String source() {
-    return source;
-  }
-
   public String render(Map<String, ?> context) {
     return render(context, RenderOptions.DEFAULT);
   }

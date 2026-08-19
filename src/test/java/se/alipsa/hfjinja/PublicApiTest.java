@@ -44,7 +44,6 @@ class PublicApiTest {
   @Test
   void parsedTemplateIsImmutableBeforeInterpreterLands() {
     var template = Template.parse("literal");
-    assertEquals("literal", template.source());
     assertThrows(UnsupportedOperationException.class, () -> template.render(Map.of()));
   }
 }

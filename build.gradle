@@ -35,11 +35,10 @@ tasks.register('upstreamVerify') {
   group = 'verification'
   description = 'Verifies pinned upstream provenance without fetching network data.'
   def vendorRoot = layout.projectDirectory.dir('upstream/vendor')
-  def localVendorArtifacts = ['**/.DS_Store', '**/node_modules/**', '**/__snapshots__/**']
   inputs.file(layout.projectDirectory.file('upstream/upstream-lock.json'))
   inputs.file(layout.projectDirectory.file('upstream/ast-allowlist.json'))
   inputs.file(layout.projectDirectory.file('upstream/mapping.yml'))
-  inputs.files(fileTree(vendorRoot) { exclude localVendorArtifacts })
+  inputs.files(fileTree(vendorRoot))
   outputs.file(layout.buildDirectory.file('upstreamVerify/verified'))
   doLast {
     def lock = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
@@ -72,25 +71,18 @@ tasks.register('upstreamVerify') {
     if (!(parsed.files instanceof Map) || parsed.files.isEmpty()) {
       throw new GradleException('Upstream lock has no source file hashes')
     }
-    def vendorRootFile = vendorRoot.asFile
-    def pathStream = java.nio.file.Files.walk(vendorRootFile.toPath())
-    def vendorPaths
-    try {
-      vendorPaths = pathStream
-          .filter { java.nio.file.Files.isRegularFile(it) }
-          .collect { vendorRootFile.toPath().relativize(it).toString().replace(File.separatorChar, '/' as char) }
-          .findAll { relativePath ->
-            relativePath != '.DS_Store'
-                && !relativePath.endsWith('/.DS_Store')
-                && !relativePath.startsWith('node_modules/')
-                && !relativePath.contains('/node_modules/')
-                && !relativePath.startsWith('__snapshots__/')
-                && !relativePath.contains('/__snapshots__/')
-          }
-          .toSet()
-    } finally {
-      pathStream.close()
+    def git = new ProcessBuilder('git', 'ls-files', '-z', '--', 'upstream/vendor')
+        .directory(layout.projectDirectory.asFile)
+        .start()
+    def gitOutput = git.inputStream.text
+    def gitError = git.errorStream.text
+    if (git.waitFor() != 0) {
+      throw new GradleException("Cannot list tracked vendored files: ${gitError.trim()}")
     }
+    def vendorPaths = gitOutput.split('\\u0000')
+        .findAll { !it.isEmpty() }
+        .collect { it.substring('upstream/vendor/'.length()) }
+        .toSet()
     if (parsed.files.keySet().toSet() != vendorPaths) {
       def missingHashes = vendorPaths - parsed.files.keySet().toSet()
       def staleHashes = parsed.files.keySet().toSet() - vendorPaths
@@ -148,7 +140,7 @@ tasks.register('upstreamVerify') {
       }
       def parameters = match.group(1).split(',').collect { it.trim() }.findAll { !it.isEmpty() }
       def required = parameters.count { !it.contains('?') && !it.contains('=') }
-      return required == parameters.size() ? required : "${required}..${parameters.size()}"
+      return required == parameters.size() ? required : "${required}..${parameters.size()}".toString()
     }
     def expectedArities = [
       false: 0, true: 0, none: 0, raise_exception: 1,
@@ -218,7 +210,8 @@ tasks.register('upstreamVerify') {
           throw new GradleException("Planned mapping must explicitly have no Java/tests yet: ${basename}")
         }
       } else if (entry.status == 'implemented') {
-        if (entry.java == null || entry.java == '[]' || entry.tests == null || entry.tests == '[]') {
+        if (!(entry.java ==~ /\[\s*\S(?:.*\S)?\s*\]/)
+            || !(entry.tests ==~ /\[\s*\S(?:.*\S)?\s*\]/)) {
           throw new GradleException("Implemented mapping must name Java and test coverage: ${basename}")
         }
       } else {
