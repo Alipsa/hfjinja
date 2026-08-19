@@ -78,10 +78,10 @@ final class Values {
     // Values are immutable and only originate from acyclic host input, so this map preserves DAG
     // sharing rather than needing a separate cycle guard.
     return switch (value) {
-      case UndefinedValue ignored -> null;
+      case UndefinedValue ignored -> throw new UndefinedHostValueException();
       case NullValue ignored -> null;
       case BooleanValue booleanValue -> booleanValue.value();
-      case IntegerValue integerValue -> integerValue.value();
+      case IntegerValue integerValue -> hostInteger(integerValue.value());
       case FloatValue floatValue -> floatValue.value();
       case StringValue stringValue -> stringValue.value();
       case ArrayValue arrayValue -> {
@@ -111,6 +111,19 @@ final class Values {
         yield hostValue;
       }
     };
+  }
+
+  private static Object hostInteger(double value) {
+    if (Double.isFinite(value) && value >= Long.MIN_VALUE && value <= Long.MAX_VALUE) {
+      return Long.valueOf((long) value);
+    }
+    return value;
+  }
+
+  static final class UndefinedHostValueException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
+    private UndefinedHostValueException() {}
   }
 
   private static Value fromHost(

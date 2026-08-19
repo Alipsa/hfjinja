@@ -8,8 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
+import se.alipsa.hfjinja.HostFunction;
 import se.alipsa.hfjinja.RenderOptions;
 import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.TemplateRenderException;
@@ -32,8 +34,8 @@ class HostFunctionsTest {
         .build();
 
     var result = HostFunctions.invoke(
-        options,
         "inspect",
+        function(options, "inspect"),
         List.of(new ObjectValue(Map.of("items", new ArrayValue(List.of(new StringValue("first"), NullValue.INSTANCE))))),
         false,
         CALL_LOCATION);
@@ -42,20 +44,22 @@ class HostFunctionsTest {
   }
 
   @Test
-  void rejectsKeywordsAndUnknownFunctionsAtTheCallLocation() {
+  void rejectsKeywordsAndUndefinedArgumentsAtTheCallLocation() {
     var options = RenderOptions.builder().hostFunction("known", arguments -> null).build();
 
     var keywordError = assertHostFailure(
-        () -> HostFunctions.invoke(options, "known", List.of(), true, CALL_LOCATION));
+        () -> HostFunctions.invoke("known", function(options, "known"), List.of(), true, CALL_LOCATION));
     assertEquals("Host function 'known' does not accept keyword arguments", keywordError.getMessage());
 
-    var unknownError = assertHostFailure(
-        () -> HostFunctions.invoke(options, "missing", List.of(), false, CALL_LOCATION));
-    assertEquals("Unknown host function: missing", unknownError.getMessage());
-
-    var unknownKeywordError = assertHostFailure(
-        () -> HostFunctions.invoke(options, "missing", List.of(), true, CALL_LOCATION));
-    assertEquals("Unknown host function: missing", unknownKeywordError.getMessage());
+    var called = new AtomicBoolean();
+    var undefinedOptions = RenderOptions.builder()
+        .hostFunction("known", arguments -> { called.set(true); return null; })
+        .build();
+    var undefinedError = assertHostFailure(() -> HostFunctions.invoke(
+        "known", function(undefinedOptions, "known"),
+        List.of(new ArrayValue(List.of(UndefinedValue.INSTANCE))), false, CALL_LOCATION));
+    assertEquals("Host function 'known' cannot receive an undefined argument", undefinedError.getMessage());
+    assertEquals(false, called.get());
   }
 
   @Test
@@ -67,15 +71,43 @@ class HostFunctionsTest {
         .build();
 
     var thrownError = assertHostFailure(
-        () -> HostFunctions.invoke(options, "throws", List.of(), false, CALL_LOCATION));
+        () -> HostFunctions.invoke("throws", function(options, "throws"), List.of(), false, CALL_LOCATION));
     assertEquals("Host function 'throws' failed", thrownError.getMessage());
     assertSame(functionFailure, thrownError.getCause());
 
     var returnError = assertHostFailure(
-        () -> HostFunctions.invoke(options, "badReturn", List.of(), false, CALL_LOCATION));
+        () -> HostFunctions.invoke("badReturn", function(options, "badReturn"), List.of(), false, CALL_LOCATION));
     assertEquals("Host function 'badReturn' returned an unsupported value", returnError.getMessage());
     var conversionCause = assertInstanceOf(TemplateRenderException.class, returnError.getCause());
     assertEquals(ErrorCategory.HOST_CONVERSION, conversionCause.category());
+  }
+
+  @Test
+  void preservesIntegerArgumentsAndWrapsUnexpectedConversionFailures() {
+    var malformedNumber = new Number() {
+      @Override public int intValue() { return 0; }
+      @Override public long longValue() { return 0; }
+      @Override public float floatValue() { return 0; }
+      @Override public double doubleValue() { return 0; }
+      @Override public String toString() { return null; }
+    };
+    var options = RenderOptions.builder()
+        .hostFunction("identity", arguments -> {
+          assertEquals(3L, arguments.get(0));
+          return arguments.get(0);
+        })
+        .hostFunction("malformed", arguments -> malformedNumber)
+        .build();
+
+    assertEquals(new IntegerValue(3d), HostFunctions.invoke(
+        "identity", function(options, "identity"), List.of(new IntegerValue(3d)), false, CALL_LOCATION));
+    var malformedError = assertHostFailure(() -> HostFunctions.invoke(
+        "malformed", function(options, "malformed"), List.of(), false, CALL_LOCATION));
+    assertInstanceOf(NullPointerException.class, malformedError.getCause());
+  }
+
+  private static HostFunction function(RenderOptions options, String name) {
+    return options.hostFunctions().get(name);
   }
 
   private static TemplateRenderException assertHostFailure(org.junit.jupiter.api.function.Executable action) {

@@ -6,50 +6,58 @@ import java.util.List;
 import java.util.Objects;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.HostFunction;
-import se.alipsa.hfjinja.RenderOptions;
 import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.TemplateRenderException;
 
-/** Dispatches the closed, explicitly registered host-function boundary. */
+/**
+ * Dispatches the closed host-function boundary after the interpreter has resolved the callable.
+ *
+ * <p>Name lookup, including context-versus-global shadowing, remains interpreter-owned. Argument
+ * conversion is intentionally per call; render-scoped accounting and memoization arrive with the
+ * WP4 render environment and budget.
+ */
 final class HostFunctions {
   private HostFunctions() {}
 
   static Value invoke(
-      RenderOptions options,
       String name,
+      HostFunction function,
       List<Value> positionalArguments,
       boolean hasKeywordArguments,
       SourceLocation location) {
-    Objects.requireNonNull(options, "options");
     Objects.requireNonNull(name, "name");
+    Objects.requireNonNull(function, "function");
     Objects.requireNonNull(positionalArguments, "positionalArguments");
     Objects.requireNonNull(location, "location");
-    var function = options.hostFunctions().get(name);
-    if (function == null) {
-      throw failure("Unknown host function: " + name, null, location);
-    }
     if (hasKeywordArguments) {
       throw failure("Host function '" + name + "' does not accept keyword arguments", null, location);
     }
 
+    var arguments = hostArguments(positionalArguments, name, location);
     final Object result;
     try {
-      result = function.apply(hostArguments(positionalArguments));
+      result = function.apply(arguments);
     } catch (RuntimeException exception) {
       throw failure("Host function '" + name + "' failed", exception, location);
     }
     try {
       return Values.fromHost(result);
-    } catch (TemplateRenderException exception) {
+    } catch (RuntimeException exception) {
       throw failure("Host function '" + name + "' returned an unsupported value", exception, location);
     }
   }
 
-  private static List<Object> hostArguments(List<Value> positionalArguments) {
+  private static List<Object> hostArguments(
+      List<Value> positionalArguments, String name, SourceLocation location) {
     var arguments = new ArrayList<Object>(positionalArguments.size());
     for (int index = 0; index < positionalArguments.size(); index++) {
-      arguments.add(Values.toHost(Objects.requireNonNull(
-          positionalArguments.get(index), "positionalArguments[" + index + "]")));
+      var argument = Objects.requireNonNull(
+          positionalArguments.get(index), "positionalArguments[" + index + "]");
+      try {
+        arguments.add(Values.toHost(argument));
+      } catch (Values.UndefinedHostValueException exception) {
+        throw failure("Host function '" + name + "' cannot receive an undefined argument", null, location);
+      }
     }
     return Collections.unmodifiableList(arguments);
   }
