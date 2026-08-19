@@ -1,0 +1,8 @@
+hfjinja includes selected source material from @huggingface/jinja 0.5.9.
+
+Upstream project: https://github.com/huggingface/huggingface.js
+Upstream license: MIT License (see upstream/vendor/LICENSE).
+Pinned commit: 41585aa8e776e0e4e1430ac2aad24506f74c3110.
+
+No model chat-template text is vendored yet. Model fixtures may be added only after their
+license and attribution requirements have been recorded here.

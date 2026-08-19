@@ -1,0 +1,264 @@
+plugins {
+  id 'java-library'
+  id 'maven-publish'
+}
+
+group = 'se.alipsa'
+version = '0.1.0-SNAPSHOT'
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(21)
+  }
+  withSourcesJar()
+  withJavadocJar()
+}
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  testImplementation platform('org.junit:junit-bom:5.12.2')
+  testImplementation 'org.junit.jupiter:junit-jupiter'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(Test).configureEach {
+  useJUnitPlatform()
+  // Gradle runs test outputs on the test classpath, allowing white-box internal.* tests while the
+  // published module continues to export only se.alipsa.hfjinja. A future module-path test suite
+  // must use --patch-module and qualified opens rather than widening module-info.java.
+}
+
+def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
+def astAllowlistFile = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
+def mappingFile = layout.projectDirectory.file('upstream/mapping.yml').asFile
+def vendorDir = layout.projectDirectory.dir('upstream/vendor').asFile
+def packageMetadataFile = new File(vendorDir, 'package.json')
+def astSourceFile = new File(vendorDir, 'src/ast.ts')
+def runtimeSourceFile = new File(vendorDir, 'src/runtime.ts')
+def utilsSourceFile = new File(vendorDir, 'src/utils.ts')
+def upstreamVerifyMarker = layout.buildDirectory.file('upstreamVerify/verified').get().asFile
+
+tasks.register('upstreamVerify') {
+  group = 'verification'
+  description = 'Verifies pinned upstream provenance without fetching network data.'
+  def vendorFiles = {
+    def vendorRootPath = vendorDir.toPath()
+    if (!java.nio.file.Files.isDirectory(vendorRootPath)) {
+      return []
+    }
+    def stream = java.nio.file.Files.walk(vendorRootPath)
+    try {
+      stream
+          .filter { java.nio.file.Files.isRegularFile(it) }
+          .filter { path ->
+            def relativePath = vendorRootPath.relativize(path).toString().replace(File.separatorChar, '/' as char)
+            relativePath != '.DS_Store'
+                && !relativePath.endsWith('/.DS_Store')
+                && !relativePath.startsWith('node_modules/')
+                && !relativePath.contains('/node_modules/')
+                && !relativePath.startsWith('__snapshots__/')
+                && !relativePath.contains('/__snapshots__/')
+          }
+          .collect { it.toFile() }
+    } finally {
+      stream.close()
+    }
+  }
+  inputs.file(upstreamLockFile).withPropertyName('upstreamLock')
+  inputs.file(astAllowlistFile).withPropertyName('astAllowlist')
+  inputs.file(mappingFile).withPropertyName('mapping')
+  inputs.files(vendorFiles).withPropertyName('vendorTree')
+  outputs.file(upstreamVerifyMarker).withPropertyName('verifiedMarker')
+  doLast {
+    if (!vendorDir.isDirectory()) {
+      throw new GradleException('Missing upstream/vendor')
+    }
+    def parsed = new groovy.json.JsonSlurper().parse(upstreamLockFile)
+    ['package', 'version', 'nodeVersion', 'commit', 'tarball', 'integrity', 'sha256',
+     'fixtureRevision', 'astNodes', 'globals', 'files'].each {
+      if (!parsed.containsKey(it)) {
+        throw new GradleException("Upstream lock is missing '${it}'")
+      }
+    }
+    if (parsed.package != '@huggingface/jinja'
+        || !(parsed.version instanceof String && parsed.version ==~ /\d+\.\d+\.\d+/)
+        || !(parsed.nodeVersion instanceof String && parsed.nodeVersion ==~ /v\d+\.\d+\.\d+/)
+        || !(parsed.commit instanceof String && parsed.commit ==~ /[0-9a-f]{40}/)
+        || !(parsed.tarball instanceof String && parsed.tarball.startsWith('https://registry.npmjs.org/'))
+        || !(parsed.integrity instanceof String && parsed.integrity.startsWith('sha512-'))
+        || !(parsed.sha256 instanceof String && parsed.sha256 ==~ /[0-9a-f]{64}/)
+        || !(parsed.fixtureRevision instanceof String && !parsed.fixtureRevision.isBlank()
+            && parsed.fixtureRevision != 'initial')) {
+      throw new GradleException('Upstream lock contains invalid provenance metadata')
+    }
+    def packageMetadata = new groovy.json.JsonSlurper().parse(packageMetadataFile)
+    if (packageMetadata.name != parsed.package || packageMetadata.version != parsed.version) {
+      throw new GradleException('Upstream lock package/version does not match vendored package.json')
+    }
+    if (!(parsed.files instanceof Map) || parsed.files.isEmpty()) {
+      throw new GradleException('Upstream lock has no source file hashes')
+    }
+    def vendorRootPath = vendorDir.toPath()
+    def vendorPaths = vendorFiles()
+        .collect { vendorRootPath.relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) }
+        .toSet()
+    if (parsed.files.keySet().toSet() != vendorPaths) {
+      def missingHashes = vendorPaths - parsed.files.keySet().toSet()
+      def staleHashes = parsed.files.keySet().toSet() - vendorPaths
+      throw new GradleException(
+          "Upstream lock file hashes do not cover exactly the vendored tree; missing=${missingHashes}, stale=${staleHashes}")
+    }
+    parsed.files.each { relativePath, expectedHash ->
+      def source = new File(vendorDir, relativePath)
+      if (!source.isFile()) {
+        throw new GradleException("Vendored upstream file is missing: ${relativePath}")
+      }
+      def digest = java.security.MessageDigest.getInstance('SHA-256')
+          .digest(source.bytes)
+          .collect { String.format('%02x', it) }
+          .join()
+      if (digest != expectedHash) {
+        throw new GradleException("Vendored upstream hash mismatch: ${relativePath}")
+      }
+    }
+    def discoveredNodes = (astSourceFile.text =~ /(?m)^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/)
+        .collect { it[1] }
+    if (discoveredNodes.toSet() != parsed.astNodes.toSet()) {
+      def missing = discoveredNodes.findAll { !parsed.astNodes.contains(it) }
+      def stale = parsed.astNodes.findAll { !discoveredNodes.contains(it) }
+      throw new GradleException("AST inventory mismatch; missing=${missing}, stale=${stale}")
+    }
+    if (!(parsed.globals instanceof List)) {
+      throw new GradleException('Upstream lock globals inventory must be a list')
+    }
+    def invalidGlobals = parsed.globals.findAll { global ->
+      !(global instanceof Map)
+          || !(global.name instanceof String && global.name ==~ /[A-Za-z_][A-Za-z0-9_]*/)
+          || !((global.arity instanceof Number && global.arity.intValue() >= 0)
+              || (global.arity instanceof String && global.arity ==~ /\d+\.\.\d+/))
+          || !(global.hostSupplied instanceof Boolean)
+    }
+    if (!invalidGlobals.isEmpty()) {
+      throw new GradleException("Upstream lock has invalid global inventory entries: ${invalidGlobals}")
+    }
+    def discoveredGlobals = (runtimeSourceFile.text =~ /env\.set\("([A-Za-z_][A-Za-z0-9_]*)",/)
+        .collect { it[1] }
+    def lockedGlobals = parsed.globals.collect { it.name }
+    if (discoveredGlobals.toSet() != lockedGlobals.toSet() || discoveredGlobals.size() != lockedGlobals.size()) {
+      def missing = discoveredGlobals.findAll { !lockedGlobals.contains(it) }
+      def stale = lockedGlobals.findAll { !discoveredGlobals.contains(it) }
+      throw new GradleException("Global inventory mismatch; missing=${missing}, stale=${stale}")
+    }
+    def utilsSource = utilsSourceFile.text
+    def functionArity = { functionName ->
+      def match = utilsSource =~ "export\\s+function\\s+${functionName}\\(([^)]*)\\)"
+      if (!match.find()) {
+        throw new GradleException("Cannot determine arity for upstream global: ${functionName}")
+      }
+      def parameters = match.group(1).split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+      def required = parameters.count { !it.contains('?') && !it.contains('=') }
+      return required == parameters.size() ? required : "${required}..${parameters.size()}".toString()
+    }
+    def expectedArities = [
+      false: 0, true: 0, none: 0, raise_exception: 1,
+      range: functionArity('range'), strftime_now: functionArity('strftime_now'),
+      True: 0, False: 0, None: 0
+    ]
+    def lockedArities = parsed.globals.collectEntries { [(it.name): it.arity] }
+    if (lockedArities != expectedArities) {
+      throw new GradleException("Global arity inventory mismatch; expected=${expectedArities}, actual=${lockedArities}")
+    }
+    def declaredNodes = new groovy.json.JsonSlurper().parse(astAllowlistFile)
+    def unaccountedNodes = discoveredNodes.findAll { !declaredNodes.containsKey(it) }
+    if (!unaccountedNodes.isEmpty()) {
+      throw new GradleException("Unaccounted AST nodes: ${unaccountedNodes.join(', ')}")
+    }
+    def mappingEntries = [:]
+    def currentMapping = null
+    mappingFile.eachLine { line ->
+      def section = line =~ /^([A-Za-z0-9_.-]+\.ts):\s*$/
+      if (section.matches()) {
+        currentMapping = section.group(1)
+        if (mappingEntries.containsKey(currentMapping)) {
+          throw new GradleException("Duplicate mapping entry: ${currentMapping}")
+        }
+        mappingEntries[currentMapping] = [noImpact: false, hash: null, milestone: null, status: null,
+                                          java: null, tests: null]
+      } else if (currentMapping != null && line.trim().startsWith('milestone:')) {
+        mappingEntries[currentMapping].milestone = line.substring(line.indexOf(':') + 1).trim()
+      } else if (currentMapping != null && line.trim().startsWith('status:')) {
+        mappingEntries[currentMapping].status = line.substring(line.indexOf(':') + 1).trim()
+      } else if (currentMapping != null && line.trim().startsWith('java:')) {
+        mappingEntries[currentMapping].java = line.substring(line.indexOf(':') + 1).trim()
+      } else if (currentMapping != null && line.trim().startsWith('tests:')) {
+        mappingEntries[currentMapping].tests = line.substring(line.indexOf(':') + 1).trim()
+      } else if (currentMapping != null && line.trim() == 'reviewed-no-port-impact:') {
+        mappingEntries[currentMapping].noImpact = true
+      } else if (currentMapping != null && line.trim().startsWith('sha256:')) {
+        mappingEntries[currentMapping].hash = line.substring(line.indexOf(':') + 1).trim()
+      }
+    }
+    parsed.files.findAll { relativePath, ignored -> relativePath.startsWith('src/') }.each { relativePath, expectedHash ->
+      def basename = new File(relativePath).name
+      if (!mappingEntries.containsKey(basename)) {
+        throw new GradleException("No mapping entry for upstream file: ${relativePath}")
+      }
+      if (mappingEntries[basename].noImpact && mappingEntries[basename].hash != expectedHash) {
+        throw new GradleException("Stale reviewed-no-port-impact hash: ${relativePath}")
+      }
+      def entry = mappingEntries[basename]
+      if (!(entry.milestone ==~ /M\d+/)) {
+        throw new GradleException("Mapping entry has invalid milestone: ${basename}")
+      }
+      if (entry.noImpact) {
+        if (entry.status != null || entry.java != null || entry.tests != null) {
+          throw new GradleException("No-impact mapping must not declare a port status: ${basename}")
+        }
+      } else if (entry.status == 'planned') {
+        if (entry.java != '[]' || entry.tests != '[]') {
+          throw new GradleException("Planned mapping must explicitly have no Java/tests yet: ${basename}")
+        }
+      } else if (entry.status == 'implemented') {
+        if (!(entry.java ==~ /\[\s*\S(?:.*\S)?\s*\]/)
+            || !(entry.tests ==~ /\[\s*\S(?:.*\S)?\s*\]/)) {
+          throw new GradleException("Implemented mapping must name Java and test coverage: ${basename}")
+        }
+      } else {
+        throw new GradleException("Mapping entry has invalid status: ${basename}")
+      }
+    }
+    def mappedSources = mappingEntries.keySet().collect { "src/${it}" }.toSet()
+    def vendoredSources = parsed.files.keySet().findAll { it.startsWith('src/') }.toSet()
+    def staleMappings = mappedSources - vendoredSources
+    if (!staleMappings.isEmpty()) {
+      throw new GradleException("Mapping entries do not correspond to upstream source: ${staleMappings}")
+    }
+    upstreamVerifyMarker.parentFile.mkdirs()
+    upstreamVerifyMarker.text = 'verified\n'
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('upstreamVerify')
+}
+
+publishing {
+  publications {
+    maven(MavenPublication) {
+      from components.java
+      pom {
+        name = 'hfjinja'
+        description = 'Dependency-free Java port of @huggingface/jinja.'
+        licenses {
+          license {
+            name = 'MIT License'
+            url = 'https://opensource.org/license/mit'
+          }
+        }
+      }
+    }
+  }
+}
