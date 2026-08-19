@@ -7,9 +7,9 @@ Pinned commit: 41585aa8e776e0e4e1430ac2aad24506f74c3110.
 No model chat-template text is vendored yet. Model fixtures may be added only after their
 license and attribution requirements have been recorded here.
 
-Model fixture intake is governed by req/model-fixture-policy.md. It records that no Llama template
-text is retained by default and that future Qwen/Mistral template imports carry their own source and
-license notices.
+Model fixture intake is governed by req/model-fixture-policy.md. Only the exact model revisions
+listed there are preapproved for template-text retention; every other model, including other Qwen
+and Mistral variants and all Llama models, requires a fixture-specific license review first.
 
 ## Model fixtures
 
