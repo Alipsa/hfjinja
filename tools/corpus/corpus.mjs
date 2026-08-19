@@ -5,6 +5,10 @@ const categories = new Set([
   'SYNTAX', 'UNDEFINED_OR_ACCESS', 'TYPE', 'ARITY', 'VALUE', 'EXPLICIT_RAISE',
   'HOST_FUNCTION', 'HOST_CONVERSION', 'RESOURCE_LIMIT', 'OUTPUT',
 ]);
+const recordKeys = new Set([
+  'id', 'source', 'template', 'templateSha256', 'modelRepo', 'modelRevision', 'templatePath',
+  'context', 'instant', 'zone', 'globals', 'expected',
+]);
 
 export async function readCorpus(path) {
   const content = await readFile(path, 'utf8');
@@ -27,18 +31,22 @@ export function validateCorpus(records, label = 'corpus') {
 }
 
 export function validateRecord(record, label = 'record') {
-  if (!isObject(record) || !nonBlank(record.id) || !nonBlank(record.source) || !isObject(record.context)) {
+  if (!isObject(record)) throw new Error(`${label}: must be an object`);
+  const unknownKeys = Object.keys(record).filter((key) => !recordKeys.has(key));
+  if (unknownKeys.length) throw new Error(`${label}: unknown fields: ${unknownKeys.join(', ')}`);
+  if (!nonBlank(record.id) || !nonBlank(record.source) || !isObject(record.context)) {
     throw new Error(`${label}: id, source, and object context are required`);
   }
-  const text = nonBlank(record.template);
-  const hashOnly = sha256(record.templateSha256);
+  const text = typeof record.template === 'string';
+  const hashOnly = record.templateSha256 !== undefined;
   if (text === hashOnly) throw new Error(`${label}: provide exactly one of template or templateSha256`);
+  if (hashOnly && !sha256(record.templateSha256)) throw new Error(`${label}: templateSha256 must be 64 lowercase hex characters`);
   if (hashOnly && (!nonBlank(record.modelRepo)
       || !(typeof record.modelRevision === 'string' && /^[0-9a-f]{40}$/.test(record.modelRevision))
       || !nonBlank(record.templatePath))) {
     throw new Error(`${label}: hash-only records require modelRepo, 40-hex modelRevision, and templatePath`);
   }
-  if (record.instant !== undefined && (!/^\d{4}-\d{2}-\d{2}T.*Z$/.test(record.instant)
+  if (record.instant !== undefined && (!(typeof record.instant === 'string' && /^\d{4}-\d{2}-\d{2}T.*Z$/.test(record.instant))
       || Number.isNaN(Date.parse(record.instant)))) {
     throw new Error(`${label}: instant must be an ISO-8601 instant`);
   }
@@ -56,12 +64,19 @@ export async function errorClassifier(path) {
   if (!isObject(definition) || !Array.isArray(definition.patterns)) {
     throw new Error(`Invalid error pattern table: ${path}`);
   }
+  const patterns = definition.patterns.map((pattern, index) => {
+    if (!isObject(pattern) || !nonBlank(pattern.regex) || !categories.has(pattern.category)) {
+      throw new Error(`Invalid error pattern ${index + 1} in ${path}`);
+    }
+    try {
+      return {category: pattern.category, regex: new RegExp(pattern.regex)};
+    } catch (error) {
+      throw new Error(`Invalid error pattern ${index + 1} in ${path}: ${error.message}`);
+    }
+  });
   return (message) => {
-    for (const pattern of definition.patterns) {
-      if (!isObject(pattern) || !nonBlank(pattern.regex) || !categories.has(pattern.category)) {
-        throw new Error(`Invalid error pattern in ${path}`);
-      }
-      if (new RegExp(pattern.regex).test(message)) return pattern.category;
+    for (const pattern of patterns) {
+      if (pattern.regex.test(message)) return pattern.category;
     }
     throw new Error(`Unmatched upstream error for ${definition.version}: ${message}`);
   };

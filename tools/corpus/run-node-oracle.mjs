@@ -27,21 +27,37 @@ for (const [index, record] of records.entries()) {
   if (record.templateSha256) continue;
   try {
     const output = render(record, Template);
-    if (!Object.hasOwn(record.expected, 'text') || output !== record.expected.text) {
-      throw new Error(`output mismatch; expected=${JSON.stringify(record.expected.text)}, actual=${JSON.stringify(output)}`);
+    if (Object.hasOwn(record.expected, 'errorCategory')) {
+      fail(label, `expected error=${record.expected.errorCategory}, got output=${JSON.stringify(output)}`);
+    } else if (output !== record.expected.text) {
+      fail(label, `output mismatch; expected=${JSON.stringify(record.expected.text)}, actual=${JSON.stringify(output)}`);
+    } else {
+      console.log(`PASS ${record.id} sha256=${sha256Utf8(output)}`);
     }
-    console.log(`PASS ${record.id} sha256=${sha256Utf8(output)}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (record.expected?.errorCategory && classifyError(message) === record.expected.errorCategory) {
-      console.log(`PASS ${record.id} error=${record.expected.errorCategory}`);
+    if (!record.expected?.errorCategory) {
+      fail(label, `unexpected upstream error: ${message}`);
     } else {
-      failures++;
-      console.error(`FAIL ${label}: ${message}`);
+      try {
+        const category = classifyError(message);
+        if (category === record.expected.errorCategory) {
+          console.log(`PASS ${record.id} error=${category}`);
+        } else {
+          fail(label, `error category mismatch; expected=${record.expected.errorCategory}, actual=${category}; message=${message}`);
+        }
+      } catch (classificationError) {
+        fail(label, classificationError instanceof Error ? classificationError.message : String(classificationError));
+      }
     }
   }
 }
 if (failures) process.exitCode = 1;
+
+function fail(label, message) {
+  failures++;
+  console.error(`FAIL ${label}: ${message}`);
+}
 
 function render(record, TemplateClass) {
   const nativeDate = globalThis.Date;
@@ -50,7 +66,7 @@ function render(record, TemplateClass) {
     if (record.instant !== undefined) {
       const instant = new nativeDate(record.instant).valueOf();
       globalThis.Date = class extends nativeDate {
-        constructor(...arguments_) { super(arguments_.length ? arguments_[0] : instant); }
+        constructor(...arguments_) { super(...(arguments_.length ? arguments_ : [instant])); }
         static now() { return instant; }
       };
     }

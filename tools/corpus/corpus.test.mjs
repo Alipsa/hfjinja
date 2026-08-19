@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { errorClassifier, sha256Utf8, validateCorpus, validateRecord } from './corpus.mjs';
 
@@ -34,6 +38,14 @@ test('rejects mixed fixture forms and invalid expected results', () => {
     id: 'wrong-outcome', source: 'test', template: 'hello', context: {},
     expected: {sha256: sha256Utf8('hello')},
   }), /does not match/);
+  assert.throws(() => validateRecord({
+    id: 'bad-hash', source: 'test', template: 'hello', templateSha256: 'bad', context: {},
+    expected: {text: 'hello'},
+  }), /exactly one/);
+  validateRecord({id: 'empty', source: 'test', template: '', context: {}, expected: {text: ''}});
+  assert.throws(() => validateRecord({
+    id: 'unknown-key', source: 'test', template: 'hello', context: {}, expected: {text: 'hello'}, typoInstant: 'x',
+  }), /unknown fields/);
 });
 
 test('fails loudly for an unmatched upstream error', async () => {
@@ -41,3 +53,30 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('Unknown variable: absent'), 'UNDEFINED_OR_ACCESS');
   assert.throws(() => classify('unmapped upstream error'), /Unmatched upstream error/);
 });
+
+test('reports harness mismatches and unmatched upstream errors per record', async () => {
+  const result = await runOracle([
+    {id: 'expected-error', source: 'test', template: 'Hello', context: {}, expected: {errorCategory: 'SYNTAX'}},
+    {id: 'unmatched-error', source: 'test', template: '{% for %}', context: {}, expected: {errorCategory: 'SYNTAX'}},
+    {id: 'after-error', source: 'test', template: 'still runs', context: {}, expected: {text: 'still runs'}},
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /expected error=SYNTAX, got output="Hello"/);
+  assert.doesNotMatch(result.stderr, /Unmatched upstream error.*output mismatch/);
+  assert.match(result.stderr, /Unmatched upstream error.*Unexpected token/);
+  assert.match(result.stdout, /PASS after-error/);
+});
+
+async function runOracle(records) {
+  const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-'));
+  const corpus = join(directory, 'corpus.jsonl');
+  try {
+    await writeFile(corpus, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`, 'utf8');
+    return spawnSync(process.execPath, [
+      'tools/corpus/run-node-oracle.mjs', '--corpus', corpus,
+      '--patterns', 'tools/corpus/error-patterns-0.5.9.json',
+    ], {encoding: 'utf8'});
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+}

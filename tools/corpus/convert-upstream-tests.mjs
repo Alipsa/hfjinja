@@ -54,7 +54,7 @@ function extractConstants(source) {
 }
 
 function propertyLine(source, name) {
-  const match = new RegExp(`^\\s*${name}:`, 'm').exec(source);
+  const match = new RegExp(`^[^\\S\\r\\n]*${name}:`, 'm').exec(source);
   if (!match) throw new Error(`Could not locate ${name} in ${sourcePath}`);
   return source.slice(0, match.index).split('\n').length;
 }
