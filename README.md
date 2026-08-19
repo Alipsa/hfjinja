@@ -9,6 +9,7 @@ It is designed for JVM model clients that need reproducible rendering of Llama, 
 tool-use templates—not as a general-purpose or Python-compatible Jinja2 engine.
 
 Building the project requires a locally installed JDK 21 available through `JAVA_HOME` or `PATH`.
+Running `./gradlew check` also requires exactly Node.js 26.7.0, the pinned oracle version.
 
 > Status: the repository is under active implementation. The intended v1 behavior and public API
 > are described below; see the [implementation plan](req/implementation-plan.md) for progress.

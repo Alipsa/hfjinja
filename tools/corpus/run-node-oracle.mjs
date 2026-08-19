@@ -30,6 +30,8 @@ validateCorpus(records, corpusPath);
 let failures = 0;
 let executed = 0;
 let skipped = 0;
+const defaultInstant = '2000-01-02T03:04:05Z';
+const defaultZone = 'UTC';
 for (const [index, record] of records.entries()) {
   const label = `${corpusPath}:${corpusLine(record, index + 1)} (${record?.id ?? 'unknown'})`;
   if (record.templateSha256) {
@@ -78,14 +80,12 @@ function render(record, TemplateClass) {
   const nativeDate = globalThis.Date;
   const nativeZone = process.env.TZ;
   try {
-    if (record.instant !== undefined) {
-      const instant = new nativeDate(record.instant).valueOf();
-      globalThis.Date = class extends nativeDate {
-        constructor(...arguments_) { super(...(arguments_.length ? arguments_ : [instant])); }
-        static now() { return instant; }
-      };
-    }
-    if (record.zone !== undefined) process.env.TZ = record.zone;
+    const instant = new nativeDate(record.instant ?? defaultInstant).valueOf();
+    globalThis.Date = class extends nativeDate {
+      constructor(...arguments_) { super(...(arguments_.length ? arguments_ : [instant])); }
+      static now() { return instant; }
+    };
+    process.env.TZ = record.zone ?? defaultZone;
     return new TemplateClass(record.template).render(record.context);
   } finally {
     globalThis.Date = nativeDate;

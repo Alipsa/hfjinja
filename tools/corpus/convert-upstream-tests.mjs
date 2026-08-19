@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import vm from 'node:vm';
-import { readCorpus, validateRecord } from './corpus.mjs';
+import { readCorpus, validateCorpus, validateRecord } from './corpus.mjs';
 
 const sourcePath = 'upstream/vendor/test/templates.test.js';
 const corpusPath = 'src/test/resources/corpus/v1.jsonl';
@@ -16,6 +16,7 @@ const options = new Set(process.argv.slice(2));
 if (![...options].every((option) => option === '--check' || option.startsWith('--report='))) {
   throw new Error('Usage: convert-upstream-tests.mjs --check [--report=<path>]');
 }
+if (!options.has('--check')) throw new Error('Usage: convert-upstream-tests.mjs --check [--report=<path>]');
 
 const source = await readFile(sourcePath, 'utf8');
 const capture = extractConstants(source);
@@ -29,7 +30,9 @@ const generated = [...selected].map(([upstreamName, id]) => ({
 for (const record of generated) validateRecord(record, record.id);
 
 if (options.has('--check')) {
-  const actual = new Map((await readCorpus(corpusPath)).map((record) => [record.id, record]));
+  const records = await readCorpus(corpusPath);
+  validateCorpus(records, corpusPath);
+  const actual = new Map(records.map((record) => [record.id, record]));
   for (const record of generated) {
     const committed = actual.get(record.id);
     if (!committed || !sameFixture(committed, record)) {
@@ -85,7 +88,9 @@ async function writeCoverage(path, generated) {
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
     'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription.', '',
   ];
-  await writeFile(resolve(path), lines.join('\n'), 'utf8');
+  const reportPath = resolve(path);
+  await mkdir(dirname(reportPath), {recursive: true});
+  await writeFile(reportPath, lines.join('\n'), 'utf8');
 }
 
 async function testSources(directory, relative = '') {

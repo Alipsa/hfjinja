@@ -18,10 +18,12 @@ export async function readCorpus(path) {
     if (!line) continue;
     try {
       const record = JSON.parse(line);
+      if (!isObject(record)) throw new Error('record must be a JSON object');
       Object.defineProperty(record, lineNumber, {value: index + 1});
       records.push(record);
     } catch (error) {
-      throw new Error(`${path}:${index + 1}: invalid JSON: ${error.message}`);
+      const description = error instanceof SyntaxError ? `invalid JSON: ${error.message}` : error.message;
+      throw new Error(`${path}:${index + 1}: ${description}`);
     }
   }
   return records;
@@ -101,12 +103,7 @@ export async function errorClassifier(path, expectedVersion) {
 
 function validateGlobals(globals, label) {
   if (globals === undefined) return;
-  if (!isObject(globals)) throw new Error(`${label}: globals must be an object`);
-  for (const [name, value] of Object.entries(globals)) {
-    if (name !== 'strftime_now' || !isObject(value) || value.kind !== 'strftime_now') {
-      throw new Error(`${label}: unsupported record global ${name}`);
-    }
-  }
+  throw new Error(`${label}: record globals are not supported by the pinned Template API`);
 }
 
 function validateZone(zone, label) {

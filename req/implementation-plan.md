@@ -80,9 +80,10 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    `expected.sha256` or compares the error category. No newline normalization is applied; invalid
    UTF-8 fixture material is a harness failure.
 
-   The `strftime_now` entry is illustrative only: its presence is determined after WP1a's global
-   inventory. `instant`, `zone`, and `globals` are optional. Expected failures carry an
-   `ErrorCategory`.
+   The `strftime_now` entry is illustrative only: it is a built-in and the runner always supplies
+   a fixed instant/zone (defaulting to `2000-01-02T03:04:05Z` and `UTC`). `instant` and `zone`
+   override that pair together; `globals` is reserved until the pinned Template API can inject
+   non-built-in globals. Expected failures carry an `ErrorCategory`.
 2. Implement the versioned Node-message-to-`ErrorCategory` pattern mapping table as part of the
    oracle shim. Patterns extract interpolated message values (for example a filter name) rather
    than matching literals. Every known upstream error maps explicitly; an unmatched message fails

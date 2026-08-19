@@ -28,6 +28,7 @@ test('rejects duplicate ids and malformed deterministic-time fields', () => {
   assert.throws(() => validateRecord({...record, instant: '2026-08-19', zone: 'UTC'}), /ISO-8601/);
   assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z'}), /requires an explicit zone/);
   assert.throws(() => validateRecord({...record, zone: 'not a zone'}), /IANA/);
+  assert.throws(() => validateRecord({...record, globals: {strftime_now: {kind: 'strftime_now'}}}), /not supported/);
 });
 
 test('rejects mixed fixture forms and invalid expected results', () => {
@@ -72,6 +73,17 @@ test('preserves physical JSONL line numbers across blank lines', async () => {
   }
 });
 
+test('identifies valid non-object JSON separately from invalid JSON', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-json-'));
+  const path = join(directory, 'corpus.jsonl');
+  try {
+    await writeFile(path, '42\n', 'utf8');
+    await assert.rejects(readCorpus(path), /record must be a JSON object/);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
 test('reports harness mismatches and unmatched upstream errors per record', async () => {
   const result = await runOracle([
     {id: 'expected-error', source: 'test', template: 'Hello', context: {}, expected: {errorCategory: 'SYNTAX'}},
@@ -95,6 +107,15 @@ test('reports skipped hash-only records and rejects an all-hash-only run', async
   assert.match(result.stdout, /SKIP hash-only hash-only fixture/);
   assert.match(result.stdout, /SUMMARY executed=0 skipped=1/);
   assert.match(result.stderr, /no text-bearing corpus records were executed/);
+});
+
+test('uses a fixed UTC clock when a text record omits time fields', async () => {
+  const result = await runOracle([{
+    id: 'default-time', source: 'test', template: "{{ strftime_now('%Y-%m-%d %H:%M') }}",
+    context: {}, expected: {text: '2000-01-02 03:04'},
+  }]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /PASS default-time/);
 });
 
 async function runOracle(records) {

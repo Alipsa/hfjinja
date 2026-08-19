@@ -57,17 +57,19 @@ tasks.register('nodeCorpusVerify', Exec) {
   inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/run-node-oracle.mjs',
       'tools/corpus/error-patterns-0.5.9.json', 'src/test/resources/corpus/v1.jsonl',
       'upstream/vendor/dist/index.js', 'upstream/upstream-lock.json')
+  timeout = java.time.Duration.ofSeconds(30)
 }
 
+def corpusCoverageReport = layout.buildDirectory.file('reports/corpus-coverage.md').get().asFile
 tasks.register('corpusCoverage', Exec) {
   group = 'verification'
   description = 'Checks extracted corpus fixtures and writes their upstream coverage report.'
   executable = 'node'
-  args 'tools/corpus/convert-upstream-tests.mjs', '--check', '--report=build/reports/corpus-coverage.md'
+  args 'tools/corpus/convert-upstream-tests.mjs', '--check', "--report=${corpusCoverageReport.absolutePath}"
   inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs',
       'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json',
       fileTree('upstream/vendor/test') { include '**/*.test.js' })
-  outputs.file(layout.buildDirectory.file('reports/corpus-coverage.md'))
+  outputs.file(corpusCoverageReport)
 }
 
 tasks.named('check') {
@@ -315,6 +317,7 @@ def nodeVersionVerification = tasks.named('nodeOracleVersion')
   tasks.named(taskName) {
     dependsOn upstreamVerification
     mustRunAfter upstreamVerification
+    timeout = java.time.Duration.ofSeconds(30)
   }
 }
 ['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage'].each { taskName ->
