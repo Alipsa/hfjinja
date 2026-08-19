@@ -85,7 +85,15 @@ final class Values {
       case UndefinedValue ignored -> throw new UndefinedHostValueException("undefined value at " + path);
       case NullValue ignored -> null;
       case BooleanValue booleanValue -> booleanValue.value();
-      case IntegerValue integerValue -> hostInteger(integerValue.value());
+      case IntegerValue integerValue -> {
+        var hostValue = hostInteger(integerValue.value());
+        // Safe integers reconstruct faithfully from a Long. Larger runtime integers do not pass
+        // the normal host converter, so retain their exact source when a function echoes one.
+        // Do not memoize all boxed Longs: JVM boxing caches would conflate distinct signed zeros.
+        yield Math.abs(integerValue.value()) > MAX_SAFE_INTEGER
+            ? sourceValue(hostValue, value, sourceValues)
+            : hostValue;
+      }
       case FloatValue floatValue -> sourceValue(hostFloat(floatValue.value()), value, sourceValues);
       case StringValue stringValue -> stringValue.value();
       case ArrayValue arrayValue -> {
@@ -250,7 +258,7 @@ final class Values {
   private static Value numberValue(Number number) {
     if ((number instanceof Double || number instanceof Float)
         && !Double.isFinite(number.doubleValue())) {
-      throw conversion("Number must be finite: " + numberDescription(number));
+      throw conversion("Number must be finite: " + Double.toString(number.doubleValue()));
     }
     final BigDecimal inputDecimal;
     try {
@@ -293,14 +301,6 @@ final class Values {
       }
     }
     throw new IllegalStateException("No JavaScript round-trip decimal for finite double");
-  }
-
-  private static String numberDescription(Number number) {
-    try {
-      return number.toString();
-    } catch (RuntimeException exception) {
-      return number.getClass().getName();
-    }
   }
 
   private static String formatJsDecimal(BigDecimal decimal) {

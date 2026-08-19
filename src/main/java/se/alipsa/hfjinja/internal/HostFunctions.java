@@ -65,7 +65,7 @@ final class HostFunctions {
             argument, convertedValues, sourceValues, "argument " + index));
       } catch (Values.UndefinedHostValueException exception) {
         throw failure(
-            "Host function '" + name + "' cannot receive " + exception.getMessage(), exception, location);
+            "Host function '" + name + "' cannot receive " + exception.getMessage(), null, location);
       }
     }
     return Collections.unmodifiableList(arguments);

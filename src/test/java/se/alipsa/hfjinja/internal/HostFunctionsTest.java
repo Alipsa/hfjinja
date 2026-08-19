@@ -63,6 +63,7 @@ class HostFunctionsTest {
     assertEquals(
         "Host function 'known' cannot receive undefined value at argument 0.items[0]",
         undefinedError.getMessage());
+    assertEquals(null, undefinedError.getCause());
     assertEquals(false, called.get());
   }
 
@@ -141,6 +142,18 @@ class HostFunctionsTest {
     assertEquals(new StringValue("Double"), HostFunctions.invoke(
         "type", function(options, "type"),
         List.of(new FloatValue(Double.NaN)), false, CALL_LOCATION));
+  }
+
+  @Test
+  void preservesWideIntegerArgumentsAcrossAnIdentityHostFunction() {
+    var options = RenderOptions.builder()
+        .hostFunction("identity", arguments -> arguments.get(0))
+        .build();
+
+    for (double value : new double[] {1L << 60, 9_007_199_254_740_994d, 1e19}) {
+      assertEquals(new IntegerValue(value), HostFunctions.invoke(
+          "identity", function(options, "identity"), List.of(new IntegerValue(value)), false, CALL_LOCATION));
+    }
   }
 
   private static HostFunction function(RenderOptions options, String name) {

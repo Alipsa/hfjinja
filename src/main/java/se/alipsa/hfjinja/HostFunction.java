@@ -9,8 +9,9 @@ import java.util.List;
  * fit a {@code long}, {@link Double} floats and larger integer doubles, {@code null}, and
  * recursively immutable lists or maps. A template {@code undefined} value cannot cross this
  * boundary; calls containing it fail with {@code HOST_FUNCTION}. Return values must satisfy the
- * same closed host-value boundary as render context values. Return {@link FloatResult} to retain a
- * float result whose value is integral.
+ * same closed host-value boundary as render context values. Return {@link FloatResult} whenever
+ * retaining a float result whose value is integral matters; an ordinary {@link Double} return is
+ * converted by value and therefore becomes an integer in that case.
  */
 @FunctionalInterface
 public interface HostFunction {
