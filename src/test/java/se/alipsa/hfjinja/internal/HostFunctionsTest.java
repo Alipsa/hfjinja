@@ -50,8 +50,12 @@ class HostFunctionsTest {
     assertEquals("Host function 'known' does not accept keyword arguments", keywordError.getMessage());
 
     var unknownError = assertHostFailure(
-        () -> HostFunctions.invoke(options, "missing", List.of(), true, CALL_LOCATION));
+        () -> HostFunctions.invoke(options, "missing", List.of(), false, CALL_LOCATION));
     assertEquals("Unknown host function: missing", unknownError.getMessage());
+
+    var unknownKeywordError = assertHostFailure(
+        () -> HostFunctions.invoke(options, "missing", List.of(), true, CALL_LOCATION));
+    assertEquals("Unknown host function: missing", unknownKeywordError.getMessage());
   }
 
   @Test
