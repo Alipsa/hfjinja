@@ -104,15 +104,23 @@ const ignored = (relative) => relative === '.DS_Store'
   || relative === '__snapshots__'
   || relative.startsWith('__snapshots__/')
   || relative.includes('/__snapshots__/');
+const regularFile = (entry, entryPath) => {
+  if (entry.isFile()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return fs.statSync(entryPath).isFile();
+  } catch {
+    // Match Files.isRegularFile: dangling links and cycles are not vendored files.
+    return false;
+  }
+};
 const vendorFiles = (directory, relative = '') => fs.readdirSync(directory, {withFileTypes: true})
   .flatMap((entry) => {
     const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
     if (ignored(entryRelative)) return [];
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return vendorFiles(entryPath, entryRelative);
-    return (entry.isFile()
-      || (entry.isSymbolicLink() && fs.statSync(entryPath, {throwIfNoEntry: false})?.isFile()))
-      ? [[entryRelative, entryPath]] : [];
+    return regularFile(entry, entryPath) ? [[entryRelative, entryPath]] : [];
   });
 for (const [relative, file] of vendorFiles(root)) {
   if (excluded.has(relative)) {
