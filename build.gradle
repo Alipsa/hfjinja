@@ -78,7 +78,7 @@ tasks.register('upstreamVerify') {
     }
     def parsed = new groovy.json.JsonSlurper().parse(upstreamLockFile)
     ['package', 'version', 'nodeVersion', 'commit', 'tarball', 'integrity', 'sha256',
-     'fixtureRevision', 'astNodes', 'globals', 'files'].each {
+     'fixtureRevision', 'excludedFiles', 'astNodes', 'globals', 'files'].each {
       if (!parsed.containsKey(it)) {
         throw new GradleException("Upstream lock is missing '${it}'")
       }
@@ -101,10 +101,26 @@ tasks.register('upstreamVerify') {
     if (!(parsed.files instanceof Map) || parsed.files.isEmpty()) {
       throw new GradleException('Upstream lock has no source file hashes')
     }
+    if (!(parsed.excludedFiles instanceof Map)) {
+      throw new GradleException('Upstream lock excludedFiles must be a map')
+    }
+    def invalidExclusions = parsed.excludedFiles.findAll { relativePath, metadata ->
+      !(relativePath instanceof String && relativePath ==~ /[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*/)
+          || !(metadata instanceof Map)
+          || !(metadata.sha256 instanceof String && metadata.sha256 ==~ /[0-9a-f]{64}/)
+          || !(metadata.reason instanceof String && !metadata.reason.isBlank())
+    }
+    if (!invalidExclusions.isEmpty()) {
+      throw new GradleException("Upstream lock has invalid excluded files: ${invalidExclusions.keySet()}")
+    }
     def vendorRootPath = vendorDir.toPath()
     def vendorPaths = vendorFiles()
         .collect { vendorRootPath.relativize(it.toPath()).toString().replace(File.separatorChar, '/' as char) }
         .toSet()
+    def presentExclusions = vendorPaths.intersect(parsed.excludedFiles.keySet())
+    if (!presentExclusions.isEmpty()) {
+      throw new GradleException("Excluded vendored files must not be present: ${presentExclusions}")
+    }
     if (parsed.files.keySet().toSet() != vendorPaths) {
       def missingHashes = vendorPaths - parsed.files.keySet().toSet()
       def staleHashes = parsed.files.keySet().toSet() - vendorPaths

@@ -16,11 +16,12 @@ exact model repository, immutable revision, template path, and applicable licens
 
 ## Current fixture set
 
-No model chat-template text or model-derived output is committed. The model-bearing upstream e2e
-fixture is intentionally not vendored because its template text and outputs are not covered by this
-policy. The first Llama case must commit only the hash-only metadata described above. The first
-retained Qwen or Mistral case must add its source record and license notice in the same change;
-copied templates and generated output are not implicitly covered by the upstream MIT notice.
+No model chat-template text or model-derived output is committed. The model-bearing upstream README
+and e2e fixture are intentionally not vendored because their template text and outputs are not
+covered by this policy. The first Llama case may retain only the hash-only metadata, self-authored
+test context, and an error category where applicable. The first retained Qwen or Mistral case must
+add its source record and license notice in the same change; copied templates and generated output
+are not implicitly covered by the upstream MIT notice.
 
 ## Sources reviewed
 

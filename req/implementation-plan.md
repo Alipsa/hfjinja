@@ -73,9 +73,9 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    hash-only failure instead uses `"expected":{"errorCategory":"..."}`. Hash-only records may
    retain self-authored test context but no model template or rendered output.
 
-   The normal build never downloads a model or silently skips a hash-only case. An explicit corpus
-   invocation receives externally supplied fixture material, verifies `templateSha256` before
-   rendering, and either compares the UTF-8 SHA-256 of its exact rendered output to
+   The normal build never downloads a model and does not execute hash-only corpus cases. An explicit
+   corpus invocation receives externally supplied fixture material, fails loudly if it is absent or
+   fails `templateSha256`, and either compares the UTF-8 SHA-256 of its exact rendered output to
    `expected.sha256` or compares the error category. No newline normalization is applied; invalid
    UTF-8 fixture material is a harness failure.
 
@@ -87,9 +87,9 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    than matching literals. Every known upstream error maps explicitly; an unmatched message fails
    the harness loudly and never defaults to a category.
 3. Build the upstream-test-to-corpus converter. Automate extraction from vendored non-model unit
-   and e2e sources where structurally representable. Exclude model-bearing sources unless their
-   fixture form is approved by the licensing policy; retain reviewed manual transcriptions only for
-   unsupported harness constructs and approved real-model templates, with source locations recorded.
+   sources where structurally representable. The upstream e2e source is excluded in full because it
+   contains model-derived material. Retain reviewed manual transcriptions only for unsupported
+   harness constructs and approved real-model templates, with source locations recorded.
 4. Implement Node and Java corpus runners. The versioned shim always supplies fixed time/zone and
    every non-built-in record global; built-in globals run independently. Apply an external
    wall-clock timeout to each process and report it as a harness failure, never a parity result.
