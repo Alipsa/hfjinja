@@ -65,6 +65,51 @@ final class Values {
     return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>());
   }
 
+  /**
+   * Converts a runtime value into an inert value for a {@code HostFunction}. Collections are copied
+   * and made immutable so a function can neither observe nor mutate interpreter state.
+   */
+  static Object toHost(Value value) {
+    return toHost(value, new IdentityHashMap<>());
+  }
+
+  private static Object toHost(Value value, IdentityHashMap<Value, Object> converted) {
+    return switch (value) {
+      case UndefinedValue ignored -> null;
+      case NullValue ignored -> null;
+      case BooleanValue booleanValue -> booleanValue.value();
+      case IntegerValue integerValue -> integerValue.value();
+      case FloatValue floatValue -> floatValue.value();
+      case StringValue stringValue -> stringValue.value();
+      case ArrayValue arrayValue -> {
+        var existing = converted.get(arrayValue);
+        if (existing != null) {
+          yield existing;
+        }
+        var values = new ArrayList<Object>(arrayValue.values().size());
+        for (var item : arrayValue.values()) {
+          values.add(toHost(item, converted));
+        }
+        var hostValue = Collections.unmodifiableList(values);
+        converted.put(arrayValue, hostValue);
+        yield hostValue;
+      }
+      case ObjectValue objectValue -> {
+        var existing = converted.get(objectValue);
+        if (existing != null) {
+          yield existing;
+        }
+        var values = new LinkedHashMap<String, Object>(objectValue.values().size());
+        for (var entry : objectValue.values().entrySet()) {
+          values.put(entry.getKey(), toHost(entry.getValue(), converted));
+        }
+        var hostValue = Collections.unmodifiableMap(values);
+        converted.put(objectValue, hostValue);
+        yield hostValue;
+      }
+    };
+  }
+
   private static Value fromHost(
       Object input,
       IdentityHashMap<Object, Value> converted,
