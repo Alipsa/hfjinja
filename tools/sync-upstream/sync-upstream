@@ -110,7 +110,8 @@ const vendorFiles = (directory, relative = '') => fs.readdirSync(directory, {wit
     if (ignored(entryRelative)) return [];
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return vendorFiles(entryPath, entryRelative);
-    return (entry.isFile() || (entry.isSymbolicLink() && fs.statSync(entryPath).isFile()))
+    return (entry.isFile()
+      || (entry.isSymbolicLink() && fs.statSync(entryPath, {throwIfNoEntry: false})?.isFile()))
       ? [[entryRelative, entryPath]] : [];
   });
 for (const [relative, file] of vendorFiles(root)) {
