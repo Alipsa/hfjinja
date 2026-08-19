@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
+import se.alipsa.hfjinja.HostFunction;
 import se.alipsa.hfjinja.TemplateRenderException;
 
 class ValuesTest {
@@ -62,6 +63,11 @@ class ValuesTest {
     };
 
     assertConversionFailure(malformed);
+  }
+
+  @Test
+  void rejectsFloatResultOutsideHostFunctionReturns() {
+    assertConversionFailure(HostFunction.floatResult(2d));
   }
 
   @Test

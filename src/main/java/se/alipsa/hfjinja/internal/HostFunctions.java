@@ -61,11 +61,11 @@ final class HostFunctions {
       var argument = Objects.requireNonNull(
           positionalArguments.get(index), "positionalArguments[" + index + "]");
       try {
-        arguments.add(Values.toHost(argument, convertedValues, sourceValues));
-      } catch (Values.UndefinedHostValueException | Values.UnsupportedHostValueException exception) {
+        arguments.add(Values.toHost(
+            argument, convertedValues, sourceValues, "argument " + index));
+      } catch (Values.UndefinedHostValueException exception) {
         throw failure(
-            "Host function '" + name + "' cannot receive argument " + index + ": "
-                + exception.getMessage(), exception, location);
+            "Host function '" + name + "' cannot receive " + exception.getMessage(), exception, location);
       }
     }
     return Collections.unmodifiableList(arguments);

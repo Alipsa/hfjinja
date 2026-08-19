@@ -122,7 +122,8 @@ objects). A HostFunction call with keyword arguments fails as `HOST_FUNCTION`; k
 are not represented in this v1 API. Template `undefined` cannot be represented at this closed Java
 boundary, so a HostFunction call containing it (including nested in a list or map) fails as
 `HOST_FUNCTION` rather than silently converting it to `null`. Its return value undergoes the same
-closed conversion above; a
+closed conversion above. `HostFunction.floatResult(double)` is the explicit return-only marker for
+an integral template float such as `2.0`; it is not accepted in a render context. A
 conversion violation is a `TemplateRenderException` in `HOST_FUNCTION`, never a raw
 `ClassCastException`. Any `RuntimeException` thrown by the function is likewise wrapped in a
 location-bearing `TemplateRenderException` in `HOST_FUNCTION`. `Appendable` write failures are

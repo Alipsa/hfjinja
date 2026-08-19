@@ -57,9 +57,11 @@ class HostFunctionsTest {
         .build();
     var undefinedError = assertHostFailure(() -> HostFunctions.invoke(
         "known", function(undefinedOptions, "known"),
-        List.of(new ArrayValue(List.of(UndefinedValue.INSTANCE))), false, CALL_LOCATION));
+        List.of(new ObjectValue(Map.of("items", new ArrayValue(List.of(UndefinedValue.INSTANCE))))),
+        false,
+        CALL_LOCATION));
     assertEquals(
-        "Host function 'known' cannot receive argument 0: an undefined argument",
+        "Host function 'known' cannot receive undefined value at argument 0.items[0]",
         undefinedError.getMessage());
     assertEquals(false, called.get());
   }
@@ -129,20 +131,16 @@ class HostFunctionsTest {
   }
 
   @Test
-  void rejectsValuesThatCannotRoundTripWithTheirArgumentIndex() {
-    var options = RenderOptions.builder().hostFunction("identity", arguments -> arguments.get(0)).build();
-    var unsafeInteger = assertHostFailure(() -> HostFunctions.invoke(
-        "identity", function(options, "identity"),
-        List.of(new IntegerValue(9_007_199_254_740_992d)), false, CALL_LOCATION));
-    assertEquals(
-        "Host function 'identity' cannot receive argument 0: "
-            + "integer outside the JavaScript safe-integer range",
-        unsafeInteger.getMessage());
-    var nonFiniteFloat = assertHostFailure(() -> HostFunctions.invoke(
-        "identity", function(options, "identity"), List.of(new FloatValue(Double.NaN)), false, CALL_LOCATION));
-    assertEquals(
-        "Host function 'identity' cannot receive argument 0: non-finite number",
-        nonFiniteFloat.getMessage());
+  void exposesComputedNumbersToHostFunctions() {
+    var options = RenderOptions.builder()
+        .hostFunction("type", arguments -> arguments.get(0).getClass().getSimpleName())
+        .build();
+    assertEquals(new StringValue("Long"), HostFunctions.invoke(
+        "type", function(options, "type"),
+        List.of(new IntegerValue(1L << 60)), false, CALL_LOCATION));
+    assertEquals(new StringValue("Double"), HostFunctions.invoke(
+        "type", function(options, "type"),
+        List.of(new FloatValue(Double.NaN)), false, CALL_LOCATION));
   }
 
   private static HostFunction function(RenderOptions options, String name) {

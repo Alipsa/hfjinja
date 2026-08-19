@@ -73,31 +73,33 @@ final class Values {
   static Object toHost(
       Value value,
       IdentityHashMap<Value, Object> converted,
-      IdentityHashMap<Object, Value> sourceValues) {
+      IdentityHashMap<Object, Value> sourceValues,
+      String path) {
     Objects.requireNonNull(value, "value");
     Objects.requireNonNull(converted, "converted");
     Objects.requireNonNull(sourceValues, "sourceValues");
+    Objects.requireNonNull(path, "path");
     // Values are immutable and only originate from acyclic host input, so this map preserves DAG
     // sharing rather than needing a separate cycle guard.
     return switch (value) {
-      case UndefinedValue ignored -> throw new UndefinedHostValueException();
+      case UndefinedValue ignored -> throw new UndefinedHostValueException("undefined value at " + path);
       case NullValue ignored -> null;
-      case BooleanValue booleanValue -> sourceValue(booleanValue.value(), value, sourceValues);
-      case IntegerValue integerValue -> sourceValue(hostInteger(integerValue.value()), value, sourceValues);
+      case BooleanValue booleanValue -> booleanValue.value();
+      case IntegerValue integerValue -> hostInteger(integerValue.value());
       case FloatValue floatValue -> sourceValue(hostFloat(floatValue.value()), value, sourceValues);
-      case StringValue stringValue -> sourceValue(stringValue.value(), value, sourceValues);
+      case StringValue stringValue -> stringValue.value();
       case ArrayValue arrayValue -> {
         var existing = converted.get(arrayValue);
         if (existing != null) {
           yield existing;
         }
         var values = new ArrayList<Object>(arrayValue.values().size());
-        for (var item : arrayValue.values()) {
-          values.add(toHost(item, converted, sourceValues));
+        for (int index = 0; index < arrayValue.values().size(); index++) {
+          values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path + "[" + index + "]"));
         }
         var hostValue = Collections.unmodifiableList(values);
         converted.put(arrayValue, hostValue);
-        sourceValues.put(hostValue, value);
+        sourceValues.putIfAbsent(hostValue, value);
         yield hostValue;
       }
       case ObjectValue objectValue -> {
@@ -107,11 +109,12 @@ final class Values {
         }
         var values = new LinkedHashMap<String, Object>(objectValue.values().size());
         for (var entry : objectValue.values().entrySet()) {
-          values.put(entry.getKey(), toHost(entry.getValue(), converted, sourceValues));
+          values.put(entry.getKey(), toHost(
+              entry.getValue(), converted, sourceValues, path + "." + entry.getKey()));
         }
         var hostValue = Collections.unmodifiableMap(values);
         converted.put(objectValue, hostValue);
-        sourceValues.put(hostValue, value);
+        sourceValues.putIfAbsent(hostValue, value);
         yield hostValue;
       }
     };
@@ -119,36 +122,25 @@ final class Values {
 
   private static Object sourceValue(
       Object hostValue, Value sourceValue, IdentityHashMap<Object, Value> sourceValues) {
-    sourceValues.put(hostValue, sourceValue);
+    sourceValues.putIfAbsent(hostValue, sourceValue);
     return hostValue;
   }
 
   private static Object hostInteger(double value) {
-    if (Double.isFinite(value) && Math.abs(value) <= MAX_SAFE_INTEGER) {
+    if (Double.isFinite(value) && value >= -0x1.0p63 && value < 0x1.0p63) {
       return Long.valueOf((long) value);
     }
-    throw new UnsupportedHostValueException("integer outside the JavaScript safe-integer range");
+    return value;
   }
 
   private static double hostFloat(double value) {
-    if (!Double.isFinite(value)) {
-      throw new UnsupportedHostValueException("non-finite number");
-    }
     return value;
   }
 
   static final class UndefinedHostValueException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
-    private UndefinedHostValueException() {
-      super("an undefined argument");
-    }
-  }
-
-  static final class UnsupportedHostValueException extends RuntimeException {
-    private static final long serialVersionUID = 1L;
-
-    private UnsupportedHostValueException(String message) {
+    private UndefinedHostValueException(String message) {
       super(message);
     }
   }
@@ -183,7 +175,7 @@ final class Values {
       if (!Double.isFinite(floatResult.value())) {
         throw conversion("Number must be finite: " + floatResult.value());
       }
-      return new FloatValue(floatResult.value());
+      return new FloatValue(normalizeHostZero(floatResult.value()));
     }
     if (input instanceof String string) {
       return new StringValue(string);
@@ -258,12 +250,12 @@ final class Values {
   private static Value numberValue(Number number) {
     if ((number instanceof Double || number instanceof Float)
         && !Double.isFinite(number.doubleValue())) {
-      throw conversion("Number must be finite: " + number);
+      throw conversion("Number must be finite: " + numberDescription(number));
     }
     final BigDecimal inputDecimal;
     try {
       inputDecimal = new BigDecimal(number.toString()).stripTrailingZeros();
-    } catch (RuntimeException exception) {
+    } catch (NumberFormatException | NullPointerException exception) {
       throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
     }
     final String canonical = formatJsDecimal(inputDecimal);
@@ -301,6 +293,14 @@ final class Values {
       }
     }
     throw new IllegalStateException("No JavaScript round-trip decimal for finite double");
+  }
+
+  private static String numberDescription(Number number) {
+    try {
+      return number.toString();
+    } catch (RuntimeException exception) {
+      return number.getClass().getName();
+    }
   }
 
   private static String formatJsDecimal(BigDecimal decimal) {
