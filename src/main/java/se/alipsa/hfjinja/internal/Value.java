@@ -10,6 +10,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.TemplateRenderException;
 
@@ -34,20 +35,34 @@ enum NullValue implements Value {
 
 record BooleanValue(boolean value) implements Value {}
 
-record IntegerValue(double value) implements Value {}
+record IntegerValue(double value) implements Value {
+  IntegerValue {
+    if (value == 0d) {
+      value = 0d;
+    }
+  }
+}
 
-record FloatValue(double value) implements Value {}
+record FloatValue(double value) implements Value {
+  FloatValue {
+    if (value == 0d) {
+      value = 0d;
+    }
+  }
+}
 
 record StringValue(String value) implements Value {}
 
 record ArrayValue(List<Value> values) implements Value {
   ArrayValue {
+    Objects.requireNonNull(values, "values");
     values = Collections.unmodifiableList(new ArrayList<>(values));
   }
 }
 
 record ObjectValue(Map<String, Value> values) implements Value {
   ObjectValue {
+    Objects.requireNonNull(values, "values");
     values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
   }
 }
@@ -85,8 +100,9 @@ final class Values {
       }
       requireAcyclic(input, visiting);
       try {
-        var values = new ArrayList<Value>(Array.getLength(input));
-        for (int index = 0; index < Array.getLength(input); index++) {
+        int length = Array.getLength(input);
+        var values = new ArrayList<Value>(length);
+        for (int index = 0; index < length; index++) {
           values.add(fromHost(Array.get(input, index), converted, visiting));
         }
         var value = new ArrayValue(values);
@@ -139,6 +155,10 @@ final class Values {
   }
 
   private static Value numberValue(Number number) {
+    if ((number instanceof Double || number instanceof Float)
+        && !Double.isFinite(number.doubleValue())) {
+      throw conversion("Number must be finite: " + number);
+    }
     final BigDecimal inputDecimal;
     try {
       inputDecimal = new BigDecimal(number.toString()).stripTrailingZeros();
@@ -147,13 +167,13 @@ final class Values {
     }
     final String canonical = formatJsDecimal(inputDecimal);
 
-    final double value = number instanceof Double || number instanceof Float
+    final double value = number instanceof Double
         ? number.doubleValue()
         : Double.parseDouble(inputDecimal.toString());
     if (!Double.isFinite(value)) {
       throw conversion("Number must be finite: " + canonical);
     }
-    if (!(number instanceof Double || number instanceof Float)
+    if (!(number instanceof Double)
         && !shortestJsDecimal(value).equals(canonical)) {
       throw conversion("Number is not representable as a JavaScript number: " + canonical);
     }
@@ -164,6 +184,29 @@ final class Values {
       return new IntegerValue(value);
     }
     return new FloatValue(value);
+  }
+
+  /** Implements JavaScript strict equality without relying on Java record equality. */
+  static boolean templateEquals(Value left, Value right) {
+    if (left instanceof IntegerValue leftNumber && right instanceof IntegerValue rightNumber) {
+      return leftNumber.value() == rightNumber.value();
+    }
+    if (left instanceof FloatValue leftNumber && right instanceof FloatValue rightNumber) {
+      return leftNumber.value() == rightNumber.value();
+    }
+    if (left instanceof IntegerValue leftNumber && right instanceof FloatValue rightNumber) {
+      return leftNumber.value() == rightNumber.value();
+    }
+    if (left instanceof FloatValue leftNumber && right instanceof IntegerValue rightNumber) {
+      return leftNumber.value() == rightNumber.value();
+    }
+    if (left instanceof StringValue leftString && right instanceof StringValue rightString) {
+      return leftString.value().equals(rightString.value());
+    }
+    if (left instanceof BooleanValue leftBoolean && right instanceof BooleanValue rightBoolean) {
+      return leftBoolean.value() == rightBoolean.value();
+    }
+    return left == right;
   }
 
   private static String shortestJsDecimal(double value) {

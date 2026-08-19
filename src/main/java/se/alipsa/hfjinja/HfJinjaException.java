@@ -5,6 +5,8 @@ import java.util.Optional;
 
 /** Base class for all documented hfjinja failures. */
 public class HfJinjaException extends RuntimeException {
+  private static final long serialVersionUID = 1L;
+
   private final ErrorCategory category;
   private final SourceLocation location;
 

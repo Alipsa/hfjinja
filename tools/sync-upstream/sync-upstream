@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")/../.."
+
 usage() {
-  echo "Usage: tools/sync-upstream/sync-upstream {verify|report}" >&2
+  echo "Usage: tools/sync-upstream/sync-upstream {verify|report|refresh-lock}" >&2
   exit 64
 }
 
@@ -12,6 +14,35 @@ case "${1:-}" in
     ;;
   report)
     git diff --stat -- upstream/vendor upstream/upstream-lock.json upstream/mapping.yml
+    ;;
+  refresh-lock)
+    node <<'NODE'
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const {execFileSync} = require('node:child_process');
+
+const root = 'upstream/vendor/';
+const lockPath = 'upstream/upstream-lock.json';
+const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+const files = {};
+for (const tracked of execFileSync('git', ['ls-files', '-z', '--', root]).toString().split('\0')) {
+  if (!tracked) continue;
+  const relative = tracked.slice(root.length);
+  files[relative] = crypto.createHash('sha256').update(fs.readFileSync(tracked)).digest('hex');
+}
+const ast = fs.readFileSync(path.join(root, 'src/ast.ts'), 'utf8');
+lock.astNodes = [...ast.matchAll(/^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/gm)]
+  .map((match) => match[1]);
+const runtime = fs.readFileSync(path.join(root, 'src/runtime.ts'), 'utf8');
+const globals = [...runtime.matchAll(/env\.set\("([A-Za-z_][A-Za-z0-9_]*)",/g)].map((match) => match[1]);
+const prior = new Map(lock.globals.map((entry) => [entry.name, entry]));
+const unknown = globals.filter((name) => !prior.has(name));
+if (unknown.length) throw new Error(`Add arity metadata for new globals before refreshing: ${unknown.join(', ')}`);
+lock.globals = globals.map((name) => prior.get(name));
+lock.files = Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
+fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+NODE
     ;;
   *)
     usage

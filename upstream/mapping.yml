@@ -1,28 +1,35 @@
 ast.ts:
   milestone: M1
+  status: planned
   java: []
   tests: []
 lexer.ts:
   milestone: M1
+  status: planned
   java: []
   tests: []
 parser.ts:
   milestone: M1
+  status: planned
   java: []
   tests: []
 runtime.ts:
   milestone: M2
+  status: planned
   java: []
   tests: []
 utils.ts:
   milestone: M2
+  status: planned
   java: []
   tests: []
 index.ts:
   milestone: M2
+  status: planned
   java: []
   tests: []
 format.ts:
+  milestone: M2
   reviewed-no-port-impact:
     sha256: ae4dd933ed99e933153c713667219d18a9689069560caecbfbf9c995d6674fd0
     rationale: No v1 runtime path calls Template.format().

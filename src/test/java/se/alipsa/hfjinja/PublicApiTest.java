@@ -4,6 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -22,9 +26,25 @@ class PublicApiTest {
   }
 
   @Test
+  void exceptionsWithLocationsAreSerializable() throws Exception {
+    var original = new TemplateSyntaxException("bad template", new SourceLocation(3, 1, 4));
+    var bytes = new ByteArrayOutputStream();
+    try (var output = new ObjectOutputStream(bytes)) {
+      output.writeObject(original);
+    }
+    TemplateSyntaxException restored;
+    try (var input = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+      restored = (TemplateSyntaxException) input.readObject();
+    }
+    assertEquals(original.getMessage(), restored.getMessage());
+    assertEquals(original.category(), restored.category());
+    assertEquals(original.location(), restored.location());
+  }
+
+  @Test
   void parsedTemplateIsImmutableBeforeInterpreterLands() {
     var template = Template.parse("literal");
-    var error = assertThrows(TemplateRenderException.class, () -> template.render(Map.of()));
-    assertEquals(ErrorCategory.VALUE, error.category());
+    assertEquals("literal", template.source());
+    assertThrows(UnsupportedOperationException.class, () -> template.render(Map.of()));
   }
 }

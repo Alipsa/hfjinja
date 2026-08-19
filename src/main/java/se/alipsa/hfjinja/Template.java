@@ -21,6 +21,11 @@ public final class Template {
     return new Template(source);
   }
 
+  /** Returns the exact source supplied when this template was parsed. */
+  public String source() {
+    return source;
+  }
+
   public String render(Map<String, ?> context) {
     return render(context, RenderOptions.DEFAULT);
   }
@@ -42,8 +47,7 @@ public final class Template {
     throw unsupported();
   }
 
-  private TemplateRenderException unsupported() {
-    return new TemplateRenderException(
-        "Template rendering is not implemented yet", ErrorCategory.VALUE, null);
+  private UnsupportedOperationException unsupported() {
+    return new UnsupportedOperationException("Template rendering is not implemented yet");
   }
 }

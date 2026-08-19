@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.TemplateRenderException;
@@ -33,6 +35,46 @@ class ValuesTest {
   void acceptsSubnormalNumbersUsingTheJsShortestForm() {
     assertEquals(new FloatValue(Double.MIN_VALUE), Values.fromHost(new BigDecimal("5E-324")));
     assertEquals(new FloatValue(Double.MIN_VALUE), Values.fromHost(Double.MIN_VALUE));
+  }
+
+  @Test
+  void convertsFloatThroughItsCanonicalDecimalRepresentation() {
+    assertEquals(new FloatValue(0.1d), Values.fromHost(0.1f));
+    assertEquals(new FloatValue(1.1d), Values.fromHost(1.1f));
+  }
+
+  @Test
+  void rejectsNonFiniteNumbersWithAFiniteDiagnostic() {
+    var nan = assertConversionFailure(Double.NaN);
+    assertEquals("Number must be finite: NaN", nan.getMessage());
+    var infinity = assertConversionFailure(Float.POSITIVE_INFINITY);
+    assertEquals("Number must be finite: Infinity", infinity.getMessage());
+  }
+
+  @Test
+  void supportsCommonNumberSubclassesAndRejectsUnsupportedHostValues() {
+    assertEquals(new IntegerValue(7d), Values.fromHost(new AtomicInteger(7)));
+    assertEquals(new IntegerValue(42d), Values.fromHost(new BigInteger("42")));
+    var error = assertConversionFailure('x');
+    assertEquals("Unsupported host value type: java.lang.Character", error.getMessage());
+  }
+
+  @Test
+  void normalizesNegativeZeroAndUsesJavaScriptNumericEquality() {
+    assertEquals(new IntegerValue(0d), Values.fromHost(-0.0d));
+    assertEquals(new FloatValue(0d), new FloatValue(-0.0d));
+    org.junit.jupiter.api.Assertions.assertTrue(
+        Values.templateEquals(new IntegerValue(0d), new FloatValue(-0.0d)));
+    org.junit.jupiter.api.Assertions.assertFalse(
+        Values.templateEquals(new FloatValue(Double.NaN), new FloatValue(Double.NaN)));
+  }
+
+  @Test
+  void rejectsNullCollectionValuesWithAUsefulMessage() {
+    var arrayError = assertThrows(NullPointerException.class, () -> new ArrayValue(null));
+    assertEquals("values", arrayError.getMessage());
+    var objectError = assertThrows(NullPointerException.class, () -> new ObjectValue(null));
+    assertEquals("values", objectError.getMessage());
   }
 
   @Test
@@ -68,8 +110,9 @@ class ValuesTest {
     assertInstanceOf(ArrayValue.class, Values.fromHost(graph));
   }
 
-  private static void assertConversionFailure(Object input) {
+  private static TemplateRenderException assertConversionFailure(Object input) {
     var error = assertThrows(TemplateRenderException.class, () -> Values.fromHost(input));
     assertEquals(ErrorCategory.HOST_CONVERSION, error.category());
+    return error;
   }
 }
