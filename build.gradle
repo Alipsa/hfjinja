@@ -93,7 +93,7 @@ tasks.register('corpusCoverage', Exec) {
 
 tasks.named('check') {
   dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeOracleVersion'), tasks.named('nodeCorpusVerify'),
-      tasks.named('corpusCoverage')
+      tasks.named('corpusCoverage'), tasks.named('upstreamVerify')
 }
 
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
@@ -324,10 +324,6 @@ tasks.register('upstreamVerify') {
     upstreamVerifyMarker.parentFile.mkdirs()
     upstreamVerifyMarker.text = 'verified\n'
   }
-}
-
-tasks.named('check') {
-  dependsOn tasks.named('upstreamVerify')
 }
 
 def upstreamVerification = tasks.named('upstreamVerify')
