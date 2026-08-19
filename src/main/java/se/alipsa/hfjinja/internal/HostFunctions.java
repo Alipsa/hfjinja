@@ -58,14 +58,16 @@ final class HostFunctions {
     IdentityHashMap<Object, Value> sourceValues) {
     var arguments = new ArrayList<Object>(positionalArguments.size());
     for (int index = 0; index < positionalArguments.size(); index++) {
-      var argument = Objects.requireNonNull(
-          positionalArguments.get(index), "positionalArguments[" + index + "]");
       try {
+        var argument = Objects.requireNonNull(
+            positionalArguments.get(index), "positionalArguments[" + index + "]");
         arguments.add(Values.toHost(
-            argument, convertedValues, sourceValues, "argument " + index));
+            argument, convertedValues, sourceValues, Values.HostPath.argument(index)));
       } catch (Values.UndefinedHostValueException exception) {
         throw failure(
             "Host function '" + name + "' cannot receive " + exception.getMessage(), null, location);
+      } catch (RuntimeException exception) {
+        throw failure("Host function '" + name + "' cannot receive argument " + index, exception, location);
       }
     }
     return Collections.unmodifiableList(arguments);

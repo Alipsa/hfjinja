@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -154,6 +155,29 @@ class HostFunctionsTest {
       assertEquals(new IntegerValue(value), HostFunctions.invoke(
           "identity", function(options, "identity"), List.of(new IntegerValue(value)), false, CALL_LOCATION));
     }
+  }
+
+  @Test
+  void preservesComputedNumericResultsThatNeedRuntimeTypeMarkers() {
+    var options = RenderOptions.builder()
+        .hostFunction("wide", arguments -> HostFunction.integerResult(((Long) arguments.get(0)) + 0L))
+        .hostFunction("integerNan", arguments -> arguments.get(0))
+        .build();
+
+    assertEquals(new IntegerValue(1L << 60), HostFunctions.invoke(
+        "wide", function(options, "wide"), List.of(new IntegerValue(1L << 60)), false, CALL_LOCATION));
+    assertEquals(new IntegerValue(Double.NaN), HostFunctions.invoke(
+        "integerNan", function(options, "integerNan"), List.of(new IntegerValue(Double.NaN)), false, CALL_LOCATION));
+  }
+
+  @Test
+  void wrapsUnexpectedArgumentConversionFailuresAtTheCallLocation() {
+    var options = RenderOptions.builder().hostFunction("known", arguments -> null).build();
+    var error = assertHostFailure(() -> HostFunctions.invoke(
+        "known", function(options, "known"), new ArrayList<>(Arrays.asList((Value) null)), false, CALL_LOCATION));
+
+    assertEquals("Host function 'known' cannot receive argument 0", error.getMessage());
+    assertInstanceOf(NullPointerException.class, error.getCause());
   }
 
   private static HostFunction function(RenderOptions options, String name) {

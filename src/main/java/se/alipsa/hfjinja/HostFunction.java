@@ -11,7 +11,8 @@ import java.util.List;
  * boundary; calls containing it fail with {@code HOST_FUNCTION}. Return values must satisfy the
  * same closed host-value boundary as render context values. Return {@link FloatResult} whenever
  * retaining a float result whose value is integral matters; an ordinary {@link Double} return is
- * converted by value and therefore becomes an integer in that case.
+ * converted by value and therefore becomes an integer in that case. Return {@link IntegerResult}
+ * for a computed integral result outside the JavaScript safe-integer range.
  */
 @FunctionalInterface
 public interface HostFunction {
@@ -22,6 +23,14 @@ public interface HostFunction {
     return new FloatResult(value);
   }
 
+  /** Marks a computed integral host-function result, including values outside the safe-integer range. */
+  static IntegerResult integerResult(double value) {
+    return new IntegerResult(value);
+  }
+
   /** Explicit float result marker for {@link #floatResult(double)}. */
   record FloatResult(double value) {}
+
+  /** Explicit integer result marker for {@link #integerResult(double)}. */
+  record IntegerResult(double value) {}
 }

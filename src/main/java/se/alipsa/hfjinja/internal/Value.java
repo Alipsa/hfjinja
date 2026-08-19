@@ -74,7 +74,7 @@ final class Values {
       Value value,
       IdentityHashMap<Value, Object> converted,
       IdentityHashMap<Object, Value> sourceValues,
-      String path) {
+      HostPath path) {
     Objects.requireNonNull(value, "value");
     Objects.requireNonNull(converted, "converted");
     Objects.requireNonNull(sourceValues, "sourceValues");
@@ -82,7 +82,7 @@ final class Values {
     // Values are immutable and only originate from acyclic host input, so this map preserves DAG
     // sharing rather than needing a separate cycle guard.
     return switch (value) {
-      case UndefinedValue ignored -> throw new UndefinedHostValueException("undefined value at " + path);
+      case UndefinedValue ignored -> throw new UndefinedHostValueException("undefined value at " + path.describe());
       case NullValue ignored -> null;
       case BooleanValue booleanValue -> booleanValue.value();
       case IntegerValue integerValue -> {
@@ -90,7 +90,7 @@ final class Values {
         // Safe integers reconstruct faithfully from a Long. Larger runtime integers do not pass
         // the normal host converter, so retain their exact source when a function echoes one.
         // Do not memoize all boxed Longs: JVM boxing caches would conflate distinct signed zeros.
-        yield Math.abs(integerValue.value()) > MAX_SAFE_INTEGER
+        yield !(Math.abs(integerValue.value()) <= MAX_SAFE_INTEGER)
             ? sourceValue(hostValue, value, sourceValues)
             : hostValue;
       }
@@ -103,7 +103,7 @@ final class Values {
         }
         var values = new ArrayList<Object>(arrayValue.values().size());
         for (int index = 0; index < arrayValue.values().size(); index++) {
-          values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path + "[" + index + "]"));
+          values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path.index(index)));
         }
         var hostValue = Collections.unmodifiableList(values);
         converted.put(arrayValue, hostValue);
@@ -118,7 +118,7 @@ final class Values {
         var values = new LinkedHashMap<String, Object>(objectValue.values().size());
         for (var entry : objectValue.values().entrySet()) {
           values.put(entry.getKey(), toHost(
-              entry.getValue(), converted, sourceValues, path + "." + entry.getKey()));
+              entry.getValue(), converted, sourceValues, path.key(entry.getKey())));
         }
         var hostValue = Collections.unmodifiableMap(values);
         converted.put(objectValue, hostValue);
@@ -136,13 +136,23 @@ final class Values {
 
   private static Object hostInteger(double value) {
     if (Double.isFinite(value) && value >= -0x1.0p63 && value < 0x1.0p63) {
-      return Long.valueOf((long) value);
+      return freshLong((long) value);
     }
-    return value;
+    return freshDouble(value);
   }
 
-  private static double hostFloat(double value) {
-    return value;
+  @SuppressWarnings("removal")
+  private static Long freshLong(long value) {
+    return new Long(value);
+  }
+
+  @SuppressWarnings("removal")
+  private static Double freshDouble(double value) {
+    return new Double(value);
+  }
+
+  private static Double hostFloat(double value) {
+    return freshDouble(value);
   }
 
   static final class UndefinedHostValueException extends RuntimeException {
@@ -150,6 +160,52 @@ final class Values {
 
     private UndefinedHostValueException(String message) {
       super(message);
+    }
+  }
+
+  /** Builds a diagnostic path only if an undefined value actually reaches the host boundary. */
+  static final class HostPath {
+    private final HostPath parent;
+    private final String key;
+    private final int index;
+    private final boolean isIndex;
+
+    private HostPath(HostPath parent, String key, int index, boolean isIndex) {
+      this.parent = parent;
+      this.key = key;
+      this.index = index;
+      this.isIndex = isIndex;
+    }
+
+    static HostPath argument(int index) {
+      return new HostPath(null, null, index, true);
+    }
+
+    HostPath index(int index) {
+      return new HostPath(this, null, index, true);
+    }
+
+    HostPath key(String key) {
+      return new HostPath(this, Objects.requireNonNull(key, "key"), 0, false);
+    }
+
+    String describe() {
+      var segments = new ArrayList<HostPath>();
+      for (HostPath segment = this; segment != null; segment = segment.parent) {
+        segments.add(segment);
+      }
+      var description = new StringBuilder();
+      for (int position = segments.size() - 1; position >= 0; position--) {
+        var segment = segments.get(position);
+        if (position == segments.size() - 1) {
+          description.append("argument ").append(segment.index);
+        } else if (segment.isIndex) {
+          description.append('[').append(segment.index).append(']');
+        } else {
+          description.append('.').append(segment.key);
+        }
+      }
+      return description.toString();
     }
   }
 
@@ -184,6 +240,12 @@ final class Values {
         throw conversion("Number must be finite: " + floatResult.value());
       }
       return new FloatValue(normalizeHostZero(floatResult.value()));
+    }
+    if (allowFloatResult && input instanceof HostFunction.IntegerResult integerResult) {
+      if (!Double.isFinite(integerResult.value()) || integerResult.value() != Math.rint(integerResult.value())) {
+        throw conversion("Integer result must be finite and integral: " + integerResult.value());
+      }
+      return new IntegerValue(normalizeHostZero(integerResult.value()));
     }
     if (input instanceof String string) {
       return new StringValue(string);
