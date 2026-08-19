@@ -87,20 +87,34 @@ NODE
     node <<'NODE'
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const {execFileSync} = require('node:child_process');
+const path = require('node:path');
 
 const root = 'upstream/vendor/';
 const lockPath = 'upstream/upstream-lock.json';
 const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
 const files = {};
 const excluded = new Set(Object.keys(lock.excludedFiles ?? {}));
-for (const tracked of execFileSync('git', ['ls-files', '-z', '--', root]).toString().split('\0')) {
-  if (!tracked) continue;
-  const relative = tracked.slice(root.length);
+const ignored = (relative) => relative === '.DS_Store'
+  || relative.endsWith('/.DS_Store')
+  || relative === 'node_modules'
+  || relative.startsWith('node_modules/')
+  || relative.includes('/node_modules/')
+  || relative === '__snapshots__'
+  || relative.startsWith('__snapshots__/')
+  || relative.includes('/__snapshots__/');
+const vendorFiles = (directory, relative = '') => fs.readdirSync(directory, {withFileTypes: true})
+  .flatMap((entry) => {
+    const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
+    if (ignored(entryRelative)) return [];
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return vendorFiles(entryPath, entryRelative);
+    return entry.isFile() ? [[entryRelative, entryPath]] : [];
+  });
+for (const [relative, file] of vendorFiles(root)) {
   if (excluded.has(relative)) {
     throw new Error(`Excluded vendored file is present: ${relative}`);
   }
-  files[relative] = crypto.createHash('sha256').update(fs.readFileSync(tracked)).digest('hex');
+  files[relative] = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 lock.files = Object.fromEntries(Object.entries(files).sort(([left], [right]) =>
   left < right ? -1 : left > right ? 1 : 0));

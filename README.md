@@ -131,8 +131,9 @@ results. `Appendable` write failures are reported as `OUTPUT` errors.
 ## Compatibility and upstream updates
 
 hfjinja targets one explicit upstream package revision, currently `@huggingface/jinja` 0.5.9.
-Selected, policy-approved package source is committed under `upstream/vendor/`; `upstream/upstream-lock.json` records the
-tarball integrity, commit, Node oracle version, global inventory, and source hashes.
+Selected, policy-approved package source is committed under `upstream/vendor/`;
+`upstream/upstream-lock.json` records the tarball integrity, commit, Node oracle version, global
+inventory, source hashes, and policy exclusions.
 
 ```bash
 ./gradlew check
