@@ -31,6 +31,40 @@ tasks.withType(Test).configureEach {
   // must use --patch-module and qualified opens rather than widening module-info.java.
 }
 
+tasks.register('nodeCorpusTest', Exec) {
+  group = 'verification'
+  description = 'Tests the versioned differential-corpus schema and error classifier.'
+  executable = 'node'
+  args '--test', 'tools/corpus/corpus.test.mjs'
+  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/corpus.test.mjs',
+      'tools/corpus/error-patterns-0.5.9.json')
+}
+
+tasks.register('nodeCorpusVerify', Exec) {
+  group = 'verification'
+  description = 'Checks text-bearing corpus cases against the pinned Node oracle.'
+  executable = 'node'
+  args 'tools/corpus/run-node-oracle.mjs', '--corpus', 'src/test/resources/corpus/v1.jsonl',
+      '--patterns', 'tools/corpus/error-patterns-0.5.9.json'
+  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/run-node-oracle.mjs',
+      'tools/corpus/error-patterns-0.5.9.json', 'src/test/resources/corpus/v1.jsonl',
+      'upstream/vendor/dist/index.js')
+}
+
+tasks.register('corpusCoverage', Exec) {
+  group = 'verification'
+  description = 'Checks extracted corpus fixtures and writes their upstream coverage report.'
+  executable = 'node'
+  args 'tools/corpus/convert-upstream-tests.mjs', '--check', '--report=build/reports/corpus-coverage.md'
+  inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs',
+      'src/test/resources/corpus/v1.jsonl', 'upstream/vendor/test/templates.test.js')
+  outputs.file(layout.buildDirectory.file('reports/corpus-coverage.md'))
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeCorpusVerify'), tasks.named('corpusCoverage')
+}
+
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
 def astAllowlistFile = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
 def mappingFile = layout.projectDirectory.file('upstream/mapping.yml').asFile

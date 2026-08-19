@@ -143,6 +143,11 @@ The command runs unit tests and `upstreamVerify`, which works without network ac
 changed vendor hashes, stale mappings, unaccounted AST nodes, or stale no-impact reviews. Updating
 the pin is an explicit, reviewed sync change—not an incidental dependency upgrade.
 
+The test build runs the pinned Node oracle over `src/test/resources/corpus/v1.jsonl`; this is a
+test-time tool only, not a library runtime dependency. Hash-only records are intentionally skipped
+by the normal build and require supplied external fixture material.
+`build/reports/corpus-coverage.md` lists the upstream cases currently represented by the corpus.
+
 Successful compatibility output compares byte-for-byte against the pinned Node package. Error
 comparison uses documented categories only. Python `transformers`/Jinja2 output is not an oracle.
 
