@@ -61,6 +61,18 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
     "globals":{"strftime_now":{"kind":"strftime_now"}},"expected":{"text":"..."}}
    ```
 
+   Text-bearing records are used only for fixture revisions approved for text/output retention.
+   Hash-only records carry no model expression:
+
+   ```json
+   {"templateSha256":"...","expectedSha256":"...","modelRepo":"...",
+    "modelRevision":"...","templatePath":"...","context":{},"expected":null}
+   ```
+
+   `template`/`expected.text` and the `templateSha256`/`expectedSha256` pair are mutually
+   exclusive. A hash-only runner obtains the template outside the repository, verifies its digest
+   before rendering, and compares the digest of its rendered output to `expectedSha256`.
+
    The `strftime_now` entry is illustrative only: its presence is determined after WP1a's global
    inventory. `instant`, `zone`, and `globals` are optional. Expected failures carry an
    `ErrorCategory`.
