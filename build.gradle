@@ -67,15 +67,12 @@ tasks.register('upstreamVerify') {
       stream.close()
     }
   }
-  inputs.file(upstreamLockFile)
-  inputs.file(astAllowlistFile)
-  inputs.file(mappingFile)
+  inputs.file(upstreamLockFile).withPropertyName('upstreamLock')
+  inputs.file(astAllowlistFile).withPropertyName('astAllowlist')
+  inputs.file(mappingFile).withPropertyName('mapping')
   inputs.files(vendorFiles)
   outputs.file(upstreamVerifyMarker)
   doLast {
-    if (!upstreamLockFile.isFile()) {
-      throw new GradleException('Missing upstream/upstream-lock.json')
-    }
     if (!vendorDir.isDirectory()) {
       throw new GradleException('Missing upstream/vendor')
     }
@@ -174,16 +171,10 @@ tasks.register('upstreamVerify') {
     if (lockedArities != expectedArities) {
       throw new GradleException("Global arity inventory mismatch; expected=${expectedArities}, actual=${lockedArities}")
     }
-    if (!astAllowlistFile.isFile()) {
-      throw new GradleException('Missing upstream/ast-allowlist.json')
-    }
     def declaredNodes = new groovy.json.JsonSlurper().parse(astAllowlistFile)
     def unaccountedNodes = discoveredNodes.findAll { !declaredNodes.containsKey(it) }
     if (!unaccountedNodes.isEmpty()) {
       throw new GradleException("Unaccounted AST nodes: ${unaccountedNodes.join(', ')}")
-    }
-    if (!mappingFile.isFile()) {
-      throw new GradleException('Missing upstream/mapping.yml')
     }
     def mappingEntries = [:]
     def currentMapping = null

@@ -25,9 +25,10 @@ ordered so that provenance and a repeatable oracle exist before behavior is port
    explicit stubs until their work package lands.
 3. Add `LICENSE`, `NOTICE`, Maven publication metadata, CI for `check` and `upstreamVerify`, and
    dependency/SBOM reporting.
-4. Implement the lock reader and offline `upstreamVerify` task. It verifies package/version,
-   commit, tarball integrity/SHA-256, Node version, source hashes, fixture revision, and global
-   inventory.
+4. Implement the lock reader and offline `upstreamVerify` task. It verifies package/version
+   against the vendored package, source hashes, fixture revision, and AST/global inventories. It
+   records commit, tarball integrity/SHA-256, and Node version as provenance metadata that remains
+   unverifiable offline until the deferred `fetch` workflow lands.
 5. Implement `sync-upstream report` and `verify`. `report` emits mapped-file impact and invalid
    no-impact-record hashes. `refresh-lock` updates vendored file hashes only; AST and global
    inventories require explicit review and lock updates. The networked `fetch` workflow is deferred
