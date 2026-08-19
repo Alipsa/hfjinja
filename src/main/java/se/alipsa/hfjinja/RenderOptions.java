@@ -66,10 +66,10 @@ public final class RenderOptions {
       return this;
     }
 
-    /** Registers a function under a template-visible name. */
-    public Builder hostFunction(String name, HostFunction function) {
-      if (name == null || name.isBlank()) {
-        throw new IllegalArgumentException("Host function name must be non-blank");
+  /** Registers a function under a template-visible name. */
+  public Builder hostFunction(String name, HostFunction function) {
+      if (name == null || !name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+        throw new IllegalArgumentException("Host function name must be a template identifier");
       }
       hostFunctions.add(new HostFunctionRegistration(name, Objects.requireNonNull(function, "function")));
       return this;
