@@ -35,7 +35,12 @@ public final class Lexer {
   private static final String JS_WHITESPACE_CHAR_CLASS =
       "\\t\\n\\u000B\\f\\r\\u0020\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF";
 
-  private static final Pattern LSTRIP_BLOCKS_PATTERN = Pattern.compile("(?m)^[ \\t]*(\\{[#%-])");
+  /*
+   * ECMAScript's multiline ^ recognizes only LF, CR, LS, and PS as line terminators. Java also
+   * recognizes NEL (U+0085), so use an explicit preceding-character assertion rather than (?m).
+   */
+  private static final Pattern LSTRIP_BLOCKS_PATTERN =
+      Pattern.compile("(?:^|(?<=[\\n\\r\\u2028\\u2029]))[ \\t]*(\\{[#%-])");
   private static final Pattern TRIM_BLOCKS_PATTERN = Pattern.compile("([#%-]\\})\\n");
 
   /**
@@ -109,7 +114,12 @@ public final class Lexer {
     if (options.trimBlocks()) {
       template = TRIM_BLOCKS_PATTERN.matcher(template).replaceAll("$1");
     }
-    return GENERATION_TAG_PATTERN.matcher(template).replaceAll(Lexer::stripGenerationTag);
+    // The leading whitespace group makes an unsuccessful regex search quadratic on a long
+    // whitespace run. The literal prefilter preserves behavior while keeping ordinary templates
+    // (which do not use generation tags) linear.
+    return template.indexOf("generation") < 0
+        ? template
+        : GENERATION_TAG_PATTERN.matcher(template).replaceAll(Lexer::stripGenerationTag);
   }
 
   private static String stripGenerationTag(MatchResult match) {
@@ -334,7 +344,7 @@ public final class Lexer {
     }
 
     private void advance() {
-      if (charAt(cursorPosition) == '\n') {
+      if (isLineTerminator(charAt(cursorPosition))) {
         line++;
         column = 1;
       } else {
@@ -353,6 +363,10 @@ public final class Lexer {
       return new SourceLocation(cursorPosition, line, column);
     }
 
+    private static boolean isLineTerminator(char c) {
+      return c == '\n' || c == '\r' || c == '\u0085' || c == '\u2028' || c == '\u2029';
+    }
+
     /**
      * Consumes characters while {@code predicate} holds, resolving backslash escapes inline. Only
      * the string-literal call site ever exercises the escape branch: {@code '\\'} never satisfies
@@ -366,15 +380,16 @@ public final class Lexer {
       var text = new StringBuilder();
       while (predicate.test(charAt(cursorPosition))) {
         if (charAt(cursorPosition) == '\\') {
+          var escapeLocation = currentLocation();
           advance();
           if (cursorPosition >= src.length()) {
-            throw syntaxError("Unexpected end of input", currentLocation());
+            throw syntaxError("Unexpected end of input", escapeLocation);
           }
           var escaped = charAt(cursorPosition);
           advance();
           var unescaped = ESCAPE_CHARACTERS.get(escaped);
           if (unescaped == null) {
-            throw syntaxError("Unexpected escaped character: " + escaped, currentLocation());
+            throw syntaxError("Unexpected escaped character: " + escaped, escapeLocation);
           }
           text.append(unescaped.charValue());
           continue;

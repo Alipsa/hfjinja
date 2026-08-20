@@ -217,6 +217,7 @@ class LexerTest {
     void rejectsAnUnknownEscapeCharacter() {
       var error = assertSyntaxError("{{ '\\q' }}");
       assertEquals("Unexpected escaped character: q", error.getMessage());
+      assertEquals(new SourceLocation(4, 1, 5), error.location().orElseThrow());
     }
   }
 
@@ -315,6 +316,19 @@ class LexerTest {
           shape(TokenType.CloseStatement, "%}"),
           shape(TokenType.Text, "B"));
     }
+
+    @Test
+    void lstripBlocksDoesNotTreatNelAsALineBoundary() {
+      var options = TemplateOptions.builder().lstripBlocks(true).build();
+      assertShapes(
+          "A\u0085  {% if %}B",
+          options,
+          shape(TokenType.Text, "A\u0085  "),
+          shape(TokenType.OpenStatement, "{%"),
+          shape(TokenType.Identifier, "if"),
+          shape(TokenType.CloseStatement, "%}"),
+          shape(TokenType.Text, "B"));
+    }
   }
 
   @Nested
@@ -345,6 +359,13 @@ class LexerTest {
       assertEquals("A\n", tokens.get(0).value());
       assertEquals(new SourceLocation(2, 2, 1), tokens.get(1).start());
       assertEquals(TokenType.OpenExpression, tokens.get(1).type());
+    }
+
+    @Test
+    void tracksAllRecognizedLineTerminators() {
+      var error = assertThrows(TemplateSyntaxException.class, () ->
+          Lexer.tokenize("A\rB\u0085C\u2028D\u2029{{ ! }}", TemplateOptions.DEFAULT));
+      assertEquals(new SourceLocation(11, 5, 4), error.location().orElseThrow());
     }
   }
 
