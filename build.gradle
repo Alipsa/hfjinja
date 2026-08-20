@@ -45,7 +45,7 @@ tasks.register('astSnapshotVerify', Exec) {
   inputs.files('tools/ast-snapshot/snapshot.mjs', 'src/test/resources/ast-snapshots/fixtures.json',
       'src/test/resources/ast-snapshots/upstream-parsed.txt', 'upstream/vendor/dist/index.js')
   outputs.file(astSnapshotMarker).withPropertyName('verifiedMarker')
-  doLast { astSnapshotMarker.parentFile.mkdirs(); astSnapshotMarker.text = 'verified\\n' }
+  doLast { astSnapshotMarker.parentFile.mkdirs(); astSnapshotMarker.text = "verified\n" }
 }
 
 tasks.register('nodeCorpusTest', Exec) {
