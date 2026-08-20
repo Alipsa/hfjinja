@@ -155,7 +155,8 @@ final class Values {
   }
 
   private static boolean isJvmCachedBox(Object value) {
-    return value instanceof Long longValue && longValue >= -128L && longValue <= 127L;
+    return value instanceof Long longValue && Long.valueOf(longValue) == value
+        || value instanceof Boolean booleanValue && Boolean.valueOf(booleanValue) == value;
   }
 
   private static Object hostInteger(double value) {

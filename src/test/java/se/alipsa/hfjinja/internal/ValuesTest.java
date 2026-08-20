@@ -31,8 +31,9 @@ class ValuesTest {
   void reportsUnsafeIntegerRangeBeforeRepresentability() {
     // An integral value above 2^53 is both unsafe and, once rounded to a double, no longer
     // matches its exact decimal text. The safe-integer diagnostic must win: it is the more
-    // specific and more useful message, and HostFunctionsTest.wideReturn pins the same ordering
-    // for a computed Long return.
+    // specific and more useful message, and
+    // HostFunctionsTest.wrapsHostExceptionsAndInvalidReturnValuesAtTheCallLocation pins the same
+    // ordering for a computed Long return.
     var error = assertConversionFailure(new BigInteger("9007199254740993"));
     assertEquals(
         "Integer is outside the JavaScript safe-integer range: 9007199254740993", error.getMessage());
