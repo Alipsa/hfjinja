@@ -460,7 +460,7 @@ public final class Parser {
                   var r = parseExpressionSequence(false);
                   expect(
                       TokenType.CloseParen,
-                      "Expected closing parenthesis, got ${tokens[current].type} instead.");
+                      "Expected closing parenthesis, got " + peek().type() + " instead.");
                   return r;
                 });
         case OpenSquareBracket ->

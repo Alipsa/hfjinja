@@ -15,7 +15,7 @@ import se.alipsa.hfjinja.internal.lexer.Lexer;
 class AstSnapshotDifferentialTest {
   private static final Pattern FIXTURE =
       Pattern.compile(
-          "\\{\\\"name\\\":\\\"([^\\\"]+)\\\",\\\"source\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"");
+          "\\{\\s*\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"source\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"])*)\\\"");
 
   @Test
   void matchesPinnedNodeParserSnapshots() throws Exception {
@@ -24,9 +24,11 @@ class AstSnapshotDifferentialTest {
         blocks(Files.readString(Path.of("src/test/resources/ast-snapshots/upstream-parsed.txt")));
     var matcher = FIXTURE.matcher(fixtures);
     var actual = new LinkedHashMap<String, String>();
+    var fixtureSources = new LinkedHashMap<String, String>();
     while (matcher.find()) {
       var name = matcher.group(1);
       var source = unescape(matcher.group(2));
+      fixtureSources.put(name, source);
       actual.put(
           name,
           AstSnapshot.of(
@@ -35,7 +37,10 @@ class AstSnapshotDifferentialTest {
     }
     assertEquals(expected.keySet(), actual.keySet(), "fixture and snapshot names differ");
     for (var entry : actual.entrySet())
-      assertEquals(expected.get(entry.getKey()), entry.getValue(), entry.getKey());
+      assertEquals(
+          expected.get(entry.getKey()),
+          entry.getValue(),
+          entry.getKey() + " (" + fixtureSources.get(entry.getKey()) + ")");
   }
 
   private static Map<String, String> blocks(String input) {
