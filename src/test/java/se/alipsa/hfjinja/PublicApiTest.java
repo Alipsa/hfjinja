@@ -98,6 +98,8 @@ class PublicApiTest {
     assertEquals(256, TemplateOptions.DEFAULT.maxAstDepth());
     assertTrue(TemplateOptions.DEFAULT.trimBlocks());
     assertTrue(TemplateOptions.DEFAULT.lstripBlocks());
+    assertEquals(TemplateOptions.DEFAULT.trimBlocks(), TemplateOptions.builder().build().trimBlocks());
+    assertEquals(TemplateOptions.DEFAULT.lstripBlocks(), TemplateOptions.builder().build().lstripBlocks());
 
     var options = TemplateOptions.builder()
         .maxSourceLength(10)

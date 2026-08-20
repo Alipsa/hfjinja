@@ -59,8 +59,8 @@ public final class TemplateOptions {
     private int maxSourceLength = DEFAULT_MAX_SOURCE_LENGTH;
     private int maxTokenCount = DEFAULT_MAX_TOKEN_COUNT;
     private int maxAstDepth = DEFAULT_MAX_AST_DEPTH;
-    private boolean trimBlocks;
-    private boolean lstripBlocks;
+    private boolean trimBlocks = true;
+    private boolean lstripBlocks = true;
 
     private Builder() {}
 

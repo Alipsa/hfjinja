@@ -14,7 +14,7 @@ import se.alipsa.hfjinja.internal.lexer.Lexer;
 import org.junit.jupiter.api.Test;
 
 class ParserTest {
-  private static final TemplateOptions RAW = TemplateOptions.builder().build();
+  private static final TemplateOptions RAW = TemplateOptions.builder().trimBlocks(false).lstripBlocks(false).build();
 
   @Test void parsesTextAndComment() {
     var program = parse("a{# note #}b");
@@ -42,6 +42,20 @@ class ParserTest {
     var source = "{{ " + "(".repeat(5_000) + "1" + ")".repeat(5_000) + " }}";
     var error = assertThrows(TemplateRenderException.class, () -> parse(source));
     assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+  }
+  @Test void deeplyNestedElifChainsAreResourceLimited() {
+    var source = new StringBuilder("{% if a %}x");
+    for (var index = 0; index < 5_000; index++) source.append("{% elif b").append(index).append(" %}y");
+    source.append("{% endif %}");
+    var error = assertThrows(TemplateRenderException.class, () -> parse(source.toString()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+  }
+  @Test void portsUpstreamTrailingCommaAndFilterQuirks() {
+    assertThrows(TemplateSyntaxException.class, () -> expression("{{ (1,) }}"));
+    assertInstanceOf(Statement.FilterStatement.class, parse("{% filter 42 %}x{% endfilter %}").body().get(0));
+  }
+  @Test void oversizedIntegersRemainIntegerLiterals() {
+    assertInstanceOf(Expression.IntegerLiteral.class, expression("{{ 123456789012345678901234 }}"));
   }
   private static Statement.Program parse(String source) { return Parser.parse(Lexer.tokenize(source, RAW), RAW); }
   private static Expression expression(String source) { return (Expression) parse(source).body().get(0); }

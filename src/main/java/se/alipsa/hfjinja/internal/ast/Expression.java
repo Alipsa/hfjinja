@@ -10,7 +10,7 @@ public sealed interface Expression extends Statement {
   record MemberExpression(Expression object, Expression property, boolean computed, SourceLocation location) implements Expression { public MemberExpression { Objects.requireNonNull(object); Objects.requireNonNull(property); Objects.requireNonNull(location); } }
   record CallExpression(Expression callee, List<Expression> args, SourceLocation location) implements Expression { public CallExpression { Objects.requireNonNull(callee); args = List.copyOf(args); Objects.requireNonNull(location); } }
   record Identifier(String value, SourceLocation location) implements Expression { public Identifier { Objects.requireNonNull(value); Objects.requireNonNull(location); } }
-  record IntegerLiteral(long value, SourceLocation location) implements Expression { public IntegerLiteral { Objects.requireNonNull(location); } }
+  record IntegerLiteral(double value, SourceLocation location) implements Expression { public IntegerLiteral { Objects.requireNonNull(location); } }
   record FloatLiteral(double value, SourceLocation location) implements Expression { public FloatLiteral { Objects.requireNonNull(location); } }
   record StringLiteral(String value, SourceLocation location) implements Expression { public StringLiteral { Objects.requireNonNull(value); Objects.requireNonNull(location); } }
   record ArrayLiteral(List<Expression> value, SourceLocation location) implements Expression { public ArrayLiteral { value = List.copyOf(value); Objects.requireNonNull(location); } }

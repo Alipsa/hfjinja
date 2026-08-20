@@ -38,5 +38,20 @@ class AstSnapshotDifferentialTest {
     }
     if (name != null) result.put(name, body.toString()); return result;
   }
-  private static String unescape(String value) { return value.replace("\\\\\"", "\"").replace("\\\\n", "\n").replace("\\\\\\\\", "\\"); }
+  private static String unescape(String value) {
+    var result = new StringBuilder();
+    for (var index = 0; index < value.length(); index++) {
+      var character = value.charAt(index);
+      if (character != '\\') { result.append(character); continue; }
+      if (++index == value.length()) throw new IllegalArgumentException("Incomplete JSON escape");
+      switch (value.charAt(index)) {
+        case '"' -> result.append('"'); case '\\' -> result.append('\\'); case '/' -> result.append('/');
+        case 'b' -> result.append('\b'); case 'f' -> result.append('\f'); case 'n' -> result.append('\n');
+        case 'r' -> result.append('\r'); case 't' -> result.append('\t');
+        case 'u' -> { if (index + 4 >= value.length()) throw new IllegalArgumentException("Incomplete Unicode escape"); result.append((char) Integer.parseInt(value.substring(index + 1, index + 5), 16)); index += 4; }
+        default -> throw new IllegalArgumentException("Invalid JSON escape");
+      }
+    }
+    return result.toString();
+  }
 }

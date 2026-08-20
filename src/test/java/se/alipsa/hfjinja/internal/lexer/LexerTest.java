@@ -404,5 +404,5 @@ class LexerTest {
   }
 
   /** Raw scanning keeps lexer shape assertions independent of public parse defaults. */
-  private static final TemplateOptions RAW = TemplateOptions.builder().build();
+  private static final TemplateOptions RAW = TemplateOptions.builder().trimBlocks(false).lstripBlocks(false).build();
 }

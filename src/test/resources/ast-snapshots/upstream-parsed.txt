@@ -82,3 +82,66 @@ Program
           computed
             true
       defaultBlock
+=== OBJECT_LITERAL "{{ {'a': 1, 'b': 2} }}"
+Program
+  body
+    ObjectLiteral
+      value
+        key
+          StringLiteral
+            value
+              "a"
+        value
+          IntegerLiteral
+            value
+              1
+        key
+          StringLiteral
+            value
+              "b"
+        value
+          IntegerLiteral
+            value
+              2
+=== SLICE "{{ x[1:2] }}"
+Program
+  body
+    MemberExpression
+      object
+        Identifier
+          value
+            "x"
+      property
+        SliceExpression
+          start
+            IntegerLiteral
+              value
+                1
+          stop
+            IntegerLiteral
+              value
+                2
+          step
+            -
+      computed
+        true
+=== BLOCK_SET "{% set x %}line\\ntext{% endset %}"
+Program
+  body
+    Set
+      assignee
+        Identifier
+          value
+            "x"
+      value
+        -
+      body
+        StringLiteral
+          value
+            "line\\ntext"
+=== ESCAPED_SOURCE "{{ \"a\\\\nb\\\"c\" }}"
+Program
+  body
+    StringLiteral
+      value
+        "a\\nb\"c"
