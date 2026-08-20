@@ -3,6 +3,7 @@ package se.alipsa.hfjinja;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -81,5 +82,29 @@ class PublicApiTest {
         () -> RenderOptions.builder().hostFunction("1st", formatter));
     assertThrows(NullPointerException.class,
         () -> RenderOptions.builder().hostFunction("format_tool", null));
+  }
+
+  @Test
+  void templateOptionsHaveSaneDefaultsAndRejectInvalidLimits() {
+    assertEquals(1_048_576, TemplateOptions.DEFAULT.maxSourceLength());
+    assertEquals(200_000, TemplateOptions.DEFAULT.maxTokenCount());
+    assertFalse(TemplateOptions.DEFAULT.trimBlocks());
+    assertFalse(TemplateOptions.DEFAULT.lstripBlocks());
+
+    var options = TemplateOptions.builder()
+        .maxSourceLength(10)
+        .maxTokenCount(20)
+        .trimBlocks(true)
+        .lstripBlocks(true)
+        .build();
+    assertEquals(10, options.maxSourceLength());
+    assertEquals(20, options.maxTokenCount());
+    assertTrue(options.trimBlocks());
+    assertTrue(options.lstripBlocks());
+
+    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(0));
+    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(-1));
+    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxTokenCount(0));
+    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxTokenCount(-1));
   }
 }
