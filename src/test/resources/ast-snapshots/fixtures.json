@@ -1,0 +1,6 @@
+[
+  {"name":"NO_TEMPLATE","source":"Hello world!","upstreamLine":10},
+  {"name":"TEXT_NODES","source":"0{{ 'A' }}1{{ 'B' }}{{ 'C' }}2{{ 'D' }}3","upstreamLine":11},
+  {"name":"IF_ONLY","source":"{% if 1 == 1 %}{{ 'A' }}{% endif %}{{ 'B' }}","upstreamLine":25},
+  {"name":"FOR_LOOP","source":"{% for message in messages %}{{ message['content'] }}{% endfor %}","upstreamLine":31}
+]

@@ -2,13 +2,16 @@ package se.alipsa.hfjinja;
 
 import java.util.Map;
 import java.util.Objects;
+import se.alipsa.hfjinja.internal.ast.Statement;
+import se.alipsa.hfjinja.internal.lexer.Lexer;
+import se.alipsa.hfjinja.internal.parser.Parser;
 
 /** An immutable parsed template. Parser and interpreter behavior land in subsequent work packages. */
 public final class Template {
-  private final String source;
+  private final Statement.Program program;
 
-  private Template(String source) {
-    this.source = source;
+  private Template(Statement.Program program) {
+    this.program = program;
   }
 
   public static Template parse(String source) {
@@ -18,7 +21,7 @@ public final class Template {
   public static Template parse(String source, TemplateOptions options) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(options, "options");
-    return new Template(source);
+    return new Template(Parser.parse(Lexer.tokenize(source, options), options));
   }
 
   public String render(Map<String, ?> context) {

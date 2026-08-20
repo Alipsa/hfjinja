@@ -4,17 +4,22 @@ package se.alipsa.hfjinja;
 public final class TemplateOptions {
   private static final int DEFAULT_MAX_SOURCE_LENGTH = 1_048_576;
   private static final int DEFAULT_MAX_TOKEN_COUNT = 200_000;
+  private static final int DEFAULT_MAX_AST_DEPTH = 256;
 
-  public static final TemplateOptions DEFAULT = builder().build();
+  /** Defaults matching upstream's public Template constructor. */
+  public static final TemplateOptions DEFAULT = builder().trimBlocks(true).lstripBlocks(true).build();
 
   private final int maxSourceLength;
   private final int maxTokenCount;
+  private final int maxAstDepth;
   private final boolean trimBlocks;
   private final boolean lstripBlocks;
 
-  private TemplateOptions(int maxSourceLength, int maxTokenCount, boolean trimBlocks, boolean lstripBlocks) {
+  private TemplateOptions(int maxSourceLength, int maxTokenCount, int maxAstDepth,
+      boolean trimBlocks, boolean lstripBlocks) {
     this.maxSourceLength = maxSourceLength;
     this.maxTokenCount = maxTokenCount;
+    this.maxAstDepth = maxAstDepth;
     this.trimBlocks = trimBlocks;
     this.lstripBlocks = lstripBlocks;
   }
@@ -34,6 +39,11 @@ public final class TemplateOptions {
     return maxTokenCount;
   }
 
+  /** Returns the maximum nesting depth accepted by the parser. */
+  public int maxAstDepth() {
+    return maxAstDepth;
+  }
+
   /** Returns whether the first newline after a template tag is stripped automatically. */
   public boolean trimBlocks() {
     return trimBlocks;
@@ -48,6 +58,7 @@ public final class TemplateOptions {
   public static final class Builder {
     private int maxSourceLength = DEFAULT_MAX_SOURCE_LENGTH;
     private int maxTokenCount = DEFAULT_MAX_TOKEN_COUNT;
+    private int maxAstDepth = DEFAULT_MAX_AST_DEPTH;
     private boolean trimBlocks;
     private boolean lstripBlocks;
 
@@ -69,6 +80,14 @@ public final class TemplateOptions {
       return this;
     }
 
+    public Builder maxAstDepth(int maxAstDepth) {
+      if (maxAstDepth <= 0) {
+        throw new IllegalArgumentException("maxAstDepth must be positive");
+      }
+      this.maxAstDepth = maxAstDepth;
+      return this;
+    }
+
     public Builder trimBlocks(boolean trimBlocks) {
       this.trimBlocks = trimBlocks;
       return this;
@@ -81,7 +100,7 @@ public final class TemplateOptions {
 
     /** Creates immutable parse-time options. */
     public TemplateOptions build() {
-      return new TemplateOptions(maxSourceLength, maxTokenCount, trimBlocks, lstripBlocks);
+      return new TemplateOptions(maxSourceLength, maxTokenCount, maxAstDepth, trimBlocks, lstripBlocks);
     }
   }
 }

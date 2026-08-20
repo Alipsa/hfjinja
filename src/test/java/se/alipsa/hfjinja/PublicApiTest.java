@@ -52,6 +52,13 @@ class PublicApiTest {
   }
 
   @Test
+  void parseRejectsMalformedTemplatesAtThePublicBoundary() {
+    var error = assertThrows(TemplateSyntaxException.class, () -> Template.parse("{% if x %}"));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertTrue(error.location().isPresent());
+  }
+
+  @Test
   void renderOptionsAreImmutableAndRejectInvalidFunctionRegistrations() {
     var clock = Clock.fixed(Instant.parse("2025-01-02T03:04:05Z"), ZoneOffset.UTC);
     HostFunction formatter = arguments -> "formatted";
@@ -88,8 +95,9 @@ class PublicApiTest {
   void templateOptionsHaveSaneDefaultsAndRejectInvalidLimits() {
     assertEquals(1_048_576, TemplateOptions.DEFAULT.maxSourceLength());
     assertEquals(200_000, TemplateOptions.DEFAULT.maxTokenCount());
-    assertFalse(TemplateOptions.DEFAULT.trimBlocks());
-    assertFalse(TemplateOptions.DEFAULT.lstripBlocks());
+    assertEquals(256, TemplateOptions.DEFAULT.maxAstDepth());
+    assertTrue(TemplateOptions.DEFAULT.trimBlocks());
+    assertTrue(TemplateOptions.DEFAULT.lstripBlocks());
 
     var options = TemplateOptions.builder()
         .maxSourceLength(10)
@@ -99,6 +107,7 @@ class PublicApiTest {
         .build();
     assertEquals(10, options.maxSourceLength());
     assertEquals(20, options.maxTokenCount());
+    assertEquals(256, options.maxAstDepth());
     assertTrue(options.trimBlocks());
     assertTrue(options.lstripBlocks());
 
@@ -106,5 +115,7 @@ class PublicApiTest {
     assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(-1));
     assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxTokenCount(0));
     assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxTokenCount(-1));
+    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxAstDepth(0));
+    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxAstDepth(-1));
   }
 }

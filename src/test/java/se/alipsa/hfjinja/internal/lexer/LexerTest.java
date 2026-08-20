@@ -254,7 +254,7 @@ class LexerTest {
     void avoidsQuadraticGenerationTagSearchWhenGenerationIsPlainText() {
       var source = " ".repeat(10_000) + "generation";
       var tokens = assertTimeout(
-          Duration.ofSeconds(1), () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+          Duration.ofSeconds(1), () -> Lexer.tokenize(source, RAW));
       assertEquals(1, tokens.size());
       assertEquals(TokenType.Text, tokens.get(0).type());
       assertEquals(source, tokens.get(0).value());
@@ -388,7 +388,7 @@ class LexerTest {
   }
 
   private static void assertShapes(String source, TokenShape... expected) {
-    assertShapes(source, TemplateOptions.DEFAULT, expected);
+    assertShapes(source, RAW, expected);
   }
 
   private static void assertShapes(String source, TemplateOptions options, TokenShape... expected) {
@@ -400,6 +400,9 @@ class LexerTest {
 
   private static TemplateSyntaxException assertSyntaxError(String source) {
     return assertThrows(
-        TemplateSyntaxException.class, () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+        TemplateSyntaxException.class, () -> Lexer.tokenize(source, RAW));
   }
+
+  /** Raw scanning keeps lexer shape assertions independent of public parse defaults. */
+  private static final TemplateOptions RAW = TemplateOptions.builder().build();
 }
