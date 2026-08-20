@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.SourceLocation;
@@ -46,13 +45,13 @@ public final class Lexer {
   /**
    * Strips the HF-transformers-specific {@code {% generation %}}/{@code {% endgeneration %}} tags,
    * honoring their {@code -} whitespace-control modifiers. Upstream compiles this with JS's {@code
-   * gs} flags: {@code g} (global) is inherent to {@link java.util.regex.Matcher#replaceAll}, and
-   * {@code s} (dot-all) has no effect here since the pattern contains no {@code .} metacharacter.
+   * gs} flags. Its literal {@code {%} prefix is deliberately matched before surrounding whitespace
+   * is examined, preventing unsuccessful searches through long whitespace runs from becoming
+   * quadratic.
    */
   private static final Pattern GENERATION_TAG_PATTERN = Pattern.compile(
-      "([" + JS_WHITESPACE_CHAR_CLASS + "]*)\\{%(-?)[" + JS_WHITESPACE_CHAR_CLASS
-          + "]*(?:end)?generation[" + JS_WHITESPACE_CHAR_CLASS + "]*(-?)%\\}(["
-          + JS_WHITESPACE_CHAR_CLASS + "]*)");
+      "\\{%(-?)[" + JS_WHITESPACE_CHAR_CLASS + "]*(?:end)?generation["
+          + JS_WHITESPACE_CHAR_CLASS + "]*(-?)%\\}");
 
   private static final Map<Character, Character> ESCAPE_CHARACTERS = Map.of(
       'n', '\n', 't', '\t', 'r', '\r', 'b', '\b', 'f', '\f', 'v', '\u000B',
@@ -114,20 +113,33 @@ public final class Lexer {
     if (options.trimBlocks()) {
       template = TRIM_BLOCKS_PATTERN.matcher(template).replaceAll("$1");
     }
-    // The leading whitespace group makes an unsuccessful regex search quadratic on a long
-    // whitespace run. The literal prefilter preserves behavior while keeping ordinary templates
-    // (which do not use generation tags) linear.
-    return template.indexOf("generation") < 0
-        ? template
-        : GENERATION_TAG_PATTERN.matcher(template).replaceAll(Lexer::stripGenerationTag);
+    return template.indexOf("generation") < 0 ? template : stripGenerationTags(template);
   }
 
-  private static String stripGenerationTag(MatchResult match) {
-    var before = match.group(1);
-    var lstrip = match.group(2);
-    var rstrip = match.group(3);
-    var after = match.group(4);
-    return (lstrip.isEmpty() ? before : "") + (rstrip.isEmpty() ? after : "");
+  private static String stripGenerationTags(String template) {
+    var matcher = GENERATION_TAG_PATTERN.matcher(template);
+    var result = new StringBuilder(template.length());
+    var copyPosition = 0;
+    while (matcher.find()) {
+      var whitespaceBefore = matcher.start();
+      while (whitespaceBefore > copyPosition
+          && isJsWhitespace(template.charAt(whitespaceBefore - 1))) {
+        whitespaceBefore--;
+      }
+      var whitespaceAfter = matcher.end();
+      while (whitespaceAfter < template.length() && isJsWhitespace(template.charAt(whitespaceAfter))) {
+        whitespaceAfter++;
+      }
+      result.append(template, copyPosition, whitespaceBefore);
+      if (matcher.group(1).isEmpty()) {
+        result.append(template, whitespaceBefore, matcher.start());
+      }
+      if (matcher.group(2).isEmpty()) {
+        result.append(template, matcher.end(), whitespaceAfter);
+      }
+      copyPosition = whitespaceAfter;
+    }
+    return result.append(template, copyPosition, template.length()).toString();
   }
 
   private static boolean isWordChar(char c) {
@@ -344,9 +356,12 @@ public final class Lexer {
     }
 
     private void advance() {
-      if (isLineTerminator(charAt(cursorPosition))) {
-        line++;
-        column = 1;
+      var current = charAt(cursorPosition);
+      if (isLineTerminator(current)) {
+        if (current != '\n' || charAt(cursorPosition - 1) != '\r') {
+          line++;
+          column = 1;
+        }
       } else {
         column++;
       }
@@ -364,7 +379,7 @@ public final class Lexer {
     }
 
     private static boolean isLineTerminator(char c) {
-      return c == '\n' || c == '\r' || c == '\u0085' || c == '\u2028' || c == '\u2029';
+      return c == '\n' || c == '\r' || c == '\u2028' || c == '\u2029';
     }
 
     /**

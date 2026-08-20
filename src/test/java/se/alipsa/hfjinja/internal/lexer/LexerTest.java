@@ -2,7 +2,9 @@ package se.alipsa.hfjinja.internal.lexer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Nested;
@@ -249,6 +251,16 @@ class LexerTest {
   @Nested
   class GenerationTagPreprocessing {
     @Test
+    void avoidsQuadraticGenerationTagSearchWhenGenerationIsPlainText() {
+      var source = " ".repeat(10_000) + "generation";
+      var tokens = assertTimeout(
+          Duration.ofSeconds(1), () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+      assertEquals(1, tokens.size());
+      assertEquals(TokenType.Text, tokens.get(0).type());
+      assertEquals(source, tokens.get(0).value());
+    }
+
+    @Test
     void stripsTheTagButKeepsSurroundingWhitespaceWithoutHyphens() {
       assertShapes(
           " {% generation %}A{% endgeneration %} ",
@@ -362,10 +374,10 @@ class LexerTest {
     }
 
     @Test
-    void tracksAllRecognizedLineTerminators() {
+    void tracksEcmaScriptLineTerminatorsWithoutDoubleCountingCrlf() {
       var error = assertThrows(TemplateSyntaxException.class, () ->
-          Lexer.tokenize("A\rB\u0085C\u2028D\u2029{{ ! }}", TemplateOptions.DEFAULT));
-      assertEquals(new SourceLocation(11, 5, 4), error.location().orElseThrow());
+          Lexer.tokenize("A\r\nB\rC\u2028D\u2029{{ ! }}", TemplateOptions.DEFAULT));
+      assertEquals(new SourceLocation(12, 5, 4), error.location().orElseThrow());
     }
   }
 
