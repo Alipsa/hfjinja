@@ -45,7 +45,7 @@ public final class Lexer {
   /**
    * Strips the HF-transformers-specific {@code {% generation %}}/{@code {% endgeneration %}} tags,
    * honoring their {@code -} whitespace-control modifiers. Upstream compiles this with JS's {@code
-   * gs} flags. Its literal {@code {%} prefix is deliberately matched before surrounding whitespace
+   * gs} flags. Its literal {@code {%}} prefix is deliberately matched before surrounding whitespace
    * is examined, preventing unsuccessful searches through long whitespace runs from becoming
    * quadratic.
    */
