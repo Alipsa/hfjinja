@@ -13,6 +13,11 @@ import java.util.List;
  * object unchanged preserves its runtime int/float tag. Computed {@link Double} or {@link Long}
  * results convert by value: use {@link FloatResult} to retain an integral float, or
  * {@link IntegerResult} for an integral result outside the JavaScript safe-integer range.
+ *
+ * <p>Exception to the integer contract: an integral {@code -0} argument is delivered as
+ * {@link Double}, not {@link Long}. The standard {@code Long} boxing path is subject to JVM
+ * caching, and a cached box cannot be tied to one specific {@code -0} argument without risking
+ * that an unrelated {@code +0} elsewhere silently aliases to it.
  */
 @FunctionalInterface
 public interface HostFunction {

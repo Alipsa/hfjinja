@@ -54,8 +54,8 @@ final class HostFunctions {
       List<Value> positionalArguments,
       String name,
       SourceLocation location,
-    IdentityHashMap<Value, Object> convertedValues,
-    IdentityHashMap<Object, Value> sourceValues) {
+      IdentityHashMap<Value, Object> convertedValues,
+      IdentityHashMap<Object, Value> sourceValues) {
     var arguments = new ArrayList<Object>(positionalArguments.size());
     for (int index = 0; index < positionalArguments.size(); index++) {
       try {

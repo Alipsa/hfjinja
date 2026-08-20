@@ -187,6 +187,77 @@ class HostFunctionsTest {
   }
 
   @Test
+  void rejectsNonFiniteAndNonIntegralResultMarkers() {
+    var options = RenderOptions.builder()
+        .hostFunction("nanFloat", arguments -> HostFunction.floatResult(Double.NaN))
+        .hostFunction("infiniteFloat", arguments -> HostFunction.floatResult(Double.POSITIVE_INFINITY))
+        .hostFunction("fractionalInteger", arguments -> HostFunction.integerResult(2.5))
+        .build();
+
+    var nanCause = assertInstanceOf(TemplateRenderException.class, assertHostFailure(
+        () -> HostFunctions.invoke("nanFloat", function(options, "nanFloat"), List.of(), false, CALL_LOCATION))
+        .getCause());
+    assertEquals(ErrorCategory.HOST_CONVERSION, nanCause.category());
+    assertEquals("Float result must be finite: NaN", nanCause.getMessage());
+
+    var infiniteCause = assertInstanceOf(TemplateRenderException.class, assertHostFailure(
+        () -> HostFunctions.invoke(
+            "infiniteFloat", function(options, "infiniteFloat"), List.of(), false, CALL_LOCATION))
+        .getCause());
+    assertEquals("Float result must be finite: Infinity", infiniteCause.getMessage());
+
+    var fractionalCause = assertInstanceOf(TemplateRenderException.class, assertHostFailure(
+        () -> HostFunctions.invoke(
+            "fractionalInteger", function(options, "fractionalInteger"), List.of(), false, CALL_LOCATION))
+        .getCause());
+    assertEquals("Integer result must be finite and integral: 2.5", fractionalCause.getMessage());
+  }
+
+  @Test
+  void preservesResultMarkersNestedInsideReturnedContainers() {
+    var options = RenderOptions.builder()
+        .hostFunction("nestedFloat", arguments -> List.of(HostFunction.floatResult(2d)))
+        .hostFunction("nestedInteger", arguments -> Map.of("value", HostFunction.integerResult(1L << 60)))
+        .build();
+
+    assertEquals(new ArrayValue(List.of(new FloatValue(2d))), HostFunctions.invoke(
+        "nestedFloat", function(options, "nestedFloat"), List.of(), false, CALL_LOCATION));
+    assertEquals(new ObjectValue(Map.of("value", new IntegerValue(1L << 60))), HostFunctions.invoke(
+        "nestedInteger", function(options, "nestedInteger"), List.of(), false, CALL_LOCATION));
+  }
+
+  @Test
+  void preservesIdentityForAReturnedSubContainer() {
+    var innerArray = new ArrayValue(List.of(new StringValue("value")));
+    var outerObject = new ObjectValue(Map.of("items", innerArray));
+    var options = RenderOptions.builder()
+        .hostFunction("innerItems", arguments -> ((Map<?, ?>) arguments.get(0)).get("items"))
+        .build();
+
+    var result = HostFunctions.invoke(
+        "innerItems", function(options, "innerItems"), List.of(outerObject), false, CALL_LOCATION);
+    assertSame(innerArray, result);
+  }
+
+  @Test
+  void rejectsACyclicReturnedStructure() {
+    var options = RenderOptions.builder()
+        .hostFunction("cyclic", arguments -> {
+          var cycle = new ArrayList<>();
+          cycle.add(cycle);
+          return cycle;
+        })
+        .build();
+
+    var error = assertHostFailure(
+        () -> HostFunctions.invoke("cyclic", function(options, "cyclic"), List.of(), false, CALL_LOCATION));
+    assertEquals("Host function 'cyclic' returned an unsupported value", error.getMessage());
+    var cause = assertInstanceOf(TemplateRenderException.class, error.getCause());
+    assertEquals(ErrorCategory.HOST_CONVERSION, cause.category());
+    assertEquals("Host value graph contains a cycle", cause.getMessage());
+  }
+
+  @Test
   void wrapsUnexpectedArgumentConversionFailuresAtTheCallLocation() {
     var options = RenderOptions.builder().hostFunction("known", arguments -> null).build();
     var error = assertHostFailure(() -> HostFunctions.invoke(

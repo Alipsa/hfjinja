@@ -143,8 +143,19 @@ final class Values {
     // Host functions receive ordinary Java scalar types. An exact scalar argument object returned
     // unchanged is the only signal that it should retain its runtime int/float tag; computed boxed
     // values convert by value and must use FloatResult or IntegerResult when that tag matters.
+    //
+    // This registration is sound only because nothing JVM-cached ever reaches it: callers route
+    // safe-range integers straight through without calling sourceValue(), so only wide Longs
+    // (always freshly boxed) and Doubles (never cached by the JVM) arrive here. Registering a
+    // cached box would let an unrelated host value with the same identity silently alias to the
+    // wrong tag.
+    assert !isJvmCachedBox(hostValue) : "Refusing to register a JVM-cached box: " + hostValue;
     sourceValues.putIfAbsent(hostValue, sourceValue);
     return hostValue;
+  }
+
+  private static boolean isJvmCachedBox(Object value) {
+    return value instanceof Long longValue && longValue >= -128L && longValue <= 127L;
   }
 
   private static Object hostInteger(double value) {
@@ -218,7 +229,7 @@ final class Values {
       IdentityHashMap<Object, Value> converted,
       IdentityHashMap<Object, Boolean> visiting,
       IdentityHashMap<Object, Value> sourceValues,
-      boolean allowFloatResult) {
+      boolean allowResultMarkers) {
     if (sourceValues != null) {
       var sourceValue = sourceValues.get(input);
       if (sourceValue != null) {
@@ -228,13 +239,13 @@ final class Values {
     if (input == null) {
       return NullValue.INSTANCE;
     }
-    if (allowFloatResult && input instanceof HostFunction.FloatResult floatResult) {
+    if (allowResultMarkers && input instanceof HostFunction.FloatResult floatResult) {
       if (!Double.isFinite(floatResult.value())) {
-        throw conversion("Number must be finite: " + floatResult.value());
+        throw conversion("Float result must be finite: " + floatResult.value());
       }
       return new FloatValue(floatResult.value());
     }
-    if (allowFloatResult && input instanceof HostFunction.IntegerResult integerResult) {
+    if (allowResultMarkers && input instanceof HostFunction.IntegerResult integerResult) {
       if (!Double.isFinite(integerResult.value()) || integerResult.value() != Math.rint(integerResult.value())) {
         throw conversion("Integer result must be finite and integral: " + integerResult.value());
       }
@@ -259,7 +270,7 @@ final class Values {
         int length = Array.getLength(input);
         var values = new ArrayList<Value>(length);
         for (int index = 0; index < length; index++) {
-          values.add(fromHost(Array.get(input, index), converted, visiting, sourceValues, allowFloatResult));
+          values.add(fromHost(Array.get(input, index), converted, visiting, sourceValues, allowResultMarkers));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -277,7 +288,7 @@ final class Values {
       try {
         var values = new ArrayList<Value>(list.size());
         for (Object item : list) {
-          values.add(fromHost(item, converted, visiting, sourceValues, allowFloatResult));
+          values.add(fromHost(item, converted, visiting, sourceValues, allowResultMarkers));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -298,7 +309,7 @@ final class Values {
           if (!(entry.getKey() instanceof String key)) {
             throw conversion("Map keys must be strings");
           }
-          values.put(key, fromHost(entry.getValue(), converted, visiting, sourceValues, allowFloatResult));
+          values.put(key, fromHost(entry.getValue(), converted, visiting, sourceValues, allowResultMarkers));
         }
         var value = new ObjectValue(values);
         converted.put(input, value);
@@ -315,10 +326,14 @@ final class Values {
         && !Double.isFinite(number.doubleValue())) {
       throw conversion("Number must be finite: " + Double.toString(number.doubleValue()));
     }
+    final String text = number.toString();
+    if (text == null) {
+      throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
+    }
     final BigDecimal inputDecimal;
     try {
-      inputDecimal = new BigDecimal(number.toString()).stripTrailingZeros();
-    } catch (NumberFormatException | NullPointerException exception) {
+      inputDecimal = new BigDecimal(text).stripTrailingZeros();
+    } catch (NumberFormatException exception) {
       throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
     }
     final String canonical = formatJsDecimal(inputDecimal);
