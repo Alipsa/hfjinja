@@ -398,7 +398,7 @@ public sealed interface Expression extends Statement {
 
   record Identifier(String value, SourceLocation location) implements Expression {}
 
-  record IntegerLiteral(long value, SourceLocation location) implements Expression {}
+  record IntegerLiteral(double value, SourceLocation location) implements Expression {}
 
   record FloatLiteral(double value, SourceLocation location) implements Expression {}
 
@@ -444,7 +444,7 @@ public sealed interface Expression extends Statement {
 
 The block above is a **shape table, not finished code**: it omits the compact constructors and the file header. Fill each one in following the `Statement.java` pattern — `List.copyOf` for list components, `Objects.requireNonNull` for every non-nullable reference component, and nothing for the documented nullable ones (`SliceExpression`'s three). The file needs `package se.alipsa.hfjinja.internal.ast;`, imports for `java.util.List`, `java.util.Objects`, `se.alipsa.hfjinja.SourceLocation`, and `se.alipsa.hfjinja.internal.lexer.Token` (used by `BinaryExpression` and `UnaryExpression` — this is the cross-package need that makes `Token` `public`), and the same `public sealed interface` javadoc treatment as `Statement`.
 
-**`IntegerLiteral` is `long`, `FloatLiteral` is `double`.** Upstream stores both as JS `number`. WP2 already established the split integer/float value model (`req/implementation-plan.md`, WP2 step 1), and the lexer hands the parser a digit string; `long` keeps integer literals exact through parsing. Task 4 specifies the overflow behavior.
+**`IntegerLiteral` and `FloatLiteral` both hold `double`.** Upstream stores both as JS `number`; the distinct node kinds preserve the source-literal distinction while the value retains upstream IEEE-754 behavior, including precision loss for oversized integers. Task 4 specifies the overflow behavior.
 
 - [ ] **Step 5: Run the inventory test**
 
@@ -756,7 +756,7 @@ Port `parser.ts:596-668` (`parsePrimaryExpression`) and `parser.ts:271-284` (`pa
 - **`{{ -x }}` is a syntax error upstream.** The lexer folds `-` into a numeric literal only when digits follow (`Lexer.java:280-289`), otherwise emitting a `UnaryOperator` token. `parsePrimaryExpression` has no `UnaryOperator` case, so it falls to `default` and throws. Verified against the pinned package: `{{ -5 }}` → `IntegerLiteral`; `{{ -x }}` and `{{ +x }}` → `SyntaxError: Unexpected token: UnaryOperator`. Port the throw.
 - **Adjacent string literals concatenate**: `{{ 'a' 'b' }}` is one `StringLiteral` with value `ab` (`parser.ts:606-612`).
 - **Integer vs float is decided by a literal `.`**, not by value: `num.includes(".") ? FloatLiteral : IntegerLiteral` (`parser.ts:601`). `1e3` has no dot and is therefore an *integer* literal upstream — check what the lexer emits for it and mirror whatever `Number(num)` would produce.
-- **Overflow:** parse integer text with `Long.parseLong`; on `NumberFormatException`, fall back to `FloatLiteral(Double.parseDouble(text))`, matching JS's single `number` type, which silently loses precision rather than failing. Add a test for a 25-digit literal.
+- **Overflow:** parse integer text with `Double.parseDouble` and retain its `IntegerLiteral` node kind. This matches JS's single-number precision loss without incorrectly turning an integer-syntax literal into a float node. Add a test for a 25-digit literal.
 - **`parseExpressionSequence` returns a bare expression when there is no comma**, and a `TupleLiteral` when there is — including the trailing-comma case `(a,)`.
 - The `OpenParen` branch's upstream error message contains a literal, un-interpolated `${tokens[current].type}` because it uses single quotes (`parser.ts:618`). Reproduce the message text as-is; it is what the corpus classifier will see.
 
