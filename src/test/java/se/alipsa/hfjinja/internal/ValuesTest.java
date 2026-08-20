@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
+import se.alipsa.hfjinja.HostFunction;
 import se.alipsa.hfjinja.TemplateRenderException;
 
 class ValuesTest {
@@ -24,6 +25,18 @@ class ValuesTest {
   void rejectsDecimalNarrowingAndUnsafeIntegers() {
     assertConversionFailure(new BigDecimal("0.1234567890123456789"));
     assertConversionFailure(new BigDecimal("9007199254740992"));
+  }
+
+  @Test
+  void reportsUnsafeIntegerRangeBeforeRepresentability() {
+    // An integral value above 2^53 is both unsafe and, once rounded to a double, no longer
+    // matches its exact decimal text. The safe-integer diagnostic must win: it is the more
+    // specific and more useful message, and
+    // HostFunctionsTest.wrapsHostExceptionsAndInvalidReturnValuesAtTheCallLocation pins the same
+    // ordering for a computed Long return.
+    var error = assertConversionFailure(new BigInteger("9007199254740993"));
+    assertEquals(
+        "Integer is outside the JavaScript safe-integer range: 9007199254740993", error.getMessage());
   }
 
   @Test
@@ -49,6 +62,29 @@ class ValuesTest {
     assertEquals("Number must be finite: NaN", nan.getMessage());
     var infinity = assertConversionFailure(Float.POSITIVE_INFINITY);
     assertEquals("Number must be finite: Infinity", infinity.getMessage());
+  }
+
+  @Test
+  void wrapsMalformedNumberTextAsAConversionFailure() {
+    Number malformed = new Number() {
+      @Override public int intValue() { return 0; }
+      @Override public long longValue() { return 0; }
+      @Override public float floatValue() { return 0; }
+      @Override public double doubleValue() { return 0; }
+      @Override public String toString() { return null; }
+    };
+
+    assertConversionFailure(malformed);
+  }
+
+  @Test
+  void rejectsFloatResultOutsideHostFunctionReturns() {
+    assertConversionFailure(HostFunction.floatResult(2d));
+  }
+
+  @Test
+  void rejectsIntegerResultOutsideHostFunctionReturns() {
+    assertConversionFailure(HostFunction.integerResult(1L << 60));
   }
 
   @Test
