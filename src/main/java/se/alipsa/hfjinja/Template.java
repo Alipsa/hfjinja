@@ -3,6 +3,9 @@ package se.alipsa.hfjinja;
 import java.util.Map;
 import java.util.Objects;
 import se.alipsa.hfjinja.internal.ast.Statement;
+import se.alipsa.hfjinja.internal.Value;
+import se.alipsa.hfjinja.internal.Values;
+import se.alipsa.hfjinja.internal.runtime.Interpreter;
 import se.alipsa.hfjinja.internal.lexer.Lexer;
 import se.alipsa.hfjinja.internal.parser.Parser;
 
@@ -57,11 +60,14 @@ public final class Template {
   public String render(Map<String, ?> context, RenderOptions options) {
     Objects.requireNonNull(context, "context");
     Objects.requireNonNull(options, "options");
-    throw unsupported();
+    var output = new StringBuilder();
+    render(context, output, options);
+    return output.toString();
   }
 
   /**
-   * Renders this template with {@link RenderOptions#DEFAULT}, appending output as it is produced.
+   * Renders this template with {@link RenderOptions#DEFAULT}, buffering the complete result before
+   * appending it once to {@code output}.
    *
    * @param context the top-level template variables
    * @param output the destination for rendered output
@@ -71,7 +77,7 @@ public final class Template {
   }
 
   /**
-   * Renders this template, appending output as it is produced.
+   * Renders this template, buffering the complete result before appending it once to {@code output}.
    *
    * @param context the top-level template variables
    * @param output the destination for rendered output
@@ -81,10 +87,8 @@ public final class Template {
     Objects.requireNonNull(context, "context");
     Objects.requireNonNull(output, "output");
     Objects.requireNonNull(options, "options");
-    throw unsupported();
+    var value = Values.fromHost(context);
+    Interpreter.render(program, (Value.ObjectValue) value, options, output);
   }
 
-  private UnsupportedOperationException unsupported() {
-    return new UnsupportedOperationException("Template rendering is not implemented yet");
-  }
 }

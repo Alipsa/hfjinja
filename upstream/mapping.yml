@@ -16,9 +16,10 @@ parser.ts:
   tests: [src/test/java/se/alipsa/hfjinja/internal/parser/ParserTest.java, src/test/java/se/alipsa/hfjinja/internal/parser/AstSnapshotDifferentialTest.java]
 runtime.ts:
   milestone: M2
-  status: planned
-  java: []
-  tests: []
+  # Slice 1 runtime port; small utils and index responsibilities live in Interpreter.
+  status: implemented
+  java: [src/main/java/se/alipsa/hfjinja/internal/runtime/Environment.java, src/main/java/se/alipsa/hfjinja/internal/runtime/RenderBudget.java, src/main/java/se/alipsa/hfjinja/internal/runtime/ExecResult.java, src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java, src/main/java/se/alipsa/hfjinja/internal/JsFormat.java]
+  tests: [src/test/java/se/alipsa/hfjinja/internal/runtime/InterpreterTest.java]
 utils.ts:
   milestone: M2
   status: planned

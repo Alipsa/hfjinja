@@ -4,6 +4,22 @@
     {
       "regex": "^Unknown variable: (?<name>.+)$",
       "category": "UNDEFINED_OR_ACCESS"
+    },
+    {
+      "regex": "^Object keys must be strings: got (?<type>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Cannot access property with non-string: got (?<type>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Variable already declared: (?<name>.+)$",
+      "category": "VALUE"
+    },
+    {
+      "regex": "^Cannot unpack non-iterable type: (?<type>.+)$",
+      "category": "TYPE"
     }
   ]
 }

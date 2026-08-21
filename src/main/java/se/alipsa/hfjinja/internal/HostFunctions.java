@@ -17,10 +17,11 @@ import se.alipsa.hfjinja.TemplateRenderException;
  * interpreter-owned. Argument conversion is intentionally per call; render-scoped accounting and
  * memoization arrive with the WP4 render environment and budget.
  */
-final class HostFunctions {
+@SuppressWarnings("doclint:missing")
+public final class HostFunctions {
   private HostFunctions() {}
 
-  static Value invoke(
+  public static Value invoke(
       String name,
       HostFunction function,
       List<Value> positionalArguments,
