@@ -226,11 +226,10 @@ final class AstSnapshot {
    * JSON.stringify} for all values the lexer can produce (plain digit strings with an optional
    * {@code .}), including the integer/decimal/exponential notation boundaries at 1e21 and 1e-6.
    * {@code Double.toString} already computes the shortest round-tripping decimal digits (JDK
-   * 19+), which this only reformats per the ECMAScript rules; two divergences remain outside that
-   * range and are not worth chasing here: {@code JSON.stringify} maps NaN/Infinity to {@code
-   * "null"} rather than a numeric string, and {@code Double.toString} is not guaranteed shortest
-   * for subnormal doubles (e.g. {@code Double.MIN_VALUE} prints as {@code "4.9E-324"} in Java vs
-   * {@code "5e-324"} in JS).
+   * 19+), which this only reformats per the ECMAScript rules; non-finite values are mapped to
+   * {@code "null"} as {@code JSON.stringify} does. One divergence remains and is not worth
+   * chasing here: {@code Double.toString} is not guaranteed shortest for subnormal doubles (e.g.
+   * {@code Double.MIN_VALUE} prints as {@code "4.9E-324"} in Java vs {@code "5e-324"} in JS).
    */
   private static String number(double value) {
     if (Double.isNaN(value) || Double.isInfinite(value)) return "null";
