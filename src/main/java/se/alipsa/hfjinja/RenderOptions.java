@@ -16,6 +16,7 @@ public final class RenderOptions {
   private static final Set<String> BUILTIN_GLOBALS =
       Set.of("false", "true", "none", "raise_exception", "range", "strftime_now", "True", "False", "None");
 
+  /** Render options with no clock/zone override and no host functions. */
   public static final RenderOptions DEFAULT = new RenderOptions(null, null, Map.of());
 
   private final Clock clock;
@@ -28,22 +29,38 @@ public final class RenderOptions {
     this.hostFunctions = Collections.unmodifiableMap(new LinkedHashMap<>(hostFunctions));
   }
 
-  /** Starts construction of immutable render options. */
+  /**
+   * Starts construction of immutable render options.
+   *
+   * @return a new builder with default options
+   */
   public static Builder builder() {
     return new Builder();
   }
 
-  /** Returns the optional caller-supplied clock. */
+  /**
+   * Returns the optional caller-supplied clock.
+   *
+   * @return the clock, or empty to use the system clock
+   */
   public Optional<Clock> clock() {
     return Optional.ofNullable(clock);
   }
 
-  /** Returns the optional caller-supplied time zone. */
+  /**
+   * Returns the optional caller-supplied time zone.
+   *
+   * @return the time zone, or empty to use the system default
+   */
   public Optional<ZoneId> zoneId() {
     return Optional.ofNullable(zoneId);
   }
 
-  /** Returns the immutable functions that are callable by name from a template. */
+  /**
+   * Returns the immutable functions that are callable by name from a template.
+   *
+   * @return the host functions, keyed by their template-visible name
+   */
   public Map<String, HostFunction> hostFunctions() {
     return hostFunctions;
   }
@@ -56,17 +73,35 @@ public final class RenderOptions {
 
     private Builder() {}
 
+    /**
+     * Overrides the clock used for time-dependent host functions.
+     *
+     * @param clock the clock to use
+     * @return this builder
+     */
     public Builder clock(Clock clock) {
       this.clock = Objects.requireNonNull(clock, "clock");
       return this;
     }
 
+    /**
+     * Overrides the time zone used for time-dependent host functions.
+     *
+     * @param zoneId the time zone to use
+     * @return this builder
+     */
     public Builder zoneId(ZoneId zoneId) {
       this.zoneId = Objects.requireNonNull(zoneId, "zoneId");
       return this;
     }
 
-  /** Registers a function under a template-visible name. */
+  /**
+   * Registers a function under a template-visible name.
+   *
+   * @param name the template-visible name; must be a valid template identifier
+   * @param function the function to register
+   * @return this builder
+   */
   public Builder hostFunction(String name, HostFunction function) {
       if (name == null || !name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
         throw new IllegalArgumentException("Host function name must be a template identifier");
@@ -75,7 +110,11 @@ public final class RenderOptions {
       return this;
     }
 
-    /** Validates registrations and creates immutable render options. */
+    /**
+     * Validates registrations and creates immutable render options.
+     *
+     * @return the immutable render options
+     */
     public RenderOptions build() {
       var functions = new LinkedHashMap<String, HostFunction>();
       for (var registration : hostFunctions) {

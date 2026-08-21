@@ -18,6 +18,13 @@ import se.alipsa.hfjinja.internal.lexer.TokenType;
 public final class Parser {
   private Parser() {}
 
+  /**
+   * Parses a token list into an AST.
+   *
+   * @param tokens the tokens produced by {@link se.alipsa.hfjinja.internal.lexer.Lexer#tokenize}
+   * @param options parse-time limits and syntax options
+   * @return the parsed program
+   */
   public static Statement.Program parse(List<Token> tokens, TemplateOptions options) {
     Objects.requireNonNull(tokens, "tokens");
     Objects.requireNonNull(options, "options");

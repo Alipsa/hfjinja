@@ -24,32 +24,56 @@ public final class TemplateOptions {
     this.lstripBlocks = lstripBlocks;
   }
 
-  /** Starts construction of immutable parse-time options. */
+  /**
+   * Starts construction of immutable parse-time options.
+   *
+   * @return a new builder with default options
+   */
   public static Builder builder() {
     return new Builder();
   }
 
-  /** Returns the maximum accepted source length in {@code char}s, checked before preprocessing. */
+  /**
+   * Returns the maximum accepted source length in {@code char}s, checked before preprocessing.
+   *
+   * @return the maximum source length
+   */
   public int maxSourceLength() {
     return maxSourceLength;
   }
 
-  /** Returns the maximum accepted token count while scanning. */
+  /**
+   * Returns the maximum accepted token count while scanning.
+   *
+   * @return the maximum token count
+   */
   public int maxTokenCount() {
     return maxTokenCount;
   }
 
-  /** Returns the maximum nesting depth accepted by the parser. */
+  /**
+   * Returns the maximum nesting depth accepted by the parser.
+   *
+   * @return the maximum AST depth
+   */
   public int maxAstDepth() {
     return maxAstDepth;
   }
 
-  /** Returns whether the first newline after a template tag is stripped automatically. */
+  /**
+   * Returns whether the first newline after a template tag is stripped automatically.
+   *
+   * @return whether block trimming is enabled
+   */
   public boolean trimBlocks() {
     return trimBlocks;
   }
 
-  /** Returns whether leading spaces/tabs before a template tag are stripped automatically. */
+  /**
+   * Returns whether leading spaces/tabs before a template tag are stripped automatically.
+   *
+   * @return whether block lstripping is enabled
+   */
   public boolean lstripBlocks() {
     return lstripBlocks;
   }
@@ -64,6 +88,12 @@ public final class TemplateOptions {
 
     private Builder() {}
 
+    /**
+     * Sets the maximum accepted source length.
+     *
+     * @param maxSourceLength the maximum source length in {@code char}s; must be positive
+     * @return this builder
+     */
     public Builder maxSourceLength(int maxSourceLength) {
       if (maxSourceLength <= 0) {
         throw new IllegalArgumentException("maxSourceLength must be positive");
@@ -72,6 +102,12 @@ public final class TemplateOptions {
       return this;
     }
 
+    /**
+     * Sets the maximum accepted token count.
+     *
+     * @param maxTokenCount the maximum token count; must be positive
+     * @return this builder
+     */
     public Builder maxTokenCount(int maxTokenCount) {
       if (maxTokenCount <= 0) {
         throw new IllegalArgumentException("maxTokenCount must be positive");
@@ -80,6 +116,12 @@ public final class TemplateOptions {
       return this;
     }
 
+    /**
+     * Sets the maximum nesting depth accepted by the parser.
+     *
+     * @param maxAstDepth the maximum AST depth; must be positive
+     * @return this builder
+     */
     public Builder maxAstDepth(int maxAstDepth) {
       if (maxAstDepth <= 0) {
         throw new IllegalArgumentException("maxAstDepth must be positive");
@@ -88,17 +130,33 @@ public final class TemplateOptions {
       return this;
     }
 
+    /**
+     * Sets whether the first newline after a template tag is stripped automatically.
+     *
+     * @param trimBlocks whether to enable block trimming
+     * @return this builder
+     */
     public Builder trimBlocks(boolean trimBlocks) {
       this.trimBlocks = trimBlocks;
       return this;
     }
 
+    /**
+     * Sets whether leading spaces/tabs before a template tag are stripped automatically.
+     *
+     * @param lstripBlocks whether to enable block lstripping
+     * @return this builder
+     */
     public Builder lstripBlocks(boolean lstripBlocks) {
       this.lstripBlocks = lstripBlocks;
       return this;
     }
 
-    /** Creates immutable parse-time options. */
+    /**
+     * Creates immutable parse-time options.
+     *
+     * @return the immutable parse-time options
+     */
     public TemplateOptions build() {
       return new TemplateOptions(maxSourceLength, maxTokenCount, maxAstDepth, trimBlocks, lstripBlocks);
     }

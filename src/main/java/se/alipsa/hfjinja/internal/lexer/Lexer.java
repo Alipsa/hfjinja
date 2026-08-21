@@ -89,6 +89,13 @@ public final class Lexer {
 
   private Lexer() {}
 
+  /**
+   * Scans {@code source} into a token list.
+   *
+   * @param source the template source
+   * @param options parse-time limits and syntax options
+   * @return the scanned tokens, in source order
+   */
   public static List<Token> tokenize(String source, TemplateOptions options) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(options, "options");
