@@ -84,23 +84,36 @@ Copied from the spec and from the WP3 plan; every task's requirements implicitly
   must fix every such switch in the same commit. (One exists today: `Values.toHost`. Grep for
   `case ArrayValue` before assuming that's still the only one by the time this slice finishes — Task
   4 adds a second, in `Interpreter.renderText`.)
-- **`Interpreter.evaluate`'s switch over `Statement`/`Expression` is exhaustive from the moment it
-  first exists, not grown case-by-case as tasks happen to need a variant.** `Statement` permits 10
-  leaves plus `Expression`, which itself permits 18 more (28 leaves total; verified by counting
-  `Statement.java`'s and `Expression.java`'s own `permits`/`record` declarations, not upstream's
-  `ast.ts`). Task 5 is the first task that writes this switch, and Java requires it to cover all 28
-  the moment it's compiled — it cannot cover only the 5 leaves Task 5 itself implements for real. Every leaf
-  this slice doesn't implement yet gets an explicit arm throwing a categorized
-  `TemplateRenderException(..., ErrorCategory.<fitting category>, location)` stating which later
-  slice or work package implements it — never `UnsupportedOperationException`, which is uncategorized
-  and would escape the public API the same way the raw `IllegalStateException` in Task 9's
-  global/context-collision fix would have. Each later task **replaces** its own placeholder arm with
-  real logic rather than adding a new one. See Task 5's own note for the exact list and which slice
-  or WP owns each placeholder.
+- **There are two dispatch methods, not one, because their return types differ — and both must be
+  exhaustive over their own direct permitted subtypes from the moment each first exists.**
+  `ExecResult evaluateStatement(Statement, Environment, RenderBudget)` handles `Statement`'s 10 direct
+  leaves plus one delegating `case Expression e ->` arm; `Value evaluateExpression(Expression,
+  Environment, RenderBudget)` handles `Expression`'s 18 leaves. (28 leaves total across both — counted
+  directly from `Statement.java`'s and `Expression.java`'s own `permits`/`record` declarations, not
+  upstream's `ast.ts` — but Java's pattern-switch exhaustiveness is computed over **direct** permitted
+  subtypes only: `evaluateStatement`'s switch needs 11 conceptual arms, not 28, since one `case
+  Expression e -> ...` fully discharges the `Expression` branch without enumerating its 18 leaves —
+  verified directly against `javac`, not assumed from `Statement.java`'s doc comment. Fully flattening
+  is legal, as `AstSnapshot.emit` already does, but never required.) The split exists because
+  `Statement` dispatch must return `ExecResult` — `Break`/`Continue` are control flow, not values —
+  while `Expression` dispatch must return a plain `Value`, feeding `MemberExpression`'s object,
+  `CallExpression`'s arguments, `For`'s iterable, and `SetStatement`'s rhs; one method cannot return
+  both, and `ExecResult.Normal(String)` carries rendered text, not a `Value`, so it isn't a usable
+  common return type either. `evaluateStatement`'s delegating `case Expression e ->` arm is exactly an
+  expression used in statement position (e.g. `{{ expr }}`) — it computes `evaluateExpression(e, ...)`,
+  renders the result via `Interpreter.renderText` (Task 4), and wraps it as `ExecResult.Normal(...)`,
+  which is also where `chargeOutput`/`chargeStep` naturally hook in and mirrors upstream's own
+  single-`evaluate` handling of an expression statement. Every leaf either method doesn't implement yet
+  gets an explicit arm throwing a categorized `TemplateRenderException(..., ErrorCategory.<fitting
+  category>, location)` stating which later slice or work package implements it — never
+  `UnsupportedOperationException`, which is uncategorized and would escape the public API the same way
+  the raw `IllegalStateException` in Task 9's global/context-collision fix would have. Each later task
+  **replaces** its own placeholder arm with real logic rather than adding a new one. See Task 5's own
+  note for the exact per-method list and which slice or WP owns each placeholder.
 
 ## Task 0 — Review history for this plan
 
-Nine review passes happened before implementation started. Recorded here so the corrected task list
+Twelve review passes happened before implementation started. Recorded here so the corrected task list
 doesn't read as a first draft.
 
 **First pass — seven bugs, all fixed:** inverted break/continue discard semantics; unaddressed
@@ -360,6 +373,107 @@ the snippet in isolation.
    slice-sequencing artifact. `Ternary` — also missing from "Known Gaps" despite being named in "What's
    Next" — is added there too.
 
+**Tenth pass — one bug in the Ninth pass's own fix, one suggestion, both addressed:**
+
+1. **The Ninth pass's own exhaustive-switch rule mis-stated Java's actual requirement, and described a
+   single method that cannot typecheck.** Verified directly against `javac`, not assumed: exhaustiveness
+   for a pattern switch over a sealed type is computed over its *direct* permitted subtypes only. A
+   switch over `Statement` needs 11 conceptual arms (10 direct records plus `Expression`), and a single
+   `case Expression e -> ...` fully discharges the `Expression` branch without enumerating any of its 18
+   leaves — confirmed with a minimal reproduction compiled against this project's own JDK, not inferred
+   from `AstSnapshot.emit`'s existing (fully-flattened, but never required to be) style. "Java requires
+   it to cover all 28" was simply wrong. Separately, and more substantively: one method cannot serve
+   both dispatch roles regardless of exhaustiveness, because `Statement` dispatch must return
+   `ExecResult` (`Break`/`Continue` are control flow) while `Expression` dispatch must return a plain
+   `Value` (feeding `MemberExpression`'s object, `CallExpression`'s arguments, `For`'s iterable,
+   `SetStatement`'s rhs) — no shared return type exists, and `ExecResult.Normal(String)` carries
+   rendered text, not a `Value`, so it isn't a fallback common type either. This was already a live bug,
+   not a hypothetical: Task 8's own block-capture line assigned `rhs` from either `evaluate(node.value(),
+   env)` (implicitly a `Value`) or `evaluateBlock(node.body(), env)` (an `ExecResult`) to the same
+   variable, and grepping all prior text found `evaluate`'s signature and return type stated nowhere in
+   the document — the one load-bearing dispatch API in the slice had no declared shape. Fixed by
+   restating, not redesigning: `ExecResult evaluateStatement(Statement, Environment, RenderBudget)` (10
+   real/placeholder arms plus one delegating `case Expression e -> ExecResult.Normal(renderText(
+   evaluateExpression(e, ...), e.location()))`) and `Value evaluateExpression(Expression, Environment,
+   RenderBudget)` (18 arms). Every placeholder-count number from the Ninth pass survives unchanged — 23
+   at Task 5's Step 3 (5 in `evaluateStatement`, 18 in `evaluateExpression`), 12 at slice end (3 + 9) —
+   only the framing changes from "one switch over 28" to "two switches over 11 and 18." Every loose
+   `evaluate(...)` reference elsewhere in the plan (Task 8's rhs line, the assignee-dispatch comparison,
+   Known Gaps) is renamed to the specific method that actually applies; references to upstream's own JS
+   `evaluate()` are left alone, since that's a different, correctly-named thing.
+2. **Suggestion adopted:** `ObjectValue`'s record-derived `hashCode()` is content-based and now changes
+   under mutation (Task 1). Verified nothing today is exposed to this: `Values.toHost`'s `converted`/
+   `sourceValues` are `IdentityHashMap`s (immune by construction), and `Environment`'s map holds `Value`
+   only as a value, never a key (`grep`-confirmed empty for any `Value`-keyed `Set`/`Map` in `src/main`/
+   `src/test`). Still a real latent trap for whoever first puts a `Value` in a hash-based container as a
+   key. Added one javadoc sentence to `ObjectValue` (Task 1): mutable by design for `{% set obj.key =
+   ... %}`, therefore never safe as a hash-container key.
+
+**Eleventh pass — two bugs, both in the Tenth pass's own fix, both fixed:**
+
+1. **The delegating arm the Tenth pass introduced calls `renderText` unconditionally, so `{{ none }}`
+   and `{{ missing_var }}` — an undefined context variable, the single most common case in real
+   templates — would crash with `AssertionError`.** Task 4's justification for making `renderText`'s
+   `NullValue`/`UndefinedValue` arms throw rests on exactly one premise: upstream's `evaluateBlock`
+   filters those two types out *before* calling `.toString()` (`runtime.ts:1457-1459`), so `renderText`
+   never actually sees them. After the Tenth pass's split, `evaluateBlock` receives `ExecResult`, not
+   `Value` — the conversion to text already happened in the delegating arm — so upstream's filter has
+   nowhere left to run, and nothing re-homed it. Verified against the pinned oracle: `{{ none }}` and
+   `{{ missing_var }}` both render `""`. Fixed by moving the skip into the delegating arm itself, exactly
+   where the `Value` is still in hand: `NullValue`/`UndefinedValue` become `""` directly, everything else
+   goes through `renderText`. This restores Task 4's unreachability premise verbatim rather than
+   changing it; nested `Null`/`Undefined` inside a container are untouched, still rendered as
+   `"null"`/`"undefined"` by `renderJson`.
+2. **Two contradictory `chargeOutput` call sites existed after the split, and the stale one
+   double-counts nested output.** The pre-split "`chargeOutput` wiring" paragraph, never updated by the
+   Tenth pass, said to charge in `evaluateBlock` "using `Interpreter.renderText(Value, location)` ... to
+   produce that contribution's text" — impossible after the split, since `evaluateBlock` no longer sees
+   a `Value` to render. Worse, the design was already wrong before the split: charging per statement in
+   `evaluateBlock` double-counts whenever output aggregates upward through nesting — a `For`
+   statement's `ExecResult.Normal` output already contains everything its body's statements charged in
+   the nested block evaluation, so `{% for i in [1,2,3] %}XXXX{% endfor %}` would charge the body's 12
+   characters once during the loop's own inner evaluation and again when the `For`'s aggregated
+   12-character result reaches the outer block — 24 charged for 12 rendered characters, compounding with
+   nesting depth, silently shifting where `maxOutputLength` actually fires by an amount that depends on
+   template structure rather than real output size. Fixed: `chargeOutput` moves to be the delegating
+   arm's own responsibility, and only there — `Parser.java:61,70-72` makes raw template text an
+   `Expression.StringLiteral` directly in a body list, so every output-producing leaf, at any nesting
+   depth, passes through that one arm exactly once. `chargeStep` is explicitly **not** moved — it stays
+   in `evaluateBlock`, once per statement, which was already correct: steps don't aggregate the way
+   output does, so no double-count existed there. The two counters now charge at different, deliberately
+   decoupled points instead of the single "same point" the pre-split paragraph asserted.
+
+**Twelfth pass — one bug in this round's own consolidation, two suggestions, all addressed:**
+
+1. **The `SelectExpression` loop pre-filter is unbounded — all three counters are blind to it, and this
+   round's consolidation didn't change that.** Upstream evaluates the filter test once per **raw**
+   candidate, in a throwaway per-candidate `Environment`, before any survival decision
+   (`runtime.ts:1624-1669`, scope allocation at `:1627`) — verified by reading the actual pre-filter loop
+   directly, not inferred. After this round's consolidation: `chargeStep` only fires in `evaluateBlock`,
+   once per statement — the filter test isn't a statement, so the whole `For` counts as one step
+   regardless of candidate count; `chargeLoopIteration` explicitly charges "once per surviving item
+   processed, not once per raw candidate" (Task 6, unchanged by this round); `chargeOutput` only fires
+   for text, and the filter produces none. `{% for x in range(10000000) if none %}{% endfor %}` is
+   reachable this slice (`range()` is Task 7; an `Identifier` filter test is the simplest case Known Gaps
+   already scopes as supported) and performs 10,000,000 expression evaluations and 10,000,000
+   `Environment` allocations while charging exactly 1 step and 0 loop iterations. Fixed with the
+   one-line change that matches the counter's own name: `chargeLoopIteration` now charges once per
+   **candidate considered** in the pre-filter, not once per survivor; `loop.length`/`loop.revindex*`
+   still compute against the post-filter count, unaffected, since that's upstream's own `items.length`
+   and a separate concern from what the render budget charges.
+2. **Suggestion adopted:** state what `maxSteps` now measures. No task charges inside
+   `evaluateExpression` itself, so `{{ f(g(h(deeply.nested[chain]))) }}` is one step regardless of how
+   many expression nodes it recursively evaluates — `maxSteps` bounds statements executed, not
+   expression-tree work done. Added one paragraph to Task 3 stating this plainly, since its
+   `maxSteps = 10_000_000` default was reasoned about back when a step was charged more finely.
+3. **Suggestion adopted:** the `chargeOutput` paragraph's "only ever aggregate already-charged text
+   upward" claim, read as "charged ⟺ emitted," has two real exceptions this slice creates: a
+   `{% continue %}` after `{{ big }}` charges the discarded text's length before the discard, and `{%
+   set x %}...{% endset %}` charges the captured text once at capture and again on every later `{{ x
+   }}`. Both are defensible as work performed rather than output produced, matching this slice's other
+   "detect, don't prevent" limitations — but the paragraph read as though the two were identical. Added
+   one clause: `chargeOutput` bounds text produced, not text that reaches the caller.
+
 ## File Structure
 
 **Created:**
@@ -409,9 +523,9 @@ exists until Slice 4).
   `upstream/ast-allowlist.json`, all WP5-scoped.
 - **Every `Statement`/`Expression` leaf not listed above as "this slice" gets a placeholder arm**
   (`TemplateRenderException`/`UNDEFINED_OR_ACCESS`, naming the construct and the slice/WP that
-  implements it) rather than being silently missing from `Interpreter.evaluate`'s switch — see the
-  Global Constraints exhaustive-switch rule and Task 5's placeholder table for the exact 12 that
-  remain placeholders at the end of this slice.
+  implements it) rather than being silently missing from `evaluateStatement`'s or `evaluateExpression`'s
+  switch — see the Global Constraints exhaustive-switch rule and Task 5's placeholder table for the
+  exact 12 that remain placeholders at the end of this slice.
 - **`MemberExpression`'s "builtin bound method" fallback** (e.g. `"x".upper()`, `dict.get()`) is
   Slice 3, alongside filters. `Value`→text rendering (Task 4) does *not* need this — it renders
   values, not the callable members attached to them.
@@ -485,6 +599,19 @@ Verified no existing test relies on `ObjectValue.values()` throwing on mutation 
 src/main src/test` — `ValuesTest.java:117` only asserts the null-rejection, `HostFunctionsTest.java`'s
 `ObjectValue` usages are record-equality checks, unaffected by mutability either way since `Map.equals`
 compares contents, not wrapper type).
+
+**One javadoc sentence to pin a latent trap, since a mutable record still has content-derived
+`equals`/`hashCode`.** Nothing today puts a `Value` in a content-hash-based `Set`/`Map`: `Values.toHost`'s
+`converted`/`sourceValues` are `IdentityHashMap`s (identity hash codes never change under mutation, so
+they're unaffected regardless), and `Environment`'s `Map<String, Value>` holds `Value` only as a *value*,
+never a key (verified — `grep -rn "HashSet<Value\|HashMap<Value\|Map<Value\|Set<Value"` across
+`src/main`/`src/test` returns nothing). But a mutable `ObjectValue` whose `hashCode()` is still
+content-derived is exactly the shape of bug that survives fine today and corrupts silently the first
+time someone puts one in a `HashSet<Value>` or uses one as a `HashMap` key after a `{% set obj.key =
+... %}` mutation changes its hash bucket out from under the container. Add one sentence to
+`ObjectValue`'s javadoc: mutable by design, for `{% set obj.key = ... %}` (Task 8); never safe as a
+hash-based container key as a result. Costs nothing now and pins the constraint where the next person
+touching this type will actually read it, rather than leaving it to be rediscovered as a bug report.
 
 - [ ] **Step 1: Restructure `Value.java`.**
   - Change `sealed interface Value` to `public sealed interface Value`.
@@ -678,6 +805,16 @@ budgets" — pick defaults high enough that no plausible chat-template render tr
 `maxSteps = 10_000_000`, `maxLoopIterations = 1_000_000`, `maxOutputLength = 10_000_000` chars).
 Real exhaustion testing under tight budgets is WP6-scoped.
 
+**What a "step" actually measures in this slice — one AST statement, not one expression node.**
+`chargeStep` is charged once per statement `evaluateBlock` evaluates (Task 5); nothing charges inside
+`evaluateExpression` itself. `{{ f(g(h(deeply.nested[chain]))) }}` is therefore **one** step, however
+many `CallExpression`/`MemberExpression` nodes it recursively evaluates — `maxSteps` bounds statements
+executed, not expression-tree work done. That may be the right simplification for a skeleton slice, but
+it's a real change in what the counter measures from when its `10_000_000` default was picked (an
+earlier revision charged a step per expression too); stating it here keeps a later reader from assuming
+expression cost is bounded by `maxSteps` when it isn't — a template that is one enormous top-level
+expression still costs one step no matter how deep it recurses.
+
 - [ ] **Step 1: Write the failing tests** — one `PublicApiTest` case for defaults/rejection, one
   `RenderBudgetTest` per counter.
 - [ ] **Step 2: Run to verify failure.**
@@ -727,11 +864,16 @@ strings, the single most common real template case) would render unquoted garbag
   `:526-529`) — i.e. `renderText`'s `ArrayValue`/`ObjectValue` arms simply delegate to `renderJson`,
   and `renderText` itself never recurses into element formatting. **`renderText`'s
   `NullValue`/`UndefinedValue` arms are genuinely unreachable**, not a "nested case" as a previous
-  revision of this plan wrongly claimed: `evaluateBlock` skips Null/Undefined statement results before
-  calling `renderText` at all (`runtime.ts:1457-1459`), and a Null/Undefined *nested inside* a
-  container is formatted by `renderJson`'s own logic, never by being routed through `renderText`. Make
-  both arms `throw new AssertionError("unreachable: " + value)` — defensive, not load-bearing, and
-  honest about why.
+  revision of this plan wrongly claimed: upstream's `evaluateBlock` skips Null/Undefined statement
+  results before calling `.toString()`/`renderText`'s equivalent at all (`runtime.ts:1457-1459`), and a
+  Null/Undefined *nested inside* a container is formatted by `renderJson`'s own logic, never by being
+  routed through `renderText`. **In the Java port, the same skip must be re-homed to
+  `evaluateStatement`'s delegating `case Expression e ->` arm (Task 5)** — the one place that still has
+  a `Value` in hand before rendering it, since Java's own `evaluateBlock` operates on `ExecResult`, not
+  `Value`, and never sees one; `renderText` staying unreachable for `NullValue`/`UndefinedValue` depends
+  on that arm actually performing the skip, not on `renderText` skipping internally. Make both arms
+  `throw new AssertionError("unreachable: " + value)` — defensive, not load-bearing, and honest about
+  why.
 - **`renderJson(Value, SourceLocation)`** (`toJSON`, `runtime.ts:318-388` — used both for a
   container's own top-level `toString()` and recursively for every element inside it, fully
   self-contained): `IntegerValue`/`FloatValue`/`BooleanValue` → `JsFormat.jsonString`/
@@ -760,9 +902,9 @@ strings, the single most common real template case) would render unquoted garbag
 **Threading `SourceLocation` — not optional.** Every other error this plan introduces
 (`raise_exception`, every `charge*` call, the `IOException` wrapper) carries a real location; the
 `TupleValue`-render failure must too, or it's the one position-less error in an otherwise
-consistently-located API. `evaluateBlock` (Task 5) already has the location in hand for
-`chargeOutput(length, location)` — thread the same one into `renderText`/`renderJson`, at zero extra
-cost.
+consistently-located API. `evaluateStatement`'s delegating `case Expression e ->` arm (Task 5) already
+has the expression's own location in hand for `chargeOutput(length, location)` — thread the same one
+into `renderText`/`renderJson`, at zero extra cost.
 
 **Reuse, don't reimplement, the number-formatting *and* string-quoting cores — and put both where
 Slice 2 can actually use them.** `AstSnapshot.number()` and `AstSnapshot.q()`
@@ -978,39 +1120,142 @@ evaluation yields `ExecResult.Break`/`Continue.INSTANCE`, immediately return tha
 **discard the local buffer accumulated so far** — do not merge it into the propagated result.
 `evaluateIf` returns whatever `ExecResult` its chosen branch produced, unchanged.
 
-**`chargeOutput` wiring — detects, does not prevent, an oversized single value.** Charge
-`budget.chargeOutput(length, location)` in `evaluateBlock` for each statement's contribution to the
-local buffer (using `Interpreter.renderText(Value, location)` from Task 4 to produce that
-contribution's text), at the same point `chargeStep` is charged — the one place all rendered text,
-nested or top-level, already flows through. Because the charge happens *after* `renderText`/`renderJson`
-has already built the full string, a single `{{ huge_object }}` still allocates that entire string in
-memory before `maxOutputLength` can reject it — at the slice's generous 10,000,000-char default, up to
-~20MB transient for one statement. Stated here as an accepted limitation of this slice, the same way
-the `Appendable` no-streaming-inside-loops case (Task 9) and `toFixed`'s `1e21` boundary (Task 4) are
+**`chargeOutput` and `chargeStep` charge at different places, on purpose — they don't move together.**
+`chargeStep` stays in `evaluateBlock`, once per statement evaluated: one AST statement executed is one
+step, and a nested statement genuinely is an additional step, so charging it at every nesting level is
+correct, not a double-count. `chargeOutput` is different: output *aggregates upward* through nested
+`ExecResult.Normal` values (a `For` statement's own output already contains everything its body's
+statements produced), so charging it anywhere but the one place text is first created would count the
+same characters once per level of nesting they pass through. That one place is `evaluateStatement`'s
+delegating `case Expression e ->` arm (see below) — `Parser.java:61,70-72` makes raw template text an
+`Expression.StringLiteral` directly in a body list, so *every* output-producing leaf, at any nesting
+depth, is an `Expression` evaluated exactly once by that one arm; `evaluateBlock`, `evaluateIf`, and
+`evaluateFor` only ever aggregate already-charged text upward, never produce new characters of their
+own, so they charge `chargeStep` but never `chargeOutput`. **`chargeOutput` bounds text produced, not
+text that reaches the caller — "charged" and "emitted" are not the same thing, and this slice creates
+two places where they diverge.** A `{% continue %}` after `{{ big }}` in the same loop body charges
+`big`'s length (the delegating arm ran before the `Continue` singleton caused `evaluateBlock` to discard
+the buffer) even though that text never appears in the final render — `{% for i in range(1000) %}
+{{ big }}{% continue %}{% endfor %}` charges `1000 × len(big)` against `maxOutputLength` while emitting
+nothing. `{% set x %}...{% endset %}` charges the captured text once at capture time (the block-capture
+form's own internal `evaluateBlock` runs the same delegating arm on everything inside it) and again on
+every later `{{ x }}` that renders it — the same characters charged twice, or more. Both are defensible
+as *work performed* rather than *output produced*, matching this slice's blanket "detect, don't prevent"
+posture elsewhere, but they mean `chargeOutput` is not a precise measure of final output size — a
+render that trips `maxOutputLength` may have discarded most of what it charged. (An earlier revision of
+this task charged
+`chargeOutput` in `evaluateBlock` for each statement's contribution — wrong even before the
+`evaluateStatement`/`evaluateExpression` split, since `{% for i in [1,2,3] %}XXXX{% endfor %}` would
+charge the body's 12 characters once in the loop's own inner block evaluation and again when the `For`
+statement's aggregated 12-character result reaches the outer block — 24 charged for 12 rendered
+characters, compounding with nesting depth. Wrong twice over after the split, since `evaluateBlock` no
+longer even sees a `Value` to call `renderText` on.) **Detects, does not prevent, an oversized single
+value.** Because the charge happens *after* `renderText`/`renderJson` has already built the full
+string, a single `{{ huge_object }}` still allocates that entire string in memory before
+`maxOutputLength` can reject it — at the slice's generous 10,000,000-char default, up to ~20MB
+transient for one statement. Stated here as an accepted limitation of this slice, the same way the
+`Appendable` no-streaming-inside-loops case (Task 9) and `toFixed`'s `1e21` boundary (Task 4) are
 stated rather than hidden; incremental charging inside `renderJson` itself (rather than after it
 returns) would close this but is not required for Slice 1's own goals.
 
-**This task writes `Interpreter.evaluate`'s top-level switch for the first time — it must be
-exhaustive over all 28 `Statement`/`Expression` leaves immediately, per the Global Constraints rule
-of the same name, not just the 5 leaves this task implements for real.** Real arms this task adds:
-`Program`, `If`, `Break`, `Continue`, and **`Comment`** — upstream's `case "Comment": return new
-NullValue()` (`runtime.ts:1866-1867`), which `evaluateBlock` then skips because it filters out
-`NullValue`/`UndefinedValue` results before appending (`runtime.ts:1449-1461`), so `{# ... #}` renders
-nothing; port this as `ExecResult.Normal("")` directly — there is no reason to defer something this
-small to its own task. Every other leaf gets a placeholder arm throwing
-`TemplateRenderException(..., <category>, location)`, replaced by real logic in the task/slice noted:
+**This task writes both dispatch methods for the first time — each must be exhaustive over its own
+direct permitted subtypes immediately, per the Global Constraints rule of the same name, not just the
+5 leaves this task implements for real.**
 
-| Leaf | Category | Replaced by |
-| --- | --- | --- |
-| `For` | — | Task 6 |
-| `MemberExpression`, `CallExpression`, `Identifier`, `IntegerLiteral`, `FloatLiteral`, `StringLiteral`, `ArrayLiteral`, `TupleLiteral`, `ObjectLiteral` | — | Task 7 |
-| `SetStatement` | — | Task 8 |
-| `BinaryExpression`, `UnaryExpression` | `ErrorCategory.UNDEFINED_OR_ACCESS` | Slice 2 |
-| `FilterExpression`, `SelectExpression`, `TestExpression`, `Ternary` | `ErrorCategory.UNDEFINED_OR_ACCESS` | Slice 3 |
-| `Macro`, `FilterStatement`, `CallStatement`, `SliceExpression`, `KeywordArgumentExpression`, `SpreadExpression` | `ErrorCategory.UNDEFINED_OR_ACCESS` | WP5 |
+```java
+ExecResult evaluateStatement(Statement node, Environment env, RenderBudget budget) {
+  return switch (node) {
+    case Statement.Program p -> ...
+    case Statement.If i -> ...
+    case Statement.Break b -> ...
+    case Statement.Continue c -> ...
+    case Statement.Comment c -> ...           // real arm, this task
+    case Statement.For f -> ...                // placeholder, this task; real logic Task 6
+    case Statement.SetStatement s -> ...        // placeholder, this task; real logic Task 8
+    case Statement.Macro m -> ...               // placeholder, this task; real logic WP5
+    case Statement.FilterStatement f -> ...     // placeholder, this task; real logic WP5
+    case Statement.CallStatement c -> ...        // placeholder, this task; real logic WP5
+    case Expression e -> {                       // delegating arm — discharges Expression's whole
+      var v = evaluateExpression(e, env, budget); // branch of evaluateStatement's own switch
+      var text = v instanceof Value.NullValue || v instanceof Value.UndefinedValue
+          ? ""                                    // upstream's evaluateBlock skip, re-homed here
+          : renderText(v, e.location());
+      budget.chargeOutput(text.length(), e.location());
+      yield ExecResult.Normal(text);
+    }
+  };
+}
 
-(23 placeholders at this task's Step 3, shrinking to 12 by the end of this slice as Tasks 6–8 each
-replace their own row.)
+Value evaluateExpression(Expression node, Environment env, RenderBudget budget) {
+  return switch (node) {
+    // 9 real arms, Task 7: MemberExpression, CallExpression, Identifier, IntegerLiteral,
+    // FloatLiteral, StringLiteral, ArrayLiteral, TupleLiteral, ObjectLiteral
+    // 9 placeholders, this task: BinaryExpression, UnaryExpression (Slice 2); FilterExpression,
+    // SelectExpression, TestExpression, Ternary (Slice 3); SliceExpression,
+    // KeywordArgumentExpression, SpreadExpression (WP5)
+  };
+}
+```
+
+**Exhaustiveness is computed over *direct* permitted subtypes, not the full flattened 28 — verified
+against `javac`, not assumed.** `evaluateStatement`'s switch needs 11 conceptual arms: `Statement`'s
+10 direct records plus one `case Expression e -> ...` that fully discharges the `Expression` branch
+without enumerating any of its 18 leaves (confirmed empirically: a switch over an outer sealed type
+with one delegating arm for a nested sealed subtype, and no enumeration of that subtype's own leaves,
+compiles clean under `javac` with no warning). Fully flattening — writing all 28 leaves into one
+switch, the way `AstSnapshot.emit` already does — is legal, but this task does **not** do that: the
+return-type split below makes flattening impossible anyway, since `evaluateStatement` returns
+`ExecResult` and `evaluateExpression` returns `Value`, and one switch cannot produce both.
+
+**Why two methods, not one — the return types are incompatible, not merely differently named.**
+`Statement` dispatch must return `ExecResult`: `Break`/`Continue` are control flow that has to
+propagate through `evaluateStatement` (see the `chargeOutput`/discard notes above), not a value.
+`Expression` dispatch must return a plain `Value`: the result feeds `MemberExpression`'s object,
+`CallExpression`'s arguments, `For`'s iterable, and `SetStatement`'s rhs (Task 8) — none of which can
+consume an `ExecResult`. `ExecResult.Normal(String)` carries already-rendered text, not a `Value`, so
+it isn't a usable common return type either — there is no type both call sites can share, so this is
+two methods by necessity, not by naming preference. `evaluateStatement`'s delegating `case Expression
+e ->` arm is exactly an expression appearing in statement position (e.g. `{{ expr }}` or a raw
+text/`StringLiteral` node directly in a body list) — it calls `evaluateExpression`, and **must
+re-implement upstream's `NullValue`/`UndefinedValue` skip here, not skip it**: upstream's `evaluateBlock`
+filters those two types out *before* calling `.toString()` (`runtime.ts:1457-1459`), which is the only
+reason Task 4's `renderText` is allowed to treat its own `NullValue`/`UndefinedValue` arms as
+unreachable and throw `AssertionError` there. After the split, `evaluateBlock` never sees a `Value` —
+this delegating arm is the only place left that still has one — so it is now the one place responsible
+for reproducing that skip: `NullValue`/`UndefinedValue` become `""` directly, anything else goes
+through `Interpreter.renderText` (Task 4) using the expression's own location. Skipping this step would
+make `{{ none }}` and `{{ missing_var }}` — the single most common case in real templates, an
+undefined context variable — crash with an uncategorized `AssertionError` instead of rendering `""`
+(verified against the pinned oracle: both render empty). This is also the **one and only**
+`chargeOutput` call site (see the `chargeOutput`/`chargeStep` note above); `chargeStep` charges
+separately, in `evaluateBlock`, once per statement regardless of type. The whole arm mirrors upstream's
+own single `evaluate()` handling an expression statement: convert to text (skipping
+`Null`/`Undefined`), accumulate.
+
+**Comment is a real arm, not a placeholder.** Upstream's `case "Comment": return new NullValue()`
+(`runtime.ts:1866-1867`), which `evaluateBlock` then skips because it filters out
+`NullValue`/`UndefinedValue` results before appending (`runtime.ts:1449-1461`), means `{# ... #}`
+renders nothing; port this as `ExecResult.Normal("")` directly in `evaluateStatement` — there is no
+reason to defer something this small to its own task.
+
+**Placeholder accounting, split by method:**
+
+| Method | Placeholder leaves | Category | Replaced by |
+| --- | --- | --- | --- |
+| `evaluateStatement` | `For` | — | Task 6 |
+| `evaluateStatement` | `SetStatement` | — | Task 8 |
+| `evaluateStatement` | `Macro`, `FilterStatement`, `CallStatement` | `ErrorCategory.UNDEFINED_OR_ACCESS` | WP5 |
+| `evaluateExpression` | `MemberExpression`, `CallExpression`, `Identifier`, `IntegerLiteral`, `FloatLiteral`, `StringLiteral`, `ArrayLiteral`, `TupleLiteral`, `ObjectLiteral` | — | Task 7 |
+| `evaluateExpression` | `BinaryExpression`, `UnaryExpression` | `ErrorCategory.UNDEFINED_OR_ACCESS` | Slice 2 |
+| `evaluateExpression` | `FilterExpression`, `SelectExpression`, `TestExpression`, `Ternary` | `ErrorCategory.UNDEFINED_OR_ACCESS` | Slice 3 |
+| `evaluateExpression` | `SliceExpression`, `KeywordArgumentExpression`, `SpreadExpression` | `ErrorCategory.UNDEFINED_OR_ACCESS` | WP5 |
+
+At this task's Step 3: `evaluateStatement` gets 5 placeholders (`For`, `SetStatement`, `Macro`,
+`FilterStatement`, `CallStatement`); `evaluateExpression` gets all 18 (Task 7 hasn't run yet) — 23
+total, matching the original count. By the end of this slice: Task 6 replaces 1 (`For`), Task 7
+replaces 9 (the `evaluateExpression` literal/access/call group), Task 8 replaces 1 (`SetStatement`) —
+leaving 3 in `evaluateStatement` (`Macro`/`FilterStatement`/`CallStatement`, all WP5) and 9 in
+`evaluateExpression` (2 Slice 2 + 4 Slice 3 + 3 WP5), 12 total.
 
 **Category for the placeholder arms — a real decision, not oracle-settled, because upstream has no
 equivalent situation.** `ErrorCategory` has exactly 10 constants (`SYNTAX`, `UNDEFINED_OR_ACCESS`,
@@ -1035,15 +1280,25 @@ hitting this mid-development gets an actionable message, not a mystery.
   output; `text-before{% break %}text-after` returns `ExecResult.Break.INSTANCE` with no output; a
   nested `If` inside a block whose branch resolves to `Break` propagates `Break` out of the *outer*
   block too, discarding what the outer block had already accumulated; a bare `{% break %}` with no
-  enclosing `for` throws `SYNTAX`; `chargeOutput` is actually invoked (a tiny `RenderBudget` with
-  `maxOutputLength = 1` rejecting a two-character render); `{# a comment #}` alone renders `""`, and
-  `before{# c #}after` renders `"beforeafter"`; calling `evaluate` on one placeholder leaf (e.g. a bare
-  `BinaryExpression`, constructed directly since the parser can produce one long before Task 5 can
-  evaluate it) throws a categorized `TemplateRenderException`, not an uncategorized exception.
+  enclosing `for` throws `SYNTAX`; `chargeOutput` is actually invoked, exactly once per delegating-arm
+  evaluation (a tiny `RenderBudget` with `maxOutputLength = 1` rejecting a two-character render), and
+  is **not** double-charged when that output is nested inside another block (a `RenderBudget` with
+  `maxOutputLength` set to exactly the length of `{% for i in [1,2] %}XX{% endfor %}`'s real 4-character
+  output must **not** reject it — pins the fix against the old evaluateBlock-recharges-nested-output
+  bug); `{{ none }}` and `{{ missing_var }}` (an undefined context variable) both render `""`, not an
+  `AssertionError` (verified against the pinned oracle); `{# a comment #}` alone renders `""`, and
+  `before{# c #}after` renders `"beforeafter"`; calling `evaluateExpression` on one placeholder leaf
+  (e.g. a bare `BinaryExpression`, constructed directly since the parser can produce one long before
+  Task 5 can evaluate it) throws a categorized `TemplateRenderException`, not an uncategorized
+  exception; calling `evaluateStatement` on a bare `Expression` (e.g. a `StringLiteral` used directly
+  as a body entry) renders it as text via the delegating arm, without needing its own `case`.
 - [ ] **Step 2: Run to verify failure.**
-- [ ] **Step 3: Implement** `ExecResult`, `evaluateBlock`, `evaluateIf` (package-private), the real
-  `Comment` arm, and all 23 placeholder arms per the table above. Charge `chargeStep`/`chargeOutput` in
-  `evaluateBlock`. Implement the truthiness subset from "Known Gaps."
+- [ ] **Step 3: Implement** `ExecResult`, `evaluateStatement`, `evaluateExpression`, `evaluateBlock`,
+  `evaluateIf` (all package-private), the real `Comment` arm, and all 23 placeholder arms per the
+  table above. Charge `chargeStep` in `evaluateBlock`, once per statement. Charge `chargeOutput` **only**
+  in `evaluateStatement`'s delegating `case Expression e ->` arm, after the `Null`/`Undefined` skip —
+  not in `evaluateBlock`, which would double-count nested output. Implement the truthiness subset
+  from "Known Gaps."
 - [ ] **Step 4: Run the tests.** Expected: PASS.
 - [ ] **Step 5: Commit** — `git commit -m "Add ExecResult-based block evaluation matching upstream's break/continue discard"`
 
@@ -1081,15 +1336,32 @@ Port `upstream/vendor/src/runtime.ts:1603-1719` (`evaluateFor`).
 - Tuple-unpacking loop vars (`for k, v in ...`) with an explicit arity-mismatch error.
 - Object iterables iterate their **keys**, each exposed as a `StringValue`.
 
-**Loop-iteration budget:** charge `budget.chargeLoopIteration(location)` once per surviving item
-processed, not once per raw candidate considered in the pre-filter pass.
+**Loop-iteration budget — the pre-filter pass itself must be charged, not just survivors.** Upstream
+evaluates the `SelectExpression` test once per **raw** candidate, in a throwaway `new
+Environment(scope)` per candidate, before any survival decision (`runtime.ts:1624-1669`, the per-
+candidate scope allocation at `:1627`) — filtering happens entirely before `items`/
+`scopeUpdateFunctions` are populated. None of the three counters otherwise charges this pass:
+`chargeStep` only fires in `evaluateBlock`, once per statement, and the filter test is not a statement
+— the whole `For` counts as one step regardless of candidate count; `chargeOutput` only fires in
+`evaluateStatement`'s delegating arm, and the filter test produces no output. That leaves
+`{% for x in range(10000000) if none %}{% endfor %}` — reachable this slice, since `range()` is Task 7
+and an `Identifier`/literal filter test is the simplest case "Known Gaps" already scopes as
+supported — performing 10,000,000 expression evaluations and 10,000,000 `Environment` allocations
+while charging exactly 1 step and 0 loop iterations. **Fix, matching the counter's own name:** charge
+`budget.chargeLoopIteration(location)` once per **candidate considered in the pre-filter pass**, not
+once per survivor. `loop.length`/`loop.revindex*` are unaffected — those still compute against the
+**post-filter** count (upstream's own `items.length`), a separate concern from what gets charged
+against the render budget.
 
 - [ ] **Step 1: Write the failing tests** — happy-path iteration with `loop.index`/`loop.first`/
   `loop.last` (rendered via Task 4's `renderText(Value, location)`); tuple unpacking of an array item; `for...else`
   on an empty iterable; the two `noIteration` quirk tests (assert the exact oracle-confirmed outputs);
   object iteration over keys; arity-mismatch error; iterating a non-array/non-object value ("Expected
   iterable or object type in for loop", `runtime.ts:1617`); an invalid loop variable form ("Invalid
-  loop variable(s)", `runtime.ts:1655`); Quirk 3's tuple-item-unpack rejection.
+  loop variable(s)", `runtime.ts:1655`); Quirk 3's tuple-item-unpack rejection; a `RenderBudget` with
+  `maxLoopIterations` set below the raw candidate count rejects `{% for x in [1,2,3] if false %}
+  {% endfor %}` even though every candidate is filtered out and zero iterations "occur" — pinning that
+  the pre-filter pass itself is charged, not just survivors.
 - [ ] **Step 2: Run to verify failure.**
 - [ ] **Step 3: Implement** `evaluateFor`.
 - [ ] **Step 4: Run the tests.** Expected: PASS.
@@ -1168,8 +1440,8 @@ location)` (`Statement.java:124-133`), and the Goal line already names it — it
 task until now.
 
 **The block-capture form needs a real answer for what an `ExecResult` means as an rhs.**
-`rhs = node.value() != null ? evaluate(node.value(), env) : evaluateBlock(node.body(), env)` — the
-`Expression` branch returns a `Value` directly (nothing new here); the block-capture branch calls
+`rhs = node.value() != null ? evaluateExpression(node.value(), env, budget) : evaluateBlock(node.body(), env)`
+— the `Expression` branch returns a `Value` directly (nothing new here); the block-capture branch calls
 `evaluateBlock` (Task 5), which returns `ExecResult`, not a `Value`. Two cases:
 - `ExecResult.Normal(output)` → the captured block completed normally; wrap it as
   `new Value.StringValue(output)`, matching upstream's own `evaluateBlock` returning a `StringValue`
@@ -1189,10 +1461,10 @@ statically typed `Expression` (`Statement.java:124-125`), and `Parser.parseSetSt
 expression — `{% set 1 + 2 = 3 %}` parses without error; only `evaluateSet`'s own runtime type-check
 rejects it. Because only 3 of `Expression`'s 18 leaves are ever meaningful here, use an `instanceof`
 pattern-matching `if`/`else if` chain terminated by a real `else`, not an exhaustive `switch` — the
-Global Constraints exhaustive-switch rule targets `Interpreter.evaluate`'s own top-level dispatch, not
-every helper that happens to take an `Expression`; forcing 15 pointless arms here would be needless
-churn, and upstream's own structure (an `if`/`else if`/`else` chain, not a `switch (assignee.type)`)
-agrees.
+Global Constraints exhaustive-switch rule targets `evaluateStatement`'s and `evaluateExpression`'s own
+top-level dispatch, not every helper that happens to take an `Expression`; forcing 15 pointless arms
+here would be needless churn, and upstream's own structure (an `if`/`else if`/`else` chain, not a
+`switch (assignee.type)`) agrees.
 
 - **`Identifier`** → `environment.setVariable(name, rhs)` (`setVariable`, not `set` — the plan's
   existing naming decision, pre-answered, see Task 2).
