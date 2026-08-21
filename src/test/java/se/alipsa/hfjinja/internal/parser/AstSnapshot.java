@@ -1,5 +1,6 @@
 package se.alipsa.hfjinja.internal.parser;
 
+import java.math.BigDecimal;
 import java.util.List;
 import se.alipsa.hfjinja.internal.ast.Expression;
 import se.alipsa.hfjinja.internal.ast.Statement;
@@ -191,55 +192,56 @@ final class AstSnapshot {
   }
 
   private static void binary(
-      String type, String a, Object av, String b, Object bv, String i, StringBuilder o) {
-    line(type, i, o);
-    line(a, i + "  ", o);
-    if (av instanceof Statement s) emit(s, i + "    ", o);
-    else line(q(av.toString()), i + "    ", o);
-    line(b, i + "  ", o);
-    if (bv instanceof Statement s) emit(s, i + "    ", o);
-    else line(q(bv.toString()), i + "    ", o);
-  }
-
-  private static void binary(
       String type, String a, Statement av, String b, Statement bv, String i, StringBuilder o) {
-    binary(type, a, (Object) av, b, (Object) bv, i, o);
-  }
-
-  private static void binary(
-      String type,
-      String a,
-      String av,
-      String b,
-      Statement bv,
-      String c,
-      Statement cv,
-      String i,
-      StringBuilder o) {
     line(type, i, o);
     line(a, i + "  ", o);
-    line(q(av), i + "    ", o);
+    emit(av, i + "    ", o);
     line(b, i + "  ", o);
     emit(bv, i + "    ", o);
-    line(c, i + "  ", o);
-    emit(cv, i + "    ", o);
   }
 
   private static String q(String value) {
-    return "\""
-        + value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-        + "\"";
+    var out = new StringBuilder("\"");
+    for (var i = 0; i < value.length(); i++) {
+      var c = value.charAt(i);
+      switch (c) {
+        case '\\' -> out.append("\\\\");
+        case '"' -> out.append("\\\"");
+        case '\b' -> out.append("\\b");
+        case '\f' -> out.append("\\f");
+        case '\n' -> out.append("\\n");
+        case '\r' -> out.append("\\r");
+        case '\t' -> out.append("\\t");
+        default -> {
+          if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+          else out.append(c);
+        }
+      }
+    }
+    return out.append('"').toString();
   }
 
-  // Keep this aligned with JSON.stringify before adding fixtures with very large numeric literals.
+  /**
+   * Ports the ECMAScript {@code Number::toString} algorithm so this matches {@code
+   * JSON.stringify} exactly, including the integer/decimal/exponential notation boundaries at
+   * 1e21 and 1e-6. {@code Double.toString} already computes the shortest round-tripping decimal
+   * digits (JDK 19+); this only reformats those digits per the ECMAScript rules.
+   */
   private static String number(double value) {
-    return value == Math.rint(value) && Math.abs(value) < 1.0e21
-        ? Long.toString((long) value)
-        : Double.toString(value);
+    if (value == 0) return "0";
+    if (value < 0) return "-" + number(-value);
+    if (Double.isNaN(value) || Double.isInfinite(value)) return Double.toString(value);
+
+    var digitsAndScale = new BigDecimal(Double.toString(value)).stripTrailingZeros();
+    var digits = digitsAndScale.unscaledValue().toString();
+    int k = digits.length();
+    int n = k - digitsAndScale.scale();
+
+    if (k <= n && n <= 21) return digits + "0".repeat(n - k);
+    if (0 < n && n <= 21) return digits.substring(0, n) + "." + digits.substring(n);
+    if (-6 < n && n <= 0) return "0." + "0".repeat(-n) + digits;
+    var exponent = n - 1;
+    var mantissa = k == 1 ? digits : digits.charAt(0) + "." + digits.substring(1);
+    return mantissa + "e" + (exponent >= 0 ? "+" : "") + exponent;
   }
 }

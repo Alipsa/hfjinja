@@ -69,7 +69,8 @@ public final class Parser {
       var start = expect(TokenType.OpenStatement, "Expected opening statement token").start();
       if (current >= tokens.size() || peek().type() != TokenType.Identifier)
         throw syntax("Unknown statement, got " + typeHere(), locationHere());
-      var name = peek().value();
+      var nameToken = peek();
+      var name = nameToken.value();
       next();
       return switch (name) {
         case "set" -> parseSetStatement(start);
@@ -104,7 +105,7 @@ public final class Parser {
           yield new Statement.Continue(start);
         }
         case "filter" -> parseFilterStatement(start);
-        default -> throw syntax("Unknown statement type: " + name, locationHere());
+        default -> throw syntax("Unknown statement type: " + name, nameToken.start());
       };
     }
 
@@ -390,7 +391,7 @@ public final class Parser {
           });
     }
 
-    Expression parseMemberExpressionArgumentsList() {
+    Expression parseMemberExpressionArgumentsList(SourceLocation openBracket) {
       return nested(
           () -> {
             var slices = new ArrayList<Expression>();
@@ -414,11 +415,11 @@ public final class Parser {
             if (slice) {
               if (slices.size() > 3)
                 throw syntax("Expected 0-3 arguments for slice expression", locationHere());
-              var start = slices.size() > 0 ? slices.get(0) : null;
+              var start = slices.get(0);
               var stop = slices.size() > 1 ? slices.get(1) : null;
               var step = slices.size() > 2 ? slices.get(2) : null;
               return new Expression.SliceExpression(
-                  start, stop, step, start == null ? locationHere() : start.location());
+                  start, stop, step, start == null ? openBracket : start.location());
             }
             return slices.get(0);
           });
@@ -430,7 +431,7 @@ public final class Parser {
         boolean computed = op.type() == TokenType.OpenSquareBracket;
         Expression property;
         if (computed) {
-          property = parseMemberExpressionArgumentsList();
+          property = parseMemberExpressionArgumentsList(op.start());
           expect(TokenType.CloseSquareBracket, "Expected closing square bracket");
         } else {
           property = parsePrimaryExpression();

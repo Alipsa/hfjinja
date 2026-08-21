@@ -1,1 +1,1 @@
-/home/per/project/hfjinja/AGENTS.md
+AGENTS.md
