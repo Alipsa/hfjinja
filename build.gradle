@@ -34,6 +34,19 @@ tasks.withType(Test).configureEach {
 def nodeCorpusTestMarker = layout.buildDirectory.file('nodeCorpusTest/verified').get().asFile
 def nodeOracleVersionMarker = layout.buildDirectory.file('nodeOracleVersion/verified').get().asFile
 def nodeCorpusVerifyMarker = layout.buildDirectory.file('nodeCorpusVerify/verified').get().asFile
+def astSnapshotMarker = layout.buildDirectory.file('astSnapshotVerify/verified').get().asFile
+
+tasks.register('astSnapshotVerify', Exec) {
+  group = 'verification'
+  description = 'Verifies checked-in AST snapshots against the pinned Node parser.'
+  executable = 'node'
+  args 'tools/ast-snapshot/snapshot.mjs', '--fixtures', 'src/test/resources/ast-snapshots/fixtures.json',
+      '--check', 'src/test/resources/ast-snapshots/upstream-parsed.txt'
+  inputs.files('tools/ast-snapshot/snapshot.mjs', 'src/test/resources/ast-snapshots/fixtures.json',
+      'src/test/resources/ast-snapshots/upstream-parsed.txt', 'upstream/vendor/dist/index.js')
+  outputs.file(astSnapshotMarker).withPropertyName('verifiedMarker')
+  doLast { astSnapshotMarker.parentFile.mkdirs(); astSnapshotMarker.text = "verified\n" }
+}
 
 tasks.register('nodeCorpusTest', Exec) {
   group = 'verification'
@@ -93,7 +106,7 @@ tasks.register('corpusCoverage', Exec) {
 
 tasks.named('check') {
   dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeOracleVersion'), tasks.named('nodeCorpusVerify'),
-      tasks.named('corpusCoverage'), tasks.named('upstreamVerify')
+      tasks.named('corpusCoverage'), tasks.named('upstreamVerify'), tasks.named('astSnapshotVerify')
 }
 
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
@@ -322,8 +335,23 @@ tasks.register('upstreamVerify') {
             || !(entry.tests ==~ /\[\s*\S(?:.*\S)?\s*\]/)) {
           throw new GradleException("Implemented mapping must name Java and test coverage: ${basename}")
         }
+        ((entry.java + entry.tests) =~ /(src\/[^,\]\s]+\.java)/).collect { it[1] }.each { declared ->
+          if (!layout.projectDirectory.file(declared).asFile.isFile()) {
+            throw new GradleException("Mapping entry names a missing file: ${basename} -> ${declared}")
+          }
+        }
       } else {
         throw new GradleException("Mapping entry has invalid status: ${basename}")
+      }
+    }
+    def plannedPackages = ['lexer.ts': 'internal/lexer', 'ast.ts': 'internal/ast',
+                           'parser.ts': 'internal/parser', 'runtime.ts': 'internal/runtime',
+                           'utils.ts': 'internal/util']
+    mappingEntries.each { basename, entry ->
+      def packagePath = plannedPackages[basename]
+      if (entry.status == 'planned' && packagePath != null
+          && layout.projectDirectory.dir("src/main/java/se/alipsa/hfjinja/${packagePath}").asFile.isDirectory()) {
+        throw new GradleException("Mapping entry is still 'planned' but its Java package exists: ${basename}")
       }
     }
     def mappedSources = mappingEntries.keySet().collect { "src/${it}" }.toSet()
@@ -339,15 +367,15 @@ tasks.register('upstreamVerify') {
 
 def upstreamVerification = tasks.named('upstreamVerify')
 def nodeVersionVerification = tasks.named('nodeOracleVersion')
-def nodeTimeoutSeconds = [nodeCorpusTest: 120, nodeCorpusVerify: 300, corpusCoverage: 120, nodeOracleVersion: 30]
-['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage', 'nodeOracleVersion'].each { taskName ->
+def nodeTimeoutSeconds = [nodeCorpusTest: 120, nodeCorpusVerify: 300, corpusCoverage: 120, nodeOracleVersion: 30, astSnapshotVerify: 120]
+['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage', 'nodeOracleVersion', 'astSnapshotVerify'].each { taskName ->
   tasks.named(taskName) {
     dependsOn upstreamVerification
     mustRunAfter upstreamVerification
     timeout = java.time.Duration.ofSeconds(nodeTimeoutSeconds[taskName])
   }
 }
-['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage'].each { taskName ->
+['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage', 'astSnapshotVerify'].each { taskName ->
   tasks.named(taskName) {
     dependsOn nodeVersionVerification
   }

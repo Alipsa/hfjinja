@@ -21,21 +21,47 @@ import java.util.List;
  */
 @FunctionalInterface
 public interface HostFunction {
+  /**
+   * Invokes this function with the template-supplied arguments.
+   *
+   * @param arguments the call's arguments, honoring the closed host-value boundary described above
+   * @return the result, honoring the same host-value boundary
+   */
   Object apply(List<Object> arguments);
 
-  /** Marks a host-function result as a template float, including integral values such as {@code 2.0}. */
+  /**
+   * Marks a host-function result as a template float, including integral values such as {@code
+   * 2.0}.
+   *
+   * @param value the float value to return to the template
+   * @return the marker to return from {@link #apply(List)}
+   */
   static FloatResult floatResult(double value) {
     return new FloatResult(value);
   }
 
-  /** Marks a computed integral host-function result, including values outside the safe-integer range. */
+  /**
+   * Marks a computed integral host-function result, including values outside the safe-integer
+   * range.
+   *
+   * @param value the integral value to return to the template
+   * @return the marker to return from {@link #apply(List)}
+   */
   static IntegerResult integerResult(double value) {
     return new IntegerResult(value);
   }
 
-  /** Explicit float result marker for {@link #floatResult(double)}. */
+  /**
+   * Explicit float result marker for {@link #floatResult(double)}.
+   *
+   * @param value the float value to return to the template
+   */
   record FloatResult(double value) {}
 
-  /** Explicit integer result marker for {@link #integerResult(double)}. */
+  /**
+   * Explicit integer result marker for {@link #integerResult(double)}.
+   *
+   * @param value the integral value to return to the template
+   */
   record IntegerResult(double value) {}
 }

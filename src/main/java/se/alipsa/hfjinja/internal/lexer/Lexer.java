@@ -17,8 +17,8 @@ import se.alipsa.hfjinja.TemplateSyntaxException;
  * <p>Reported {@link SourceLocation}s are relative to the preprocessed source (after the trailing
  * newline strip and, when enabled, {@code trim_blocks}/{@code lstrip_blocks}/the {@code generation}
  * tag strip), not the caller's original string. This is exact whenever {@code trim_blocks} and
- * {@code lstrip_blocks} are both off and no {@code generation} tag is present — the default and
- * overwhelmingly common case. Remapping locations back through those content-dependent rewrites is
+ * {@code lstrip_blocks} are both off and no {@code generation} tag is present. Remapping locations
+ * back through those content-dependent rewrites is
  * a known v1 limitation, deferred until a concrete need arises.
  */
 public final class Lexer {
@@ -89,6 +89,13 @@ public final class Lexer {
 
   private Lexer() {}
 
+  /**
+   * Scans {@code source} into a token list.
+   *
+   * @param source the template source
+   * @param options parse-time limits and syntax options
+   * @return the scanned tokens, in source order
+   */
   public static List<Token> tokenize(String source, TemplateOptions options) {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(options, "options");

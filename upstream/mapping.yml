@@ -1,19 +1,19 @@
 # This lightweight ledger intentionally uses inline flow lists; upstreamVerify validates that form.
 ast.ts:
   milestone: M1
-  status: planned
-  java: []
-  tests: []
+  status: implemented
+  java: [src/main/java/se/alipsa/hfjinja/internal/ast/Statement.java, src/main/java/se/alipsa/hfjinja/internal/ast/Expression.java]
+  tests: [src/test/java/se/alipsa/hfjinja/internal/ast/AstInventoryTest.java]
 lexer.ts:
   milestone: M1
-  status: planned
-  java: []
-  tests: []
+  status: implemented
+  java: [src/main/java/se/alipsa/hfjinja/internal/lexer/Lexer.java, src/main/java/se/alipsa/hfjinja/internal/lexer/Token.java, src/main/java/se/alipsa/hfjinja/internal/lexer/TokenType.java]
+  tests: [src/test/java/se/alipsa/hfjinja/internal/lexer/LexerTest.java]
 parser.ts:
   milestone: M1
-  status: planned
-  java: []
-  tests: []
+  status: implemented
+  java: [src/main/java/se/alipsa/hfjinja/internal/parser/Parser.java]
+  tests: [src/test/java/se/alipsa/hfjinja/internal/parser/ParserTest.java, src/test/java/se/alipsa/hfjinja/internal/parser/AstSnapshotDifferentialTest.java]
 runtime.ts:
   milestone: M2
   status: planned
