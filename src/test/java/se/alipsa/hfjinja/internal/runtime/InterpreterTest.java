@@ -102,6 +102,27 @@ class InterpreterTest {
   }
 
   @Test
+  void matchesRuntimeExceptionStringificationAndCallEvaluationOrder() {
+    assertEquals("1,2", raisedMessage("{{ raise_exception((1, 2)) }}", Map.of()));
+    assertEquals("1", raisedMessage("{{ raise_exception(1.0) }}", Map.of()));
+    assertEquals("[object Map]", raisedMessage("{{ raise_exception(obj) }}", Map.of("obj", Map.of("a", 1))));
+    assertEquals("undefined", raisedMessage("{{ raise_exception([none]) }}", Map.of()));
+    assertEquals("[1, 2]", raisedMessage("{{ raise_exception([[1, 2]]) }}", Map.of()));
+    assertEquals("boom", raisedMessage("{{ nofn(raise_exception('boom')) }}", Map.of()));
+  }
+
+  @Test
+  void rendersNamespaceKeywordArgumentsAndRejectsCyclicValues() {
+    assertEquals("1", Template.parse("{% set ns = namespace(x=1) %}{{ ns.x }}").render(Map.of()));
+    var error = assertThrows(TemplateRenderException.class, () -> Template.parse("{% set ns = namespace() %}{% set ns.self = ns %}{{ ns }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+  }
+
+  private static String raisedMessage(String source, Map<String, ?> context) {
+    return assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(context)).getMessage();
+  }
+
+  @Test
   void quoteEscapesUnpairedSurrogates() {
     assertEquals("\"x\\ud800y\"", JsFormat.quote("x\uD800y"));
   }

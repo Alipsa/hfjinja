@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -257,6 +258,20 @@ class HostFunctionsTest {
     var cause = assertInstanceOf(TemplateRenderException.class, error.getCause());
     assertEquals(ErrorCategory.HOST_CONVERSION, cause.category());
     assertEquals("Host value graph contains a cycle", cause.getMessage());
+  }
+
+  @Test
+  void rejectsACyclicRuntimeArgumentBeforeCallingTheHostFunction() {
+    var cyclic = new ObjectValue(new LinkedHashMap<>());
+    cyclic.values().put("self", cyclic);
+    var options = RenderOptions.builder().hostFunction("known", arguments -> null).build();
+
+    var error = assertHostFailure(() -> HostFunctions.invoke(
+        "known", function(options, "known"), List.of(cyclic), false, CALL_LOCATION));
+
+    assertEquals("Host function 'known' cannot receive argument 0", error.getMessage());
+    assertInstanceOf(IllegalStateException.class, error.getCause());
+    assertEquals("Runtime value graph contains a cycle", error.getCause().getMessage());
   }
 
   @Test

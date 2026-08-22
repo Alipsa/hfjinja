@@ -153,6 +153,18 @@ class ValuesTest {
     assertInstanceOf(ArrayValue.class, Values.fromHost(graph));
   }
 
+  @Test
+  void convertsDeepSharedMutableDagWithoutExpandingItIntoATree() {
+    Map<String, Object> graph = Map.of("value", 0);
+    for (int depth = 0; depth < 26; depth++) {
+      graph = Map.of("a", graph, "b", graph);
+    }
+    var root = graph;
+    var error = assertThrows(TemplateRenderException.class, () -> Values.fromHost(Map.of("root", root)));
+    assertEquals(ErrorCategory.HOST_CONVERSION, error.category());
+    assertEquals("Host value graph is too large after mutable copy isolation", error.getMessage());
+  }
+
   private static TemplateRenderException assertConversionFailure(Object input) {
     var error = assertThrows(TemplateRenderException.class, () -> Values.fromHost(input));
     assertEquals(ErrorCategory.HOST_CONVERSION, error.category());

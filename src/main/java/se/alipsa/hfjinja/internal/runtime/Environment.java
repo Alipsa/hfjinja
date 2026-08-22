@@ -25,8 +25,14 @@ final class Environment {
     return Value.UndefinedValue.INSTANCE;
   }
   private Value namespace(List<Value> args, boolean keywords, SourceLocation location) {
-    if (keywords || args.size() > 1 || (args.size() == 1 && !(args.get(0) instanceof Value.ObjectValue)))
+    if (args.size() > (keywords ? 2 : 1)
+        || (!args.isEmpty() && !(args.get(0) instanceof Value.ObjectValue))
+        || (keywords && !(args.get(args.size() - 1) instanceof Value.ObjectValue)))
       throw new TemplateRenderException("`namespace` expects either zero arguments or a single object argument", ErrorCategory.TYPE, location);
-    return args.isEmpty() ? new Value.ObjectValue(new LinkedHashMap<>()) : args.get(0);
+    if (!keywords) return args.isEmpty() ? new Value.ObjectValue(new LinkedHashMap<>()) : args.get(0);
+    var values = new LinkedHashMap<String, Value>();
+    if (args.size() == 2) values.putAll(((Value.ObjectValue) args.get(0)).values());
+    values.putAll(((Value.ObjectValue) args.get(args.size() - 1)).values());
+    return new Value.ObjectValue(values);
   }
 }

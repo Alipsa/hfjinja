@@ -14,15 +14,16 @@ import java.util.Objects;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.HostFunction;
 import se.alipsa.hfjinja.TemplateRenderException;
-/** Converts only the explicitly supported Java boundary types into immutable runtime values. */
+/** Converts only the explicitly supported Java boundary types into runtime values. */
 @SuppressWarnings("doclint:missing")
 public final class Values {
   private static final double MAX_SAFE_INTEGER = 9_007_199_254_740_991d;
+  private static final int MAX_MUTABLE_COPIES = 100_000;
 
   private Values() {}
 
   public static Value fromHost(Object input) {
-    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), new IdentityHashMap<>());
+    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), new IdentityHashMap<>(), new CopyBudget());
   }
 
   /**
@@ -38,8 +39,15 @@ public final class Values {
     Objects.requireNonNull(converted, "converted");
     Objects.requireNonNull(sourceValues, "sourceValues");
     Objects.requireNonNull(path, "path");
-    // Values are immutable and only originate from acyclic host input, so this map preserves DAG
-    // sharing rather than needing a separate cycle guard.
+    return toHost(value, converted, sourceValues, path, new IdentityHashMap<>());
+  }
+
+  private static Object toHost(
+      Value value,
+      IdentityHashMap<Value, Object> converted,
+      IdentityHashMap<Object, Value> sourceValues,
+      HostPath path,
+      IdentityHashMap<Value, Boolean> visiting) {
     return switch (value) {
       case UndefinedValue ignored -> throw new UndefinedHostValueException("undefined value at " + path.describe());
       case NullValue ignored -> null;
@@ -59,56 +67,77 @@ public final class Values {
         if (existing != null) {
           yield existing;
         }
-        var values = new ArrayList<Object>(arrayValue.values().size());
-        for (int index = 0; index < arrayValue.values().size(); index++) {
-          var pathLength = path.length();
-          path.appendIndex(index);
-          try {
-            values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path));
-          } finally {
-            path.restore(pathLength);
+        requireAcyclicValue(arrayValue, visiting);
+        try {
+          var values = new ArrayList<Object>(arrayValue.values().size());
+          for (int index = 0; index < arrayValue.values().size(); index++) {
+            var pathLength = path.length();
+            path.appendIndex(index);
+            try {
+              values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path, visiting));
+            } finally {
+              path.restore(pathLength);
+            }
           }
+          var hostValue = Collections.unmodifiableList(values);
+          converted.put(arrayValue, hostValue);
+          sourceValues.putIfAbsent(hostValue, value);
+          yield hostValue;
+        } finally {
+          visiting.remove(arrayValue);
         }
-        var hostValue = Collections.unmodifiableList(values);
-        converted.put(arrayValue, hostValue);
-        sourceValues.putIfAbsent(hostValue, value);
-        yield hostValue;
       }
       case TupleValue tupleValue -> {
         var existing = converted.get(tupleValue);
         if (existing != null) yield existing;
-        var values = new ArrayList<Object>(tupleValue.values().size());
-        for (int index = 0; index < tupleValue.values().size(); index++) {
-          var pathLength = path.length(); path.appendIndex(index);
-          try { values.add(toHost(tupleValue.values().get(index), converted, sourceValues, path)); }
-          finally { path.restore(pathLength); }
+        requireAcyclicValue(tupleValue, visiting);
+        try {
+          var values = new ArrayList<Object>(tupleValue.values().size());
+          for (int index = 0; index < tupleValue.values().size(); index++) {
+            var pathLength = path.length(); path.appendIndex(index);
+            try { values.add(toHost(tupleValue.values().get(index), converted, sourceValues, path, visiting)); }
+            finally { path.restore(pathLength); }
+          }
+          var hostValue = Collections.unmodifiableList(values);
+          converted.put(tupleValue, hostValue); sourceValues.putIfAbsent(hostValue, value);
+          yield hostValue;
+        } finally {
+          visiting.remove(tupleValue);
         }
-        var hostValue = Collections.unmodifiableList(values);
-        converted.put(tupleValue, hostValue); sourceValues.putIfAbsent(hostValue, value);
-        yield hostValue;
       }
       case ObjectValue objectValue -> {
         var existing = converted.get(objectValue);
         if (existing != null) {
           yield existing;
         }
-        var values = new LinkedHashMap<String, Object>(objectValue.values().size());
-        for (var entry : objectValue.values().entrySet()) {
-          var pathLength = path.length();
-          path.appendKey(entry.getKey());
-          try {
-            values.put(entry.getKey(), toHost(entry.getValue(), converted, sourceValues, path));
-          } finally {
-            path.restore(pathLength);
+        requireAcyclicValue(objectValue, visiting);
+        try {
+          var values = new LinkedHashMap<String, Object>(objectValue.values().size());
+          for (var entry : objectValue.values().entrySet()) {
+            var pathLength = path.length();
+            path.appendKey(entry.getKey());
+            try {
+              values.put(entry.getKey(), toHost(entry.getValue(), converted, sourceValues, path, visiting));
+            } finally {
+              path.restore(pathLength);
+            }
           }
+          var hostValue = Collections.unmodifiableMap(values);
+          converted.put(objectValue, hostValue);
+          sourceValues.putIfAbsent(hostValue, value);
+          yield hostValue;
+        } finally {
+          visiting.remove(objectValue);
         }
-        var hostValue = Collections.unmodifiableMap(values);
-        converted.put(objectValue, hostValue);
-        sourceValues.putIfAbsent(hostValue, value);
-        yield hostValue;
       }
       case CallableValue ignored -> throw new UndefinedHostValueException("callable value at " + path.describe());
     };
+  }
+
+  private static void requireAcyclicValue(Value value, IdentityHashMap<Value, Boolean> visiting) {
+    if (visiting.put(value, Boolean.TRUE) != null) {
+      throw new IllegalStateException("Runtime value graph contains a cycle");
+    }
   }
 
   private static Object sourceValue(
@@ -188,15 +217,16 @@ public final class Values {
   }
 
   public static Value fromHostFunctionReturn(Object input, IdentityHashMap<Object, Value> sourceValues) {
-    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), new IdentityHashMap<>(), sourceValues, true);
+    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), new IdentityHashMap<>(), sourceValues, true, new CopyBudget());
   }
 
   private static Value fromHost(
       Object input,
       IdentityHashMap<Object, Value> converted,
       IdentityHashMap<Object, Boolean> visiting,
-      IdentityHashMap<Value, Boolean> containsMutable) {
-    return fromHost(input, converted, visiting, containsMutable, null, false);
+      IdentityHashMap<Value, Boolean> containsMutable,
+      CopyBudget copyBudget) {
+    return fromHost(input, converted, visiting, containsMutable, null, false, copyBudget);
   }
 
   private static Value fromHost(
@@ -205,7 +235,8 @@ public final class Values {
       IdentityHashMap<Object, Boolean> visiting,
       IdentityHashMap<Value, Boolean> containsMutable,
       IdentityHashMap<Object, Value> sourceValues,
-      boolean allowResultMarkers) {
+      boolean allowResultMarkers,
+      CopyBudget copyBudget) {
     if (sourceValues != null) {
       var sourceValue = sourceValues.get(input);
       if (sourceValue != null) {
@@ -239,14 +270,14 @@ public final class Values {
     if (input.getClass().isArray()) {
       var existing = converted.get(input);
       if (existing != null) {
-        return copyMutableObjects(existing, containsMutable);
+        return copyMutableObjects(existing, containsMutable, copyBudget);
       }
       requireAcyclic(input, visiting);
       try {
         int length = Array.getLength(input);
         var values = new ArrayList<Value>(length);
         for (int index = 0; index < length; index++) {
-          values.add(fromHost(Array.get(input, index), converted, visiting, containsMutable, sourceValues, allowResultMarkers));
+          values.add(fromHost(Array.get(input, index), converted, visiting, containsMutable, sourceValues, allowResultMarkers, copyBudget));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -258,13 +289,13 @@ public final class Values {
     if (input instanceof List<?> list) {
       var existing = converted.get(input);
       if (existing != null) {
-        return copyMutableObjects(existing, containsMutable);
+        return copyMutableObjects(existing, containsMutable, copyBudget);
       }
       requireAcyclic(input, visiting);
       try {
         var values = new ArrayList<Value>(list.size());
         for (Object item : list) {
-          values.add(fromHost(item, converted, visiting, containsMutable, sourceValues, allowResultMarkers));
+          values.add(fromHost(item, converted, visiting, containsMutable, sourceValues, allowResultMarkers, copyBudget));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -276,7 +307,7 @@ public final class Values {
     if (input instanceof Map<?, ?> map) {
       var existing = converted.get(input);
       if (existing != null) {
-        return copyMutableObjects(existing, containsMutable);
+        return copyMutableObjects(existing, containsMutable, copyBudget);
       }
       requireAcyclic(input, visiting);
       try {
@@ -285,7 +316,7 @@ public final class Values {
           if (!(entry.getKey() instanceof String key)) {
             throw conversion("Map keys must be strings");
           }
-          values.put(key, fromHost(entry.getValue(), converted, visiting, containsMutable, sourceValues, allowResultMarkers));
+          values.put(key, fromHost(entry.getValue(), converted, visiting, containsMutable, sourceValues, allowResultMarkers, copyBudget));
         }
         var value = new ObjectValue(values);
         converted.put(input, value);
@@ -298,31 +329,47 @@ public final class Values {
   }
 
   /** Copies only paths containing mutable objects; immutable DAG portions stay shared. */
-  private static Value copyMutableObjects(Value value, IdentityHashMap<Value, Boolean> containsMutable) {
+  private static Value copyMutableObjects(Value value, IdentityHashMap<Value, Boolean> containsMutable, CopyBudget copyBudget) {
     if (!containsMutableObjects(value, containsMutable)) return value;
+    return copyMutableObjects(value, containsMutable, new IdentityHashMap<>(), copyBudget);
+  }
+
+  /** Each repeated host reference receives an independent mutable copy, retaining its internal DAG. */
+  private static Value copyMutableObjects(
+      Value value,
+      IdentityHashMap<Value, Boolean> containsMutable,
+      IdentityHashMap<Value, Value> copied,
+      CopyBudget copyBudget) {
+    var existing = copied.get(value);
+    if (existing != null) return existing;
     return switch (value) {
       case ObjectValue objectValue -> {
-        var copy = new LinkedHashMap<String, Value>(objectValue.values().size());
+        copyBudget.charge();
+        var result = new ObjectValue(new LinkedHashMap<>(objectValue.values().size()));
+        copied.put(value, result);
         for (var entry : objectValue.values().entrySet()) {
-          copy.put(entry.getKey(), copyMutableObjects(entry.getValue(), containsMutable));
+          result.values().put(entry.getKey(), copyMutableObjects(entry.getValue(), containsMutable, copied, copyBudget));
         }
-        yield new ObjectValue(copy);
+        yield result;
       }
       case ArrayValue arrayValue -> {
         var copy = new ArrayList<Value>(arrayValue.values().size());
+        // ArrayValue snapshots its input, so install the result only after its children are copied.
         boolean changed = false;
         for (var item : arrayValue.values()) {
-          var itemCopy = copyMutableObjects(item, containsMutable);
+          var itemCopy = copyMutableObjects(item, containsMutable, copied, copyBudget);
           changed |= itemCopy != item;
           copy.add(itemCopy);
         }
-        yield changed ? new ArrayValue(copy) : arrayValue;
+        var result = changed ? new ArrayValue(copy) : arrayValue;
+        copied.put(value, result);
+        yield result;
       }
       case TupleValue tupleValue -> {
         var copy = new ArrayList<Value>(tupleValue.values().size());
         boolean changed = false;
         for (var item : tupleValue.values()) {
-          var itemCopy = copyMutableObjects(item, containsMutable);
+          var itemCopy = copyMutableObjects(item, containsMutable, copied, copyBudget);
           changed |= itemCopy != item;
           copy.add(itemCopy);
         }
@@ -330,6 +377,15 @@ public final class Values {
       }
       default -> value;
     };
+  }
+
+  private static final class CopyBudget {
+    private int copies;
+    void charge() {
+      if (++copies > MAX_MUTABLE_COPIES) {
+        throw conversion("Host value graph is too large after mutable copy isolation");
+      }
+    }
   }
 
   private static boolean containsMutableObjects(Value value, IdentityHashMap<Value, Boolean> memo) {
