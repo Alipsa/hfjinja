@@ -42,7 +42,9 @@ public final class Interpreter {
     var budget = new RenderBudget(options);
     try {
       seed(env, options, program.location(), budget);
-      for (var e : context.values().entrySet()) env.set(e.getKey(), e.getValue());
+      for (var e : context.values().entrySet()) {
+        if (e.getKey() instanceof String key) env.set(key, e.getValue());
+      }
     } catch (IllegalStateException ex) {
       throw new TemplateRenderException(ex.getMessage(), ErrorCategory.VALUE, program.location());
     }
@@ -161,7 +163,7 @@ public final class Interpreter {
   }
 
   private static Value object(Expression.ObjectLiteral x, Environment e, RenderBudget b) {
-    var r = new LinkedHashMap<String, Value>();
+    var r = new LinkedHashMap<Object, Value>();
     for (var item : x.value()) {
       var k = evaluateExpression(item.key(), e, b);
       if (!(k instanceof Value.StringValue key))
@@ -169,7 +171,7 @@ public final class Interpreter {
             "Object keys must be strings: got " + type(k),
             ErrorCategory.TYPE,
             item.key().location());
-      r.put(key.value(), evaluateExpression(item.value(), e, b));
+      r.put(key.undefinedBacked() ? key : key.value(), evaluateExpression(item.value(), e, b));
     }
     return new Value.ObjectValue(r);
   }
@@ -204,8 +206,7 @@ public final class Interpreter {
     if (target instanceof Value.ObjectValue x) {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
-      if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
-      return x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE);
+      return x.values().getOrDefault(objectKey(s), Value.UndefinedValue.INSTANCE);
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
       if (!(p instanceof Value.StringValue s))
@@ -233,6 +234,10 @@ public final class Interpreter {
 
   private static TemplateRenderException access(String message, SourceLocation location) {
     return new TemplateRenderException(message, ErrorCategory.TYPE, location);
+  }
+
+  private static Object objectKey(Value.StringValue value) {
+    return value.undefinedBacked() ? value : value.value();
   }
 
   private static Value memberIndex(List<Value> values, Value property, SourceLocation location) {
@@ -370,7 +375,8 @@ public final class Interpreter {
     else if (iterable instanceof Value.TupleValue a) items = a.values();
     else if (iterable instanceof Value.ObjectValue o) {
       items = new ArrayList<>();
-      for (var k : o.values().keySet()) items.add(new Value.StringValue(k));
+      for (var k : o.values().keySet())
+        items.add(k instanceof Value.StringValue string ? string : new Value.StringValue((String) k));
     } else if (iterable instanceof Value.KeywordArgumentsValue o) {
       items = new ArrayList<>();
       for (var k : o.values().keySet()) items.add(new Value.StringValue(k));
@@ -468,7 +474,7 @@ public final class Interpreter {
       Value v, SourceLocation l, java.util.IdentityHashMap<Value, Boolean> visiting) {
     return switch (v) {
       case Value.NullValue ignored -> "null";
-      case Value.UndefinedValue ignored -> null;
+      case Value.UndefinedValue ignored -> "undefined";
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> JsFormat.jsonString(x.value());
       case Value.FloatValue x -> JsFormat.jsonString(x.value());
@@ -514,7 +520,7 @@ public final class Interpreter {
   }
 
   private static String jsonObject(
-      Map<String, Value> values,
+      Map<?, Value> values,
       SourceLocation l,
       java.util.IdentityHashMap<Value, Boolean> visiting,
       Value container) {
@@ -525,7 +531,7 @@ public final class Interpreter {
       for (var x : values.entrySet()) {
         if (!first) r.append(", ");
         first = false;
-        r.append(JsFormat.quote(x.getKey()))
+        r.append(jsonObjectKey(x.getKey()))
             .append(": ")
             .append(jsonObjectValue(x.getValue(), l, visiting));
       }
@@ -539,6 +545,12 @@ public final class Interpreter {
       Value value, SourceLocation location, java.util.IdentityHashMap<Value, Boolean> visiting) {
     var rendered = renderJsonValue(value, location, visiting);
     return rendered == null ? "undefined" : rendered;
+  }
+
+  private static String jsonObjectKey(Object key) {
+    return key instanceof Value.StringValue string && string.undefinedBacked()
+        ? "undefined"
+        : JsFormat.quote((String) key);
   }
 
   private static Value range(List<Value> a, boolean k, SourceLocation l, RenderBudget budget) {
@@ -574,7 +586,10 @@ public final class Interpreter {
   private static Value argument(List<Value> arguments, int index) {
     if (index >= arguments.size()) return Value.UndefinedValue.INSTANCE;
     var value = arguments.get(index);
-    return value instanceof Value.NullValue ? Value.UndefinedValue.INSTANCE : value;
+    return value instanceof Value.NullValue
+            || value instanceof Value.StringValue string && string.undefinedBacked()
+        ? Value.UndefinedValue.INSTANCE
+        : value;
   }
 
   private static Value jsAdd(Value left, Value right) {

@@ -65,8 +65,8 @@ var prompt = template.render(Map.of(
         Map.of("role", "assistant", "content", "Hi!"))));
 ```
 
-Parse once and reuse the `Template` from multiple threads. The `String` overloads return output
-atomically; the `Appendable` overloads stream output and cannot roll it back after a failure.
+Parse once and reuse the `Template` from multiple threads. Both the `String` and `Appendable`
+overloads buffer output and append it atomically after a successful render.
 
 ```java
 template.render(context, writer);

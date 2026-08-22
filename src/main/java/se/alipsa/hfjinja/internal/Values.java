@@ -153,11 +153,13 @@ public final class Values {
         try {
           var values = new LinkedHashMap<String, Object>(objectValue.values().size());
           for (var entry : objectValue.values().entrySet()) {
+            if (!(entry.getKey() instanceof String key))
+              throw conversion("Map keys must be strings");
             var pathLength = path.length();
-            path.appendKey(entry.getKey());
+            path.appendKey(key);
             try {
               values.put(
-                  entry.getKey(),
+                  key,
                   toHost(entry.getValue(), converted, sourceValues, path, visiting));
             } finally {
               path.restore(pathLength);
@@ -410,7 +412,7 @@ public final class Values {
       }
       requireAcyclic(input, visiting);
       try {
-        var values = new LinkedHashMap<String, Value>(map.size());
+        var values = new LinkedHashMap<Object, Value>(map.size());
         for (var entry : map.entrySet()) {
           if (!(entry.getKey() instanceof String key)) {
             throw conversion("Map keys must be strings");

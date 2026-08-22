@@ -40,8 +40,31 @@ public sealed interface Value
     public TupleValue { values = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(values, "values"))); }
   }
   /** Mutable by design for template member assignment; never use as a hash-based key. */
-  record ObjectValue(Map<String, Value> values) implements Value {
-    public ObjectValue { values = new LinkedHashMap<>(Objects.requireNonNull(values, "values")); }
+  final class ObjectValue implements Value {
+    private final Map<Object, Value> values;
+
+    public ObjectValue(Map<?, Value> values) {
+      this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
+    }
+
+    public Map<Object, Value> values() {
+      return values;
+    }
+
+    @Override
+    public boolean equals(Object object) {
+      return object instanceof ObjectValue other && values.equals(other.values);
+    }
+
+    @Override
+    public int hashCode() {
+      return values.hashCode();
+    }
+
+    @Override
+    public String toString() {
+      return "ObjectValue[values=" + values + "]";
+    }
   }
   /** Object-like call keyword arguments, distinct because they are not JSON-renderable upstream. */
   record KeywordArgumentsValue(Map<String, Value> values) implements Value {
