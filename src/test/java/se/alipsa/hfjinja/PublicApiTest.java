@@ -46,9 +46,9 @@ class PublicApiTest {
   }
 
   @Test
-  void parsedTemplateIsImmutableBeforeInterpreterLands() {
+  void parsedTemplateRendersLiteralText() {
     var template = Template.parse("literal");
-    assertThrows(UnsupportedOperationException.class, () -> template.render(Map.of()));
+    assertEquals("literal", template.render(Map.of()));
   }
 
   @Test
@@ -62,33 +62,54 @@ class PublicApiTest {
   void renderOptionsAreImmutableAndRejectInvalidFunctionRegistrations() {
     var clock = Clock.fixed(Instant.parse("2025-01-02T03:04:05Z"), ZoneOffset.UTC);
     HostFunction formatter = arguments -> "formatted";
-    var options = RenderOptions.builder()
-        .clock(clock)
-        .zoneId(ZoneOffset.UTC)
-        .hostFunction("format_tool", formatter)
-        .build();
+    var options =
+        RenderOptions.builder()
+            .clock(clock)
+            .zoneId(ZoneOffset.UTC)
+            .hostFunction("format_tool", formatter)
+            .build();
 
     assertEquals(clock, options.clock().orElseThrow());
     assertEquals(ZoneOffset.UTC, options.zoneId().orElseThrow());
     assertEquals(formatter, options.hostFunctions().get("format_tool"));
-    assertThrows(UnsupportedOperationException.class,
-        () -> options.hostFunctions().put("other", formatter));
-    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder()
-        .hostFunction("duplicate", formatter)
-        .hostFunction("duplicate", formatter)
-        .build());
-    assertThrows(IllegalArgumentException.class,
+    assertThrows(
+        UnsupportedOperationException.class, () -> options.hostFunctions().put("other", formatter));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RenderOptions.builder()
+                .hostFunction("duplicate", formatter)
+                .hostFunction("duplicate", formatter)
+                .build());
+    assertThrows(
+        IllegalArgumentException.class,
         () -> RenderOptions.builder().hostFunction("range", formatter).build());
-    assertThrows(IllegalArgumentException.class,
-        () -> RenderOptions.builder().hostFunction(" ", formatter));
-    assertThrows(IllegalArgumentException.class,
+    assertThrows(
+        IllegalArgumentException.class, () -> RenderOptions.builder().hostFunction(" ", formatter));
+    assertThrows(
+        IllegalArgumentException.class,
         () -> RenderOptions.builder().hostFunction("format-tool", formatter));
-    assertThrows(IllegalArgumentException.class,
+    assertThrows(
+        IllegalArgumentException.class,
         () -> RenderOptions.builder().hostFunction("two words", formatter));
-    assertThrows(IllegalArgumentException.class,
+    assertThrows(
+        IllegalArgumentException.class,
         () -> RenderOptions.builder().hostFunction("1st", formatter));
-    assertThrows(NullPointerException.class,
+    assertThrows(
+        NullPointerException.class,
         () -> RenderOptions.builder().hostFunction("format_tool", null));
+  }
+
+  @Test
+  void renderOptionsRejectNonpositiveResourceLimits() {
+    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxSteps(0));
+    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxSteps(-1));
+    assertThrows(
+        IllegalArgumentException.class, () -> RenderOptions.builder().maxLoopIterations(0));
+    assertThrows(
+        IllegalArgumentException.class, () -> RenderOptions.builder().maxLoopIterations(-1));
+    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxOutputLength(0));
+    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxOutputLength(-1));
   }
 
   @Test
@@ -98,23 +119,28 @@ class PublicApiTest {
     assertEquals(256, TemplateOptions.DEFAULT.maxAstDepth());
     assertTrue(TemplateOptions.DEFAULT.trimBlocks());
     assertTrue(TemplateOptions.DEFAULT.lstripBlocks());
-    assertEquals(TemplateOptions.DEFAULT.trimBlocks(), TemplateOptions.builder().build().trimBlocks());
-    assertEquals(TemplateOptions.DEFAULT.lstripBlocks(), TemplateOptions.builder().build().lstripBlocks());
+    assertEquals(
+        TemplateOptions.DEFAULT.trimBlocks(), TemplateOptions.builder().build().trimBlocks());
+    assertEquals(
+        TemplateOptions.DEFAULT.lstripBlocks(), TemplateOptions.builder().build().lstripBlocks());
 
-    var options = TemplateOptions.builder()
-        .maxSourceLength(10)
-        .maxTokenCount(20)
-        .trimBlocks(true)
-        .lstripBlocks(true)
-        .build();
+    var options =
+        TemplateOptions.builder()
+            .maxSourceLength(10)
+            .maxTokenCount(20)
+            .trimBlocks(true)
+            .lstripBlocks(true)
+            .build();
     assertEquals(10, options.maxSourceLength());
     assertEquals(20, options.maxTokenCount());
     assertEquals(256, options.maxAstDepth());
     assertTrue(options.trimBlocks());
     assertTrue(options.lstripBlocks());
 
-    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(0));
-    assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(-1));
+    assertThrows(
+        IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(0));
+    assertThrows(
+        IllegalArgumentException.class, () -> TemplateOptions.builder().maxSourceLength(-1));
     assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxTokenCount(0));
     assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxTokenCount(-1));
     assertThrows(IllegalArgumentException.class, () -> TemplateOptions.builder().maxAstDepth(0));

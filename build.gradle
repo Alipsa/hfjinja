@@ -249,7 +249,8 @@ tasks.register('upstreamVerify') {
       throw new GradleException('Cannot find RenderOptions built-in global set')
     }
     def reservedBuiltIns = (builtInSet.group(1) =~ /"([A-Za-z_][A-Za-z0-9_]*)"/).collect { it[1] }
-    def expectedBuiltIns = parsed.globals.findAll { !it.hostSupplied }.collect { it.name }
+    // namespace is constructed by Environment rather than setupGlobals in upstream runtime.ts.
+    def expectedBuiltIns = (parsed.globals.findAll { !it.hostSupplied }.collect { it.name } + ['namespace']).unique()
     if (reservedBuiltIns.toSet() != expectedBuiltIns.toSet() || reservedBuiltIns.size() != expectedBuiltIns.size()) {
       throw new GradleException('RenderOptions built-in globals do not match the upstream lock inventory')
     }

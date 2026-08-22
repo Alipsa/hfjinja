@@ -11,22 +11,49 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Immutable render-time options with optional clock/zone settings and explicitly named host functions. */
+/**
+ * Immutable render-time options with optional clock/zone settings and explicitly named host
+ * functions.
+ */
+@SuppressWarnings("doclint:missing")
 public final class RenderOptions {
   private static final Set<String> BUILTIN_GLOBALS =
-      Set.of("false", "true", "none", "raise_exception", "range", "strftime_now", "True", "False", "None");
+      Set.of(
+          "false",
+          "true",
+          "none",
+          "raise_exception",
+          "range",
+          "strftime_now",
+          "True",
+          "False",
+          "None",
+          "namespace");
 
   /** Render options with no clock/zone override and no host functions. */
-  public static final RenderOptions DEFAULT = new RenderOptions(null, null, Map.of());
+  public static final RenderOptions DEFAULT =
+      new RenderOptions(null, null, Map.of(), 10_000_000, 1_000_000, 10_000_000);
 
   private final Clock clock;
   private final ZoneId zoneId;
   private final Map<String, HostFunction> hostFunctions;
+  private final int maxSteps;
+  private final int maxLoopIterations;
+  private final int maxOutputLength;
 
-  private RenderOptions(Clock clock, ZoneId zoneId, Map<String, HostFunction> hostFunctions) {
+  private RenderOptions(
+      Clock clock,
+      ZoneId zoneId,
+      Map<String, HostFunction> hostFunctions,
+      int maxSteps,
+      int maxLoopIterations,
+      int maxOutputLength) {
     this.clock = clock;
     this.zoneId = zoneId;
     this.hostFunctions = Collections.unmodifiableMap(new LinkedHashMap<>(hostFunctions));
+    this.maxSteps = maxSteps;
+    this.maxLoopIterations = maxLoopIterations;
+    this.maxOutputLength = maxOutputLength;
   }
 
   /**
@@ -41,7 +68,7 @@ public final class RenderOptions {
   /**
    * Returns the optional caller-supplied clock.
    *
-   * @return the clock, or empty to use the system clock
+   * @return the clock, or empty; {@code strftime_now} requires an explicit clock at first use
    */
   public Optional<Clock> clock() {
     return Optional.ofNullable(clock);
@@ -50,7 +77,7 @@ public final class RenderOptions {
   /**
    * Returns the optional caller-supplied time zone.
    *
-   * @return the time zone, or empty to use the system default
+   * @return the time zone, or empty; {@code strftime_now} requires an explicit zone at first use
    */
   public Optional<ZoneId> zoneId() {
     return Optional.ofNullable(zoneId);
@@ -65,11 +92,29 @@ public final class RenderOptions {
     return hostFunctions;
   }
 
+  /** Returns the maximum number of render steps allowed. */
+  public int maxSteps() {
+    return maxSteps;
+  }
+
+  /** Returns the maximum number of loop iterations allowed. */
+  public int maxLoopIterations() {
+    return maxLoopIterations;
+  }
+
+  /** Returns the maximum rendered output length allowed. */
+  public int maxOutputLength() {
+    return maxOutputLength;
+  }
+
   /** Builder for {@link RenderOptions}. */
   public static final class Builder {
     private Clock clock;
     private ZoneId zoneId;
     private final List<HostFunctionRegistration> hostFunctions = new ArrayList<>();
+    private int maxSteps = 10_000_000;
+    private int maxLoopIterations = 1_000_000;
+    private int maxOutputLength = 10_000_000;
 
     private Builder() {}
 
@@ -95,18 +140,34 @@ public final class RenderOptions {
       return this;
     }
 
-  /**
-   * Registers a function under a template-visible name.
-   *
-   * @param name the template-visible name; must be a valid template identifier
-   * @param function the function to register
-   * @return this builder
-   */
-  public Builder hostFunction(String name, HostFunction function) {
+    public Builder maxSteps(int value) {
+      maxSteps = positive(value, "maxSteps");
+      return this;
+    }
+
+    public Builder maxLoopIterations(int value) {
+      maxLoopIterations = positive(value, "maxLoopIterations");
+      return this;
+    }
+
+    public Builder maxOutputLength(int value) {
+      maxOutputLength = positive(value, "maxOutputLength");
+      return this;
+    }
+
+    /**
+     * Registers a function under a template-visible name.
+     *
+     * @param name the template-visible name; must be a valid template identifier
+     * @param function the function to register
+     * @return this builder
+     */
+    public Builder hostFunction(String name, HostFunction function) {
       if (name == null || !name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
         throw new IllegalArgumentException("Host function name must be a template identifier");
       }
-      hostFunctions.add(new HostFunctionRegistration(name, Objects.requireNonNull(function, "function")));
+      hostFunctions.add(
+          new HostFunctionRegistration(name, Objects.requireNonNull(function, "function")));
       return this;
     }
 
@@ -119,14 +180,21 @@ public final class RenderOptions {
       var functions = new LinkedHashMap<String, HostFunction>();
       for (var registration : hostFunctions) {
         if (BUILTIN_GLOBALS.contains(registration.name)) {
-          throw new IllegalArgumentException("Host function name collides with built-in global: " + registration.name);
+          throw new IllegalArgumentException(
+              "Host function name collides with built-in global: " + registration.name);
         }
         if (functions.putIfAbsent(registration.name, registration.function) != null) {
           throw new IllegalArgumentException("Duplicate host function name: " + registration.name);
         }
       }
-      return new RenderOptions(clock, zoneId, functions);
+      return new RenderOptions(
+          clock, zoneId, functions, maxSteps, maxLoopIterations, maxOutputLength);
     }
+  }
+
+  private static int positive(int value, String name) {
+    if (value <= 0) throw new IllegalArgumentException(name + " must be positive");
+    return value;
   }
 
   private record HostFunctionRegistration(String name, HostFunction function) {}

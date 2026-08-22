@@ -17,7 +17,6 @@
       "reason": "Contains unapproved model templates and rendered output."
     }
   },
-  "contextShadowsGlobals": true,
   "astNodes": [
     "Statement", "Program", "If", "For", "Break", "Continue", "SetStatement", "Macro",
     "Comment", "Expression", "MemberExpression", "CallExpression", "Identifier", "Literal",
