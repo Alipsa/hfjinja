@@ -158,8 +158,31 @@ public final class Values {
           visiting.remove(objectValue);
         }
       }
-      case KeywordArgumentsValue ignored ->
-          throw new UndefinedHostValueException("keyword arguments at " + path.describe());
+      case KeywordArgumentsValue keywordArgumentsValue -> {
+        var existing = converted.get(keywordArgumentsValue);
+        if (existing != null) yield existing;
+        requireAcyclicValue(keywordArgumentsValue, visiting);
+        try {
+          var values = new LinkedHashMap<String, Object>(keywordArgumentsValue.values().size());
+          for (var entry : keywordArgumentsValue.values().entrySet()) {
+            var pathLength = path.length();
+            path.appendKey(entry.getKey());
+            try {
+              values.put(
+                  entry.getKey(),
+                  toHost(entry.getValue(), converted, sourceValues, path, visiting));
+            } finally {
+              path.restore(pathLength);
+            }
+          }
+          var hostValue = Collections.unmodifiableMap(values);
+          converted.put(keywordArgumentsValue, hostValue);
+          sourceValues.putIfAbsent(hostValue, value);
+          yield hostValue;
+        } finally {
+          visiting.remove(keywordArgumentsValue);
+        }
+      }
       case CallableValue ignored ->
           throw new UndefinedHostValueException("callable value at " + path.describe());
     };

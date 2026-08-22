@@ -2,6 +2,7 @@ package se.alipsa.hfjinja.internal.runtime;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -306,7 +307,7 @@ public final class Interpreter {
       }
     } else if (n.assignee() instanceof Expression.MemberExpression x) {
       var target = evaluateExpression(x.object(), e, b);
-      if (!(target instanceof Value.ObjectValue obj))
+      if (!(target instanceof Value.ObjectValue || target instanceof Value.KeywordArgumentsValue))
         throw new TemplateRenderException(
             "Cannot assign to member of non-object", ErrorCategory.TYPE, n.location());
       if (!(x.property() instanceof Expression.Identifier key))
@@ -314,7 +315,8 @@ public final class Interpreter {
             "Cannot assign to member with non-identifier property",
             ErrorCategory.TYPE,
             n.location());
-      obj.values().put(key.value(), rhs);
+      if (target instanceof Value.ObjectValue obj) obj.values().put(key.value(), rhs);
+      else ((Value.KeywordArgumentsValue) target).values().put(key.value(), rhs);
     } else
       throw new TemplateRenderException(
           "Invalid LHS inside assignment expression: " + n.assignee(),
@@ -327,11 +329,15 @@ public final class Interpreter {
     Expression test = n.iterable() instanceof Expression.SelectExpression s ? s.test() : null;
     Expression iterableExpression =
         n.iterable() instanceof Expression.SelectExpression s ? s.lhs() : n.iterable();
-    var iterable = evaluateExpression(iterableExpression, e, b);
+    var scope = new Environment(e);
+    var iterable = evaluateExpression(iterableExpression, scope, b);
     List<Value> items;
     if (iterable instanceof Value.ArrayValue a) items = a.values();
     else if (iterable instanceof Value.TupleValue a) items = a.values();
     else if (iterable instanceof Value.ObjectValue o) {
+      items = new ArrayList<>();
+      for (var k : o.values().keySet()) items.add(new Value.StringValue(k));
+    } else if (iterable instanceof Value.KeywordArgumentsValue o) {
       items = new ArrayList<>();
       for (var k : o.values().keySet()) items.add(new Value.StringValue(k));
     } else
@@ -349,7 +355,6 @@ public final class Interpreter {
     items = filtered;
     var out = new StringBuilder();
     boolean none = true;
-    var scope = new Environment(e);
     for (int i = 0; i < items.size(); i++) {
       var loop = new LinkedHashMap<String, Value>();
       loop.put("index", new Value.IntegerValue(i + 1));
@@ -506,10 +511,9 @@ public final class Interpreter {
     if (step instanceof Value.IntegerValue integerStep && integerStep.value() == 0
         || step instanceof Value.FloatValue floatStep && floatStep.value() == 0)
       throw new TemplateRenderException("range() step must not be zero", ErrorCategory.VALUE, l);
-    double stepNumber = jsNumber(step);
+    boolean ascending = jsNumber(step) > 0;
     var r = new ArrayList<Value>();
-    while ((stepNumber > 0 && jsNumber(current) < jsNumber(stop))
-        || (stepNumber < 0 && jsNumber(current) > jsNumber(stop))) {
+    while (ascending ? jsNumber(current) < jsNumber(stop) : jsNumber(current) > jsNumber(stop)) {
       budget.chargeRangeElement(l);
       r.add(rangeElement(current));
       current = jsAdd(current, step);
@@ -560,11 +564,13 @@ public final class Interpreter {
     if (v instanceof Value.StringValue x) {
       var s = x.value().strip();
       if (s.isEmpty()) return 0;
-      try {
-        return Double.parseDouble(s);
-      } catch (NumberFormatException ignored) {
-        return Double.NaN;
-      }
+      if (s.equals("Infinity") || s.equals("+Infinity")) return Double.POSITIVE_INFINITY;
+      if (s.equals("-Infinity")) return Double.NEGATIVE_INFINITY;
+      if (s.matches("0[xX][0-9a-fA-F]+")) return new BigInteger(s.substring(2), 16).doubleValue();
+      if (s.matches("0[oO][0-7]+")) return new BigInteger(s.substring(2), 8).doubleValue();
+      if (s.matches("0[bB][01]+")) return new BigInteger(s.substring(2), 2).doubleValue();
+      if (!s.matches("[+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?")) return Double.NaN;
+      return Double.parseDouble(s);
     }
     return Double.NaN;
   }

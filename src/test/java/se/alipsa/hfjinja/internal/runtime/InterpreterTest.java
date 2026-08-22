@@ -192,6 +192,12 @@ class InterpreterTest {
   void rendersNamespaceKeywordArgumentsAndRejectsCyclicValues() {
     assertEquals("1", Template.parse("{% set ns = namespace(x=1) %}{{ ns.x }}").render(Map.of()));
     assertEquals(
+        "2",
+        Template.parse("{% set ns = namespace(x=1) %}{% set ns.x = 2 %}{{ ns.x }}")
+            .render(Map.of()));
+    assertEquals(
+        "a", Template.parse("{% for k in namespace(a=1) %}{{ k }}{% endfor %}").render(Map.of()));
+    assertEquals(
         "`namespace` expects either zero arguments or a single object argument",
         raisedMessage("{% set ns = namespace(x, y=1) %}{{ ns.a }}", Map.of("x", Map.of("a", 9))));
     assertEquals(
@@ -211,6 +217,43 @@ class InterpreterTest {
     assertEquals(
         "2;3;4;",
         Template.parse("{% for i in range(2.0, 5) %}{{ i }};{% endfor %}").render(Map.of()));
+  }
+
+  @Test
+  void rangeUsesJavaScriptStepBranchingAndNumberCoercion() {
+    assertEquals("[3]", Template.parse("{{ range(3, 0, 'x') }}").render(Map.of()));
+    assertEquals("[0, 1, 2]", Template.parse("{{ range(0, '0x3') }}").render(Map.of()));
+    assertEquals("[]", Template.parse("{{ range(0, '1d') }}").render(Map.of()));
+  }
+
+  @Test
+  void loopIterableUsesItsFreshScopeNamespaceBinding() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse(
+                        "{% set namespace = [1] %}{% for x in namespace %}{{ x }}{% endfor %}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+  }
+
+  @Test
+  void renderBudgetsLimitStepsAndOutput() {
+    var stepError =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ 1 }}{{ 2 }}")
+                    .render(Map.of(), RenderOptions.builder().maxSteps(1).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, stepError.category());
+    var outputError =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ 'ab' }}")
+                    .render(Map.of(), RenderOptions.builder().maxOutputLength(1).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, outputError.category());
   }
 
   private static String raisedMessage(String source, Map<String, ?> context) {

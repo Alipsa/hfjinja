@@ -124,7 +124,7 @@ Copied from the spec and from the WP3 plan; every task's requirements implicitly
   `SelectExpression` test-clause dispatch remains Slice 3.
 - Slice-1 truthiness: empty strings/arrays/tuples/objects and zero numbers are false; null and
   undefined are false; `CallableValue` is always true.
-- `JsFormat.quote` does not yet escape lone UTF-16 surrogates.
+- `JsFormat.quote` escapes lone UTF-16 surrogates to match `JSON.stringify`.
 - Bare callable rendering uses the deterministic Java marker `<function>`, not upstream's
   engine-specific JavaScript function-source text. JSON conversion still uses the exact upstream
   `FunctionValue` tag in its error message.
@@ -548,8 +548,8 @@ members built from the two shared cores:
   non-finite values are rejected before they can be rendered in this slice.
 - `JsFormat.plainString(double)`: NaN → `"NaN"`, ±Infinity → `"Infinity"`/`"-Infinity"`, otherwise the
   shared numeric core.
-- `JsFormat.quote(String)`: ported from `AstSnapshot.q()`'s escaping rules unchanged (see the
-  lone-surrogate gap below); called by `Interpreter.renderJson`'s `StringValue` case rather than
+- `JsFormat.quote(String)`: ports `AstSnapshot.q()`'s escaping rules and additionally escapes
+  unpaired UTF-16 surrogates; called by `Interpreter.renderJson`'s `StringValue` case rather than
   reimplemented inline there — the identical port-not-duplicate rationale as the numeric cores, and
   the reason `renderJson`'s own description above says `JsFormat.quote`, not "renderJson's own
   escaping logic."
@@ -568,18 +568,10 @@ subnormal values without a `Double.MIN_NORMAL` guard. Validate `5e-324`, `1e-323
 doubles, so `JsFormat`'s NaN/Infinity branches are defensive and unreachable in this slice.
 
 
-**Lone surrogates — a real, still-open gap, now correctly located and testable.** `AstSnapshot.q()`
-escapes `\`, `"`, `\b\f\n\r\t`, and `c < 0x20`, passing everything else through raw. `JSON.stringify`
-additionally escapes unpaired UTF-16 surrogates — confirmed against the pinned Node build:
-`JSON.stringify("a\ud800b")` emits the six literal characters `\ud800` (backslash-u-d-8-0-0), not the
-raw code unit. A host-supplied string containing a lone surrogate is reachable the same way as the
-(now-fixed) subnormal case (`Values.fromHost` on an arbitrary `String`) and renders the raw, unescaped
-surrogate instead. **Decision: out of scope for this slice, stated explicitly rather than left
-implicit — and directly testable where it is stated.**
-`JsFormat.quote`'s javadoc says plainly that it ports `AstSnapshot.q()`'s rules as-is and does not
-escape unpaired surrogates; `JsFormatTest` pins the current (documented-wrong) output for a lone
-surrogate directly against `JsFormat.quote`, which compiles and runs in-package; this is listed in
-Known Gaps rather than being an unremarked divergence.
+**Lone surrogates — implemented and pinned.** `AstSnapshot.q()` escapes `\`, `"`, `\b\f\n\r\t`, and
+`c < 0x20`. `JsFormat.quote` additionally escapes unpaired UTF-16 surrogates, matching the pinned
+Node build: `JSON.stringify("a\ud800b")` emits `\ud800`, not a raw code unit. `JsFormatTest` pins this
+behavior directly.
 
 **`renderFloat`'s integral branch — the exact rule, verified, not a heuristic.** A string-inspection
 heuristic ("format via `plainString`, append `.0` unless the result already contains `.`/`e`") is
@@ -616,9 +608,8 @@ boundary: `1e20` → `...0.0` (append works); `1e21` → falls to the `plainStri
   confirmed the same value both ways) so each assertion reads as self-evidently correct rather than
   looking like a typo in the one test file whose whole job is pinning a subtle formatting difference;
   `quote(String)` cases
-  mirroring `AstSnapshot.q()`'s own test cases, plus the one pinned known-divergence case: `quote` of
-  a string containing a lone surrogate emitting the raw code unit unescaped (documented-wrong vs.
-  `JSON.stringify`'s `\ud800`-style escape); `InterpreterTest` cases for `renderText`: `"1"`, `"2.0"`,
+  mirroring `AstSnapshot.q()`'s own test cases, including `quote` of a string containing a lone
+  surrogate emitting the same `\ud800`-style escape as `JSON.stringify`; `InterpreterTest` cases for `renderText`: `"1"`, `"2.0"`,
   `"hello"` (unquoted), `"true"`; for `renderJson`/`renderText`'s array-and-object delegation:
   `["a","b"]` renders `["a", "b"]` (quoted), `[2.0]` renders `[2]` (not `[2.0]`), an object renders
   `{"a": 1, "b": "x"}`, a tuple throws
