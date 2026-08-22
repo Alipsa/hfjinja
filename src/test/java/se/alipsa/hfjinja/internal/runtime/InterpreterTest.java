@@ -296,5 +296,9 @@ class InterpreterTest {
     assertEquals("undefined", Template.parse("{{ 'abc'[5] }}").render(Map.of()));
     assertEquals(
         "no", Template.parse("{% if 'abc'[5] %}yes{% else %}no{% endif %}").render(Map.of()));
+    assertEquals("[]", Template.parse("{{ ['abc'[5]] }}").render(Map.of()));
+    assertEquals(
+        "", Template.parse("{{ {'undefined': 1}['abc'[5]] }}").render(Map.of()));
+    assertEquals("[]", Template.parse("{{ range(0, 'abc'[5]) }}").render(Map.of()));
   }
 }

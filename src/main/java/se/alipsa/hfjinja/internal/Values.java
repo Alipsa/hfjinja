@@ -90,7 +90,11 @@ public final class Values {
             : hostValue;
       }
       case FloatValue floatValue -> sourceValue(hostFloat(floatValue.value()), value, sourceValues);
-      case StringValue stringValue -> stringValue.value();
+      case StringValue stringValue -> {
+        if (stringValue.undefinedBacked())
+          throw new UndefinedHostValueException("undefined value at " + path.describe());
+        yield stringValue.value();
+      }
       case ArrayValue arrayValue -> {
         var existing = converted.get(arrayValue);
         if (existing != null) {

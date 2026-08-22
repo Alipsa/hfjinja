@@ -103,6 +103,23 @@ class HostFunctionsTest {
   }
 
   @Test
+  void rejectsUndefinedBackedStringArguments() {
+    var options = RenderOptions.builder().hostFunction("known", arguments -> null).build();
+
+    var error =
+        assertHostFailure(
+            () ->
+                HostFunctions.invoke(
+                    "known",
+                    function(options, "known"),
+                    List.of(StringValue.undefined()),
+                    false,
+                    CALL_LOCATION));
+
+    assertEquals("Host function 'known' cannot receive undefined value at argument 0", error.getMessage());
+  }
+
+  @Test
   void wrapsHostExceptionsAndInvalidReturnValuesAtTheCallLocation() {
     var functionFailure = new IllegalStateException("broken");
     var options =

@@ -204,16 +204,19 @@ public final class Interpreter {
     if (target instanceof Value.ObjectValue x) {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
+      if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       return x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE);
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
+      if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       return x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE);
     }
     if (target instanceof Value.ArrayValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.TupleValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.StringValue x) {
+      if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       if (p instanceof Value.StringValue) return Value.UndefinedValue.INSTANCE;
       if (!(p instanceof Value.IntegerValue))
         throw access(
@@ -457,18 +460,19 @@ public final class Interpreter {
   }
 
   static String renderJson(Value v, SourceLocation l) {
-    return renderJson(v, l, new java.util.IdentityHashMap<>());
+    var rendered = renderJsonValue(v, l, new java.util.IdentityHashMap<>());
+    return rendered == null ? "undefined" : rendered;
   }
 
-  private static String renderJson(
+  private static String renderJsonValue(
       Value v, SourceLocation l, java.util.IdentityHashMap<Value, Boolean> visiting) {
     return switch (v) {
       case Value.NullValue ignored -> "null";
-      case Value.UndefinedValue ignored -> "undefined";
+      case Value.UndefinedValue ignored -> null;
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> JsFormat.jsonString(x.value());
       case Value.FloatValue x -> JsFormat.jsonString(x.value());
-      case Value.StringValue x -> JsFormat.quote(x.value());
+      case Value.StringValue x -> x.undefinedBacked() ? null : JsFormat.quote(x.value());
       case Value.ArrayValue x -> jsonArray(x.values(), l, visiting, x);
       case Value.ObjectValue x -> jsonObject(x.values(), l, visiting, x);
       case Value.TupleValue ignored ->
@@ -500,7 +504,8 @@ public final class Interpreter {
       var r = new StringBuilder("[");
       for (int i = 0; i < values.size(); i++) {
         if (i > 0) r.append(", ");
-        r.append(renderJson(values.get(i), l, visiting));
+        var rendered = renderJsonValue(values.get(i), l, visiting);
+        if (rendered != null) r.append(rendered);
       }
       return r.append(']').toString();
     } finally {
@@ -522,12 +527,18 @@ public final class Interpreter {
         first = false;
         r.append(JsFormat.quote(x.getKey()))
             .append(": ")
-            .append(renderJson(x.getValue(), l, visiting));
+            .append(jsonObjectValue(x.getValue(), l, visiting));
       }
       return r.append('}').toString();
     } finally {
       visiting.remove(container);
     }
+  }
+
+  private static String jsonObjectValue(
+      Value value, SourceLocation location, java.util.IdentityHashMap<Value, Boolean> visiting) {
+    var rendered = renderJsonValue(value, location, visiting);
+    return rendered == null ? "undefined" : rendered;
   }
 
   private static Value range(List<Value> a, boolean k, SourceLocation l, RenderBudget budget) {
