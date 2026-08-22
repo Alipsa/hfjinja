@@ -14,6 +14,7 @@ import java.util.Objects;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.HostFunction;
 import se.alipsa.hfjinja.TemplateRenderException;
+
 /** Converts only the explicitly supported Java boundary types into runtime values. */
 @SuppressWarnings("doclint:missing")
 public final class Values {
@@ -22,13 +23,33 @@ public final class Values {
 
   private Values() {}
 
+  /**
+   * Converts a supported host value into its runtime representation.
+   *
+   * @param input the host value
+   * @return the corresponding runtime value
+   */
   public static Value fromHost(Object input) {
-    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), new IdentityHashMap<>(), new CopyBudget());
+    return fromHost(
+        input,
+        new IdentityHashMap<>(),
+        new IdentityHashMap<>(),
+        new IdentityHashMap<>(),
+        new CopyBudget());
   }
 
   /**
    * Converts a runtime value into an inert value for a {@code HostFunction}. Collections are copied
    * and made immutable so a function can neither observe nor mutate interpreter state.
+   */
+  /**
+   * Converts a runtime value for use as a host-function argument.
+   *
+   * @param value the runtime value
+   * @param converted converted containers, retained for identity preservation
+   * @param sourceValues source runtime values, retained for return-value identity preservation
+   * @param path the diagnostic path of the argument
+   * @return an inert host value
    */
   public static Object toHost(
       Value value,
@@ -49,14 +70,16 @@ public final class Values {
       HostPath path,
       IdentityHashMap<Value, Boolean> visiting) {
     return switch (value) {
-      case UndefinedValue ignored -> throw new UndefinedHostValueException("undefined value at " + path.describe());
+      case UndefinedValue ignored ->
+          throw new UndefinedHostValueException("undefined value at " + path.describe());
       case NullValue ignored -> null;
       case BooleanValue booleanValue -> booleanValue.value();
       case IntegerValue integerValue -> {
         var hostValue = hostInteger(integerValue.value());
         // Safe integers reconstruct faithfully from a Long. Larger runtime integers and -0 do
         // not, so retain their exact source when a function echoes one.
-        yield !(Math.abs(integerValue.value()) <= MAX_SAFE_INTEGER) || isNegativeZero(integerValue.value())
+        yield !(Math.abs(integerValue.value()) <= MAX_SAFE_INTEGER)
+                || isNegativeZero(integerValue.value())
             ? sourceValue(hostValue, value, sourceValues)
             : hostValue;
       }
@@ -74,7 +97,8 @@ public final class Values {
             var pathLength = path.length();
             path.appendIndex(index);
             try {
-              values.add(toHost(arrayValue.values().get(index), converted, sourceValues, path, visiting));
+              values.add(
+                  toHost(arrayValue.values().get(index), converted, sourceValues, path, visiting));
             } finally {
               path.restore(pathLength);
             }
@@ -94,12 +118,18 @@ public final class Values {
         try {
           var values = new ArrayList<Object>(tupleValue.values().size());
           for (int index = 0; index < tupleValue.values().size(); index++) {
-            var pathLength = path.length(); path.appendIndex(index);
-            try { values.add(toHost(tupleValue.values().get(index), converted, sourceValues, path, visiting)); }
-            finally { path.restore(pathLength); }
+            var pathLength = path.length();
+            path.appendIndex(index);
+            try {
+              values.add(
+                  toHost(tupleValue.values().get(index), converted, sourceValues, path, visiting));
+            } finally {
+              path.restore(pathLength);
+            }
           }
           var hostValue = Collections.unmodifiableList(values);
-          converted.put(tupleValue, hostValue); sourceValues.putIfAbsent(hostValue, value);
+          converted.put(tupleValue, hostValue);
+          sourceValues.putIfAbsent(hostValue, value);
           yield hostValue;
         } finally {
           visiting.remove(tupleValue);
@@ -117,7 +147,9 @@ public final class Values {
             var pathLength = path.length();
             path.appendKey(entry.getKey());
             try {
-              values.put(entry.getKey(), toHost(entry.getValue(), converted, sourceValues, path, visiting));
+              values.put(
+                  entry.getKey(),
+                  toHost(entry.getValue(), converted, sourceValues, path, visiting));
             } finally {
               path.restore(pathLength);
             }
@@ -130,8 +162,10 @@ public final class Values {
           visiting.remove(objectValue);
         }
       }
-      case KeywordArgumentsValue ignored -> throw new UndefinedHostValueException("keyword arguments at " + path.describe());
-      case CallableValue ignored -> throw new UndefinedHostValueException("callable value at " + path.describe());
+      case KeywordArgumentsValue ignored ->
+          throw new UndefinedHostValueException("keyword arguments at " + path.describe());
+      case CallableValue ignored ->
+          throw new UndefinedHostValueException("callable value at " + path.describe());
     };
   }
 
@@ -217,8 +251,23 @@ public final class Values {
     }
   }
 
-  public static Value fromHostFunctionReturn(Object input, IdentityHashMap<Object, Value> sourceValues) {
-    return fromHost(input, new IdentityHashMap<>(), new IdentityHashMap<>(), new IdentityHashMap<>(), sourceValues, true, new CopyBudget());
+  /**
+   * Converts a host-function result while preserving arguments returned by identity.
+   *
+   * @param input the host-function result
+   * @param sourceValues source runtime values supplied to the host function
+   * @return the corresponding runtime value
+   */
+  public static Value fromHostFunctionReturn(
+      Object input, IdentityHashMap<Object, Value> sourceValues) {
+    return fromHost(
+        input,
+        new IdentityHashMap<>(),
+        new IdentityHashMap<>(),
+        new IdentityHashMap<>(),
+        sourceValues,
+        true,
+        new CopyBudget());
   }
 
   private static Value fromHost(
@@ -254,7 +303,8 @@ public final class Values {
       return new FloatValue(floatResult.value());
     }
     if (allowResultMarkers && input instanceof HostFunction.IntegerResult integerResult) {
-      if (!Double.isFinite(integerResult.value()) || integerResult.value() != Math.rint(integerResult.value())) {
+      if (!Double.isFinite(integerResult.value())
+          || integerResult.value() != Math.rint(integerResult.value())) {
         throw conversion("Integer result must be finite and integral: " + integerResult.value());
       }
       return new IntegerValue(integerResult.value());
@@ -278,7 +328,15 @@ public final class Values {
         int length = Array.getLength(input);
         var values = new ArrayList<Value>(length);
         for (int index = 0; index < length; index++) {
-          values.add(fromHost(Array.get(input, index), converted, visiting, containsMutable, sourceValues, allowResultMarkers, copyBudget));
+          values.add(
+              fromHost(
+                  Array.get(input, index),
+                  converted,
+                  visiting,
+                  containsMutable,
+                  sourceValues,
+                  allowResultMarkers,
+                  copyBudget));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -296,7 +354,15 @@ public final class Values {
       try {
         var values = new ArrayList<Value>(list.size());
         for (Object item : list) {
-          values.add(fromHost(item, converted, visiting, containsMutable, sourceValues, allowResultMarkers, copyBudget));
+          values.add(
+              fromHost(
+                  item,
+                  converted,
+                  visiting,
+                  containsMutable,
+                  sourceValues,
+                  allowResultMarkers,
+                  copyBudget));
         }
         var value = new ArrayValue(values);
         converted.put(input, value);
@@ -317,7 +383,16 @@ public final class Values {
           if (!(entry.getKey() instanceof String key)) {
             throw conversion("Map keys must be strings");
           }
-          values.put(key, fromHost(entry.getValue(), converted, visiting, containsMutable, sourceValues, allowResultMarkers, copyBudget));
+          values.put(
+              key,
+              fromHost(
+                  entry.getValue(),
+                  converted,
+                  visiting,
+                  containsMutable,
+                  sourceValues,
+                  allowResultMarkers,
+                  copyBudget));
         }
         var value = new ObjectValue(values);
         converted.put(input, value);
@@ -330,12 +405,15 @@ public final class Values {
   }
 
   /** Copies only paths containing mutable objects; immutable DAG portions stay shared. */
-  private static Value copyMutableObjects(Value value, IdentityHashMap<Value, Boolean> containsMutable, CopyBudget copyBudget) {
+  private static Value copyMutableObjects(
+      Value value, IdentityHashMap<Value, Boolean> containsMutable, CopyBudget copyBudget) {
     if (!containsMutableObjects(value, containsMutable)) return value;
     return copyMutableObjects(value, containsMutable, new IdentityHashMap<>(), copyBudget);
   }
 
-  /** Each repeated host reference receives an independent mutable copy, retaining its internal DAG. */
+  /**
+   * Each repeated host reference receives an independent mutable copy, retaining its internal DAG.
+   */
   private static Value copyMutableObjects(
       Value value,
       IdentityHashMap<Value, Boolean> containsMutable,
@@ -349,7 +427,11 @@ public final class Values {
         var result = new ObjectValue(new LinkedHashMap<>(objectValue.values().size()));
         copied.put(value, result);
         for (var entry : objectValue.values().entrySet()) {
-          result.values().put(entry.getKey(), copyMutableObjects(entry.getValue(), containsMutable, copied, copyBudget));
+          result
+              .values()
+              .put(
+                  entry.getKey(),
+                  copyMutableObjects(entry.getValue(), containsMutable, copied, copyBudget));
         }
         yield result;
       }
@@ -384,6 +466,7 @@ public final class Values {
 
   private static final class CopyBudget {
     private int copies;
+
     void charge() {
       if (++copies > MAX_MUTABLE_COPIES) {
         throw conversion("Host value graph is too large after mutable copy isolation");
@@ -394,12 +477,15 @@ public final class Values {
   private static boolean containsMutableObjects(Value value, IdentityHashMap<Value, Boolean> memo) {
     var existing = memo.get(value);
     if (existing != null) return existing;
-    boolean result = switch (value) {
-      case ObjectValue ignored -> true;
-      case ArrayValue arrayValue -> arrayValue.values().stream().anyMatch(item -> containsMutableObjects(item, memo));
-      case TupleValue tupleValue -> tupleValue.values().stream().anyMatch(item -> containsMutableObjects(item, memo));
-      default -> false;
-    };
+    boolean result =
+        switch (value) {
+          case ObjectValue ignored -> true;
+          case ArrayValue arrayValue ->
+              arrayValue.values().stream().anyMatch(item -> containsMutableObjects(item, memo));
+          case TupleValue tupleValue ->
+              tupleValue.values().stream().anyMatch(item -> containsMutableObjects(item, memo));
+          default -> false;
+        };
     memo.put(value, result);
     return result;
   }
@@ -411,36 +497,42 @@ public final class Values {
     }
     final String text = number.toString();
     if (text == null) {
-      throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
+      throw conversion(
+          "Number does not have a decimal representation: " + number.getClass().getName());
     }
     final BigDecimal inputDecimal;
     try {
       inputDecimal = new BigDecimal(text).stripTrailingZeros();
     } catch (NumberFormatException exception) {
-      throw conversion("Number does not have a decimal representation: " + number.getClass().getName());
+      throw conversion(
+          "Number does not have a decimal representation: " + number.getClass().getName());
     }
     final String canonical = JsFormat.format(inputDecimal);
 
-    final double value = number instanceof Double
-        ? number.doubleValue()
-        : Double.parseDouble(inputDecimal.toString());
+    final double value =
+        number instanceof Double
+            ? number.doubleValue()
+            : Double.parseDouble(inputDecimal.toString());
     if (!Double.isFinite(value)) {
       throw conversion("Number must be finite: " + canonical);
     }
-    if (inputDecimal.scale() <= 0 && Math.abs(value) > MAX_SAFE_INTEGER) {
+    boolean integral = inputDecimal.scale() <= 0;
+    boolean floatingPointInput = number instanceof Float || number instanceof Double;
+    if (integral && !floatingPointInput && Math.abs(value) > MAX_SAFE_INTEGER) {
       throw conversion("Integer is outside the JavaScript safe-integer range: " + canonical);
     }
-    if (!(number instanceof Double)
-        && !JsFormat.shortest(value).equals(canonical)) {
+    if (!floatingPointInput && !JsFormat.shortest(value).equals(canonical)) {
       throw conversion("Number is not representable as a JavaScript number: " + canonical);
     }
-    if (inputDecimal.scale() <= 0) {
+    if (integral) {
       return new IntegerValue(normalizeHostZero(value));
     }
     return new FloatValue(normalizeHostZero(value));
   }
 
-  /** Host values have no observable signed zero, unlike runtime arithmetic such as {@code 1 / -0}. */
+  /**
+   * Host values have no observable signed zero, unlike runtime arithmetic such as {@code 1 / -0}.
+   */
   private static double normalizeHostZero(double value) {
     return value == 0d ? 0d : value;
   }

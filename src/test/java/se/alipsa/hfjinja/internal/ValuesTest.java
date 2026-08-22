@@ -1,10 +1,9 @@
 package se.alipsa.hfjinja.internal;
 
-import static se.alipsa.hfjinja.internal.Value.*;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static se.alipsa.hfjinja.internal.Value.*;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -38,7 +37,8 @@ class ValuesTest {
     // ordering for a computed Long return.
     var error = assertConversionFailure(new BigInteger("9007199254740993"));
     assertEquals(
-        "Integer is outside the JavaScript safe-integer range: 9007199254740993", error.getMessage());
+        "Integer is outside the JavaScript safe-integer range: 9007199254740993",
+        error.getMessage());
   }
 
   @Test
@@ -68,13 +68,33 @@ class ValuesTest {
 
   @Test
   void wrapsMalformedNumberTextAsAConversionFailure() {
-    Number malformed = new Number() {
-      @Override public int intValue() { return 0; }
-      @Override public long longValue() { return 0; }
-      @Override public float floatValue() { return 0; }
-      @Override public double doubleValue() { return 0; }
-      @Override public String toString() { return null; }
-    };
+    Number malformed =
+        new Number() {
+          @Override
+          public int intValue() {
+            return 0;
+          }
+
+          @Override
+          public long longValue() {
+            return 0;
+          }
+
+          @Override
+          public float floatValue() {
+            return 0;
+          }
+
+          @Override
+          public double doubleValue() {
+            return 0;
+          }
+
+          @Override
+          public String toString() {
+            return null;
+          }
+        };
 
     assertConversionFailure(malformed);
   }
@@ -107,7 +127,9 @@ class ValuesTest {
 
   @Test
   void pinsFloatBoundaryConversions() {
-    assertConversionFailure(Float.MAX_VALUE);
+    assertEquals(
+        new IntegerValue(Double.parseDouble(Float.toString(Float.MAX_VALUE))),
+        Values.fromHost(Float.MAX_VALUE));
     assertEquals(new FloatValue(1.4e-45), Values.fromHost(Float.MIN_VALUE));
     assertEquals(new IntegerValue(0d), Values.fromHost(-0.0f));
   }
@@ -122,8 +144,9 @@ class ValuesTest {
 
   @Test
   void distinguishesNullAndCopiesNestedValues() {
-    var value = assertInstanceOf(
-        ObjectValue.class, Values.fromHost(Map.of("items", java.util.Arrays.asList(1, null))));
+    var value =
+        assertInstanceOf(
+            ObjectValue.class, Values.fromHost(Map.of("items", java.util.Arrays.asList(1, null))));
     var array = assertInstanceOf(ArrayValue.class, value.values().get("items"));
     assertEquals(NullValue.INSTANCE, array.values().get(1));
   }
@@ -141,7 +164,8 @@ class ValuesTest {
     var shared = List.of("value");
     var converted = assertInstanceOf(ArrayValue.class, Values.fromHost(List.of(shared, shared)));
     assertEquals(converted.values().get(0), converted.values().get(1));
-    org.junit.jupiter.api.Assertions.assertSame(converted.values().get(0), converted.values().get(1));
+    org.junit.jupiter.api.Assertions.assertSame(
+        converted.values().get(0), converted.values().get(1));
   }
 
   @Test
@@ -160,7 +184,8 @@ class ValuesTest {
       graph = Map.of("a", graph, "b", graph);
     }
     var root = graph;
-    var error = assertThrows(TemplateRenderException.class, () -> Values.fromHost(Map.of("root", root)));
+    var error =
+        assertThrows(TemplateRenderException.class, () -> Values.fromHost(Map.of("root", root)));
     assertEquals(ErrorCategory.HOST_CONVERSION, error.category());
     assertEquals("Host value graph is too large after mutable copy isolation", error.getMessage());
   }
