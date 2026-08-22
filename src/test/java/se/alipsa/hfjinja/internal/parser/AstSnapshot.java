@@ -1,7 +1,7 @@
 package se.alipsa.hfjinja.internal.parser;
 
-import java.math.BigDecimal;
 import java.util.List;
+import se.alipsa.hfjinja.internal.JsFormat;
 import se.alipsa.hfjinja.internal.ast.Expression;
 import se.alipsa.hfjinja.internal.ast.Statement;
 
@@ -201,51 +201,11 @@ final class AstSnapshot {
   }
 
   private static String q(String value) {
-    var out = new StringBuilder("\"");
-    for (var i = 0; i < value.length(); i++) {
-      var c = value.charAt(i);
-      switch (c) {
-        case '\\' -> out.append("\\\\");
-        case '"' -> out.append("\\\"");
-        case '\b' -> out.append("\\b");
-        case '\f' -> out.append("\\f");
-        case '\n' -> out.append("\\n");
-        case '\r' -> out.append("\\r");
-        case '\t' -> out.append("\\t");
-        default -> {
-          if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
-          else out.append(c);
-        }
-      }
-    }
-    return out.append('"').toString();
+    return JsFormat.quote(value);
   }
 
-  /**
-   * Ports the ECMAScript {@code Number::toString} algorithm so this matches {@code
-   * JSON.stringify} for all values the lexer can produce (plain digit strings with an optional
-   * {@code .}), including the integer/decimal/exponential notation boundaries at 1e21 and 1e-6.
-   * {@code Double.toString} already computes the shortest round-tripping decimal digits (JDK
-   * 19+), which this only reformats per the ECMAScript rules; non-finite values are mapped to
-   * {@code "null"} as {@code JSON.stringify} does. One divergence remains and is not worth
-   * chasing here: {@code Double.toString} is not guaranteed shortest for subnormal doubles (e.g.
-   * {@code Double.MIN_VALUE} prints as {@code "4.9E-324"} in Java vs {@code "5e-324"} in JS).
-   */
+  /** Delegates JSON-compatible number formatting to the shared runtime formatter. */
   private static String number(double value) {
-    if (Double.isNaN(value) || Double.isInfinite(value)) return "null";
-    if (value == 0) return "0";
-    if (value < 0) return "-" + number(-value);
-
-    var digitsAndScale = new BigDecimal(Double.toString(value)).stripTrailingZeros();
-    var digits = digitsAndScale.unscaledValue().toString();
-    int k = digits.length();
-    int n = k - digitsAndScale.scale();
-
-    if (k <= n && n <= 21) return digits + "0".repeat(n - k);
-    if (0 < n && n <= 21) return digits.substring(0, n) + "." + digits.substring(n);
-    if (-6 < n && n <= 0) return "0." + "0".repeat(-n) + digits;
-    var exponent = n - 1;
-    var mantissa = k == 1 ? digits : digits.charAt(0) + "." + digits.substring(1);
-    return mantissa + "e" + (exponent >= 0 ? "+" : "") + exponent;
+    return JsFormat.jsonString(value);
   }
 }
