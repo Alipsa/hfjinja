@@ -39,10 +39,6 @@ public final class Values {
   }
 
   /**
-   * Converts a runtime value into an inert value for a {@code HostFunction}. Collections are copied
-   * and made immutable so a function can neither observe nor mutate interpreter state.
-   */
-  /**
    * Converts a runtime value for use as a host-function argument.
    *
    * @param value the runtime value
