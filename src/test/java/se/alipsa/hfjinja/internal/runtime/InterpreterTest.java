@@ -224,6 +224,29 @@ class InterpreterTest {
     assertEquals("[3]", Template.parse("{{ range(3, 0, 'x') }}").render(Map.of()));
     assertEquals("[0, 1, 2]", Template.parse("{{ range(0, '0x3') }}").render(Map.of()));
     assertEquals("[]", Template.parse("{{ range(0, '1d') }}").render(Map.of()));
+    assertEquals("[0, 1, 2]", Template.parse("{{ range(0, '\u00a03\u00a0') }}").render(Map.of()));
+  }
+
+  @Test
+  void rejectsPositionalArgumentsAfterKeywordsBeforeEvaluation() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ namespace(a=1, raise_exception('boom')) }}").render(Map.of()));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("Positional arguments cannot follow keyword arguments", error.getMessage());
+  }
+
+  @Test
+  void invalidAssignmentUsesJsonAstDiagnostic() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% set [1] = 2 %}").render(Map.of()));
+    assertEquals(
+        "Invalid LHS inside assignment expression:"
+            + " {\"type\":\"ArrayLiteral\",\"value\":[{\"type\":\"IntegerLiteral\",\"value\":1}]}",
+        error.getMessage());
   }
 
   @Test

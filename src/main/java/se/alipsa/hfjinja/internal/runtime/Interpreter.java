@@ -255,10 +255,19 @@ public final class Interpreter {
   private static Value call(Expression.CallExpression n, Environment e, RenderBudget b) {
     var arguments = new ArrayList<Value>();
     var keywords = new LinkedHashMap<String, Value>();
+    boolean sawKeyword = false;
     for (var argument : n.args()) {
-      if (argument instanceof Expression.KeywordArgumentExpression keyword)
+      if (argument instanceof Expression.KeywordArgumentExpression keyword) {
+        sawKeyword = true;
         keywords.put(keyword.key().value(), evaluateExpression(keyword.value(), e, b));
-      else arguments.add(evaluateExpression(argument, e, b));
+      } else {
+        if (sawKeyword)
+          throw new TemplateRenderException(
+              "Positional arguments cannot follow keyword arguments",
+              ErrorCategory.SYNTAX,
+              argument.location());
+        arguments.add(evaluateExpression(argument, e, b));
+      }
     }
     if (!keywords.isEmpty()) arguments.add(new Value.KeywordArgumentsValue(keywords));
     var callee = evaluateExpression(n.callee(), e, b);
@@ -319,10 +328,32 @@ public final class Interpreter {
       else ((Value.KeywordArgumentsValue) target).values().put(key.value(), rhs);
     } else
       throw new TemplateRenderException(
-          "Invalid LHS inside assignment expression: " + n.assignee(),
+          "Invalid LHS inside assignment expression: " + astJson(n.assignee()),
           ErrorCategory.SYNTAX,
           n.location());
     return new ExecResult.Normal("");
+  }
+
+  private static String astJson(Expression expression) {
+    if (expression instanceof Expression.Identifier value)
+      return "{\"type\":\"Identifier\",\"value\":" + JsFormat.quote(value.value()) + "}";
+    if (expression instanceof Expression.IntegerLiteral value)
+      return "{\"type\":\"IntegerLiteral\",\"value\":" + JsFormat.jsonString(value.value()) + "}";
+    if (expression instanceof Expression.FloatLiteral value)
+      return "{\"type\":\"FloatLiteral\",\"value\":" + JsFormat.jsonString(value.value()) + "}";
+    if (expression instanceof Expression.StringLiteral value)
+      return "{\"type\":\"StringLiteral\",\"value\":" + JsFormat.quote(value.value()) + "}";
+    if (expression instanceof Expression.ArrayLiteral value)
+      return "{\"type\":\"ArrayLiteral\",\"value\":" + astJsonList(value.value()) + "}";
+    if (expression instanceof Expression.TupleLiteral value)
+      return "{\"type\":\"TupleLiteral\",\"value\":" + astJsonList(value.value()) + "}";
+    return "{\"type\":" + JsFormat.quote(expression.getClass().getSimpleName()) + "}";
+  }
+
+  private static String astJsonList(List<Expression> values) {
+    return values.stream()
+        .map(Interpreter::astJson)
+        .collect(java.util.stream.Collectors.joining(",", "[", "]"));
   }
 
   private static ExecResult evaluateFor(Statement.For n, Environment e, RenderBudget b) {
@@ -562,7 +593,7 @@ public final class Interpreter {
     if (v instanceof Value.NullValue) return 0;
     if (v instanceof Value.BooleanValue x) return x.value() ? 1 : 0;
     if (v instanceof Value.StringValue x) {
-      var s = x.value().strip();
+      var s = trimEcmaWhitespace(x.value());
       if (s.isEmpty()) return 0;
       if (s.equals("Infinity") || s.equals("+Infinity")) return Double.POSITIVE_INFINITY;
       if (s.equals("-Infinity")) return Double.NEGATIVE_INFINITY;
@@ -573,6 +604,23 @@ public final class Interpreter {
       return Double.parseDouble(s);
     }
     return Double.NaN;
+  }
+
+  private static String trimEcmaWhitespace(String value) {
+    int start = 0;
+    int end = value.length();
+    while (start < end && isEcmaWhitespace(value.charAt(start))) start++;
+    while (end > start && isEcmaWhitespace(value.charAt(end - 1))) end--;
+    return value.substring(start, end);
+  }
+
+  private static boolean isEcmaWhitespace(char value) {
+    return Character.isWhitespace(value)
+        || value == '\u0009'
+        || value == '\u000B'
+        || value == '\u000C'
+        || value == '\u00A0'
+        || value == '\uFEFF';
   }
 
   private static Value raise(List<Value> a, boolean k, SourceLocation l) {

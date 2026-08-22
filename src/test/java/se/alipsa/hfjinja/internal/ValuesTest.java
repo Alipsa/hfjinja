@@ -3,7 +3,11 @@ package se.alipsa.hfjinja.internal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static se.alipsa.hfjinja.internal.Value.*;
+import static se.alipsa.hfjinja.internal.Value.ArrayValue;
+import static se.alipsa.hfjinja.internal.Value.FloatValue;
+import static se.alipsa.hfjinja.internal.Value.IntegerValue;
+import static se.alipsa.hfjinja.internal.Value.NullValue;
+import static se.alipsa.hfjinja.internal.Value.ObjectValue;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;

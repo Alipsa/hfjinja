@@ -4,7 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static se.alipsa.hfjinja.internal.Value.*;
+import static se.alipsa.hfjinja.internal.Value.ArrayValue;
+import static se.alipsa.hfjinja.internal.Value.FloatValue;
+import static se.alipsa.hfjinja.internal.Value.IntegerValue;
+import static se.alipsa.hfjinja.internal.Value.KeywordArgumentsValue;
+import static se.alipsa.hfjinja.internal.Value.NullValue;
+import static se.alipsa.hfjinja.internal.Value.ObjectValue;
+import static se.alipsa.hfjinja.internal.Value.StringValue;
+import static se.alipsa.hfjinja.internal.Value.TupleValue;
+import static se.alipsa.hfjinja.internal.Value.UndefinedValue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -467,6 +475,20 @@ class HostFunctionsTest {
             false,
             CALL_LOCATION);
     assertEquals(new IntegerValue(1), result);
+  }
+
+  @Test
+  void convertsEchoedTupleArgumentsIntoArrays() {
+    var options =
+        RenderOptions.builder().hostFunction("identity", arguments -> arguments.get(0)).build();
+    var result =
+        HostFunctions.invoke(
+            "identity",
+            function(options, "identity"),
+            List.of(new TupleValue(List.of(new IntegerValue(1)))),
+            false,
+            CALL_LOCATION);
+    assertEquals(new ArrayValue(List.of(new IntegerValue(1))), result);
   }
 
   @Test

@@ -1,6 +1,16 @@
 package se.alipsa.hfjinja.internal;
 
-import static se.alipsa.hfjinja.internal.Value.*;
+import static se.alipsa.hfjinja.internal.Value.ArrayValue;
+import static se.alipsa.hfjinja.internal.Value.BooleanValue;
+import static se.alipsa.hfjinja.internal.Value.CallableValue;
+import static se.alipsa.hfjinja.internal.Value.FloatValue;
+import static se.alipsa.hfjinja.internal.Value.IntegerValue;
+import static se.alipsa.hfjinja.internal.Value.KeywordArgumentsValue;
+import static se.alipsa.hfjinja.internal.Value.NullValue;
+import static se.alipsa.hfjinja.internal.Value.ObjectValue;
+import static se.alipsa.hfjinja.internal.Value.StringValue;
+import static se.alipsa.hfjinja.internal.Value.TupleValue;
+import static se.alipsa.hfjinja.internal.Value.UndefinedValue;
 
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
@@ -125,7 +135,6 @@ public final class Values {
           }
           var hostValue = Collections.unmodifiableList(values);
           converted.put(tupleValue, hostValue);
-          sourceValues.putIfAbsent(hostValue, value);
           yield hostValue;
         } finally {
           visiting.remove(tupleValue);
