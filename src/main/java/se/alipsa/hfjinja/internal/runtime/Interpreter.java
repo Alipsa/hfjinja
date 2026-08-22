@@ -182,8 +182,9 @@ public final class Interpreter {
       throw operatorNullUndefined(operator, expression.location());
     if (operator.equals("~")) return new Value.StringValue(JsOperations.toText(left) + JsOperations.toText(right));
     if (JsOperations.numeric(left) && JsOperations.numeric(right)) {
-      if (operator.equals("+") || operator.equals("-") || operator.equals("*")
-          || operator.equals("/") || operator.equals("%")) return JsOperations.arithmetic(operator, left, right);
+      if (operator.equals("+")) return JsOperations.add(left, right);
+      if (operator.equals("-") || operator.equals("*") || operator.equals("/") || operator.equals("%"))
+        return JsOperations.arithmetic(operator, left, right);
       if (operator.equals("<") || operator.equals(">") || operator.equals("<=") || operator.equals(">="))
         return new Value.BooleanValue(JsOperations.compare(operator, left, right));
     } else if (left instanceof Value.ArrayValue array && right instanceof Value.ArrayValue other) {
@@ -216,7 +217,7 @@ public final class Interpreter {
     var argument = evaluateExpression(expression.argument(), env, budget);
     if (expression.operator().value().equals("not"))
       return new Value.BooleanValue(!JsOperations.rawTruthy(argument));
-    throw operatorUnsupportedTypes(expression.operator().value(), argument, argument, expression.location());
+    throw operatorUnsupportedUnary(expression.operator().value(), argument, expression.location());
   }
 
   private static TemplateRenderException operatorNullUndefined(String operator, SourceLocation location) {
@@ -230,6 +231,14 @@ public final class Interpreter {
       String operator, Value left, Value right, SourceLocation location) {
     return new TemplateRenderException(
         "Unknown operator \"" + operator + "\" between " + type(left) + " and " + type(right),
+        ErrorCategory.TYPE,
+        location);
+  }
+
+  private static TemplateRenderException operatorUnsupportedUnary(
+      String operator, Value operand, SourceLocation location) {
+    return new TemplateRenderException(
+        "Unknown unary operator \"" + operator + "\" for " + type(operand),
         ErrorCategory.TYPE,
         location);
   }

@@ -24,6 +24,9 @@ the corpus gate remain later slices.
 - A value is undefined/null only where the upstream operation permits it.  Convert unsupported
   operations into `TemplateRenderException` with a location and the established comparable error
   category; never leak a Java arithmetic or collection exception.
+- Deliberate compatibility deviation: equality permits null/undefined pairs, but mixed
+  null/undefined-to-non-null equality (for example, `null == 0`) is rejected as
+  `UNDEFINED_OR_ACCESS` rather than returning the upstream's `false`.
 - `runtime.ts` remains `implemented` in `upstream/mapping.yml`; append any new Java/test files to
   its inline lists in the same change.  `utils.ts` and `index.ts` remain planned.
 

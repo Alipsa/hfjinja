@@ -14,8 +14,7 @@ final class JsOperations {
   static Value add(Value left, Value right) {
     if (left instanceof Value.StringValue || right instanceof Value.StringValue)
       return new Value.StringValue(toText(left) + toText(right));
-    double result = toNumber(left) + toNumber(right);
-    return integralResult(result) ? new Value.IntegerValue(result) : new Value.FloatValue(result);
+    return numericAdd(left, right);
   }
 
   static Value arithmetic(String operator, Value left, Value right) {
@@ -23,7 +22,7 @@ final class JsOperations {
     double b = number(right);
     boolean floating = left instanceof Value.FloatValue || right instanceof Value.FloatValue;
     return switch (operator) {
-      case "+" -> numeric(a + b, floating);
+      case "+" -> numericAdd(left, right);
       case "-" -> numeric(a - b, floating);
       case "*" -> numeric(a * b, floating);
       case "/" -> new Value.FloatValue(a / b);
@@ -91,6 +90,10 @@ final class JsOperations {
     if (left instanceof Value.NullValue || left instanceof Value.UndefinedValue)
       return right instanceof Value.NullValue || right instanceof Value.UndefinedValue;
     if (right instanceof Value.NullValue || right instanceof Value.UndefinedValue) return false;
+    if (numeric(left) && right instanceof Value.BooleanValue x)
+      return number(left) == (x.value() ? 1 : 0);
+    if (numeric(right) && left instanceof Value.BooleanValue x)
+      return number(right) == (x.value() ? 1 : 0);
     if (left instanceof Value.BooleanValue x) return looseNumberEquals(x.value() ? 1 : 0, right);
     if (right instanceof Value.BooleanValue x) return looseNumberEquals(x.value() ? 1 : 0, left);
     if (numeric(left) && right instanceof Value.StringValue x) return number(left) == stringNumber(x.value());
@@ -133,8 +136,10 @@ final class JsOperations {
     return floating ? new Value.FloatValue(value) : new Value.IntegerValue(value);
   }
 
-  private static boolean integralResult(double value) {
-    return Double.isFinite(value) && value == Math.rint(value);
+  private static Value numericAdd(Value left, Value right) {
+    double result = toNumber(left) + toNumber(right);
+    boolean floating = left instanceof Value.FloatValue || right instanceof Value.FloatValue;
+    return numeric(result, floating);
   }
 
   private static double number(Value value) {
