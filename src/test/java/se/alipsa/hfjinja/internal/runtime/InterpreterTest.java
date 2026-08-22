@@ -109,13 +109,21 @@ class InterpreterTest {
     assertEquals("undefined", raisedMessage("{{ raise_exception([none]) }}", Map.of()));
     assertEquals("[1, 2]", raisedMessage("{{ raise_exception([[1, 2]]) }}", Map.of()));
     assertEquals("boom", raisedMessage("{{ nofn(raise_exception('boom')) }}", Map.of()));
+    assertEquals("boom", raisedMessage("{{ obj[1](raise_exception('boom')) }}", Map.of("obj", Map.of())));
   }
 
   @Test
   void rendersNamespaceKeywordArgumentsAndRejectsCyclicValues() {
     assertEquals("1", Template.parse("{% set ns = namespace(x=1) %}{{ ns.x }}").render(Map.of()));
+    assertEquals("`namespace` expects either zero arguments or a single object argument", raisedMessage("{% set ns = namespace(x, y=1) %}{{ ns.a }}", Map.of("x", Map.of("a", 9))));
+    assertEquals("Cannot convert to JSON: KeywordArgumentsValue", raisedMessage("{% set ns = namespace(a=1,b=2) %}{{ ns }}", Map.of()));
     var error = assertThrows(TemplateRenderException.class, () -> Template.parse("{% set ns = namespace() %}{% set ns.self = ns %}{{ ns }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, error.category());
+  }
+
+  @Test
+  void rangeReclassifiesIntegralFloatStarts() {
+    assertEquals("2;3;4;", Template.parse("{% for i in range(2.0, 5) %}{{ i }};{% endfor %}").render(Map.of()));
   }
 
   private static String raisedMessage(String source, Map<String, ?> context) {

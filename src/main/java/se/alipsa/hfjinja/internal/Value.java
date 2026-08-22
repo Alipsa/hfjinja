@@ -16,7 +16,7 @@ import se.alipsa.hfjinja.SourceLocation;
 public sealed interface Value
     permits Value.UndefinedValue, Value.NullValue, Value.BooleanValue, Value.IntegerValue,
         Value.FloatValue, Value.StringValue, Value.ArrayValue, Value.TupleValue,
-        Value.ObjectValue, Value.CallableValue {
+        Value.ObjectValue, Value.KeywordArgumentsValue, Value.CallableValue {
   enum UndefinedValue implements Value { INSTANCE }
   enum NullValue implements Value { INSTANCE }
   record BooleanValue(boolean value) implements Value {}
@@ -32,6 +32,10 @@ public sealed interface Value
   /** Mutable by design for template member assignment; never use as a hash-based key. */
   record ObjectValue(Map<String, Value> values) implements Value {
     public ObjectValue { values = new LinkedHashMap<>(Objects.requireNonNull(values, "values")); }
+  }
+  /** Object-like call keyword arguments, distinct because they are not JSON-renderable upstream. */
+  record KeywordArgumentsValue(Map<String, Value> values) implements Value {
+    public KeywordArgumentsValue { values = new LinkedHashMap<>(Objects.requireNonNull(values, "values")); }
   }
   record CallableValue(Callable callable) implements Value {
     public CallableValue { Objects.requireNonNull(callable); }

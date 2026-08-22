@@ -130,6 +130,7 @@ public final class Values {
           visiting.remove(objectValue);
         }
       }
+      case KeywordArgumentsValue ignored -> throw new UndefinedHostValueException("keyword arguments at " + path.describe());
       case CallableValue ignored -> throw new UndefinedHostValueException("callable value at " + path.describe());
     };
   }
@@ -373,7 +374,9 @@ public final class Values {
           changed |= itemCopy != item;
           copy.add(itemCopy);
         }
-        yield changed ? new TupleValue(copy) : tupleValue;
+        var result = changed ? new TupleValue(copy) : tupleValue;
+        copied.put(value, result);
+        yield result;
       }
       default -> value;
     };
