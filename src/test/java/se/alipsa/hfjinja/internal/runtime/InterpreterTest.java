@@ -39,6 +39,13 @@ class InterpreterTest {
     assertEquals("truetruetrue", Template.parse("{{ 1 < 1.5 }}{{ 1.0 <= 1 }}{{ 1.0 in [1] }}").render(Map.of()));
     assertEquals("false", Template.parse("{{ 'x' in missing }}").render(Map.of()));
     assertEquals("true", Template.parse("{{ 'x' not in missing }}").render(Map.of()));
+    var arrayNeedle =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ (1, 2) in [(1, 2)] }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, arrayNeedle.category());
+    assertEquals(
+        "Unknown operator \"in\" between TupleValue and ArrayValue", arrayNeedle.getMessage());
   }
 
   @Test

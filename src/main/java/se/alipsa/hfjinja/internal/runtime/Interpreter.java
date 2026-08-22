@@ -189,7 +189,8 @@ public final class Interpreter {
         return new Value.BooleanValue(JsOperations.compare(operator, left, right));
     } else if (left instanceof Value.ArrayValue array && right instanceof Value.ArrayValue other) {
       if (operator.equals("+")) return JsOperations.concatenate(array, other);
-    } else if (right instanceof Value.ArrayValue array) {
+    } else if (right instanceof Value.ArrayValue array
+        && !(left instanceof Value.ArrayValue || left instanceof Value.TupleValue)) {
       if (operator.equals("in") || operator.equals("not in")) {
         boolean present = JsOperations.contains(left, array);
         return new Value.BooleanValue(operator.equals("in") ? present : !present);

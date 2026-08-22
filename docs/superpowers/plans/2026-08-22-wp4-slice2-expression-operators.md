@@ -27,6 +27,10 @@ the corpus gate remain later slices.
 - Deliberate compatibility deviation: equality permits null/undefined pairs, but mixed
   null/undefined-to-non-null equality (for example, `null == 0`) is rejected as
   `UNDEFINED_OR_ACCESS` rather than returning the upstream's `false`.
+- `looseEquals` implements the Slice 2 primitive combinations (number/string/boolean plus
+  null/undefined) but not JavaScript object-to-primitive coercion. Equality involving arrays or
+  objects therefore remains identity-based until a later slice characterizes that broader JS
+  behavior.
 - `runtime.ts` remains `implemented` in `upstream/mapping.yml`; append any new Java/test files to
   its inline lists in the same change.  `utils.ts` and `index.ts` remain planned.
 
