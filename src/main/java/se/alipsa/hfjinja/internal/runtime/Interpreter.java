@@ -186,7 +186,7 @@ public final class Interpreter {
       case Value.BooleanValue x -> x.value();
       case Value.IntegerValue x -> x.value() != 0 && !Double.isNaN(x.value());
       case Value.FloatValue x -> x.value() != 0 && !Double.isNaN(x.value());
-      case Value.StringValue x -> !x.value().isEmpty();
+      case Value.StringValue x -> !x.undefinedBacked() && !x.value().isEmpty();
       case Value.ArrayValue x -> !x.values().isEmpty();
       case Value.TupleValue x -> !x.values().isEmpty();
       case Value.ObjectValue x -> !x.values().isEmpty();
@@ -220,7 +220,7 @@ public final class Interpreter {
             "Cannot access property with non-string/non-number: got " + type(p), n.location());
       var v = index(x.value().length(), p);
       return v < 0
-          ? new Value.StringValue("undefined")
+          ? Value.StringValue.undefined()
           : new Value.StringValue(String.valueOf(x.value().charAt(v)));
     }
     if (!(p instanceof Value.StringValue))
@@ -615,11 +615,14 @@ public final class Interpreter {
   }
 
   private static boolean isEcmaWhitespace(char value) {
-    return Character.isWhitespace(value)
+    return Character.getType(value) == Character.SPACE_SEPARATOR
         || value == '\u0009'
         || value == '\u000B'
         || value == '\u000C'
-        || value == '\u00A0'
+        || value == '\n'
+        || value == '\r'
+        || value == '\u2028'
+        || value == '\u2029'
         || value == '\uFEFF';
   }
 

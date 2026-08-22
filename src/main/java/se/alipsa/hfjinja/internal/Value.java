@@ -22,7 +22,17 @@ public sealed interface Value
   record BooleanValue(boolean value) implements Value {}
   record IntegerValue(double value) implements Value {}
   record FloatValue(double value) implements Value {}
-  record StringValue(String value) implements Value {}
+  /** A string value, optionally backed by JavaScript {@code undefined}. */
+  record StringValue(String value, boolean undefinedBacked) implements Value {
+    public StringValue(String value) {
+      this(value, false);
+    }
+
+    /** Returns the string-shaped value produced by out-of-range string indexing. */
+    public static StringValue undefined() {
+      return new StringValue("undefined", true);
+    }
+  }
   record ArrayValue(List<Value> values) implements Value {
     public ArrayValue { values = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(values, "values"))); }
   }

@@ -225,6 +225,8 @@ class InterpreterTest {
     assertEquals("[0, 1, 2]", Template.parse("{{ range(0, '0x3') }}").render(Map.of()));
     assertEquals("[]", Template.parse("{{ range(0, '1d') }}").render(Map.of()));
     assertEquals("[0, 1, 2]", Template.parse("{{ range(0, '\u00a03\u00a0') }}").render(Map.of()));
+    assertEquals("[0, 1, 2]", Template.parse("{{ range(0, '\u20073\u2007') }}").render(Map.of()));
+    assertEquals("[]", Template.parse("{{ range(0, '\u001c3\u001c') }}").render(Map.of()));
   }
 
   @Test
@@ -292,5 +294,7 @@ class InterpreterTest {
   @Test
   void outOfRangeStringIndexReturnsUndefinedString() {
     assertEquals("undefined", Template.parse("{{ 'abc'[5] }}").render(Map.of()));
+    assertEquals(
+        "no", Template.parse("{% if 'abc'[5] %}yes{% else %}no{% endif %}").render(Map.of()));
   }
 }
