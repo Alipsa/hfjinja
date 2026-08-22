@@ -66,7 +66,8 @@ var prompt = template.render(Map.of(
 ```
 
 Parse once and reuse the `Template` from multiple threads. Both the `String` and `Appendable`
-overloads buffer output and append it atomically after a successful render.
+overloads buffer output; the latter performs one terminal append after a successful render. An
+`Appendable` that fails while appending can still contain a partial terminal write.
 
 ```java
 template.render(context, writer);
