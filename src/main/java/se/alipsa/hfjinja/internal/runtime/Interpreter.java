@@ -16,6 +16,7 @@ import se.alipsa.hfjinja.internal.JsFormat;
 import se.alipsa.hfjinja.internal.Value;
 import se.alipsa.hfjinja.internal.ast.Expression;
 import se.alipsa.hfjinja.internal.ast.Statement;
+import se.alipsa.hfjinja.internal.util.JsSlice;
 
 /** Internal evaluator entry point. */
 @SuppressWarnings("doclint:missing")
@@ -179,10 +180,10 @@ public final class Interpreter {
       if (right instanceof Value.UndefinedValue
           && (operator.equals("in") || operator.equals("not in")))
         return new Value.BooleanValue(operator.equals("not in"));
-      throw operatorNullUndefined(operator, expression.location());
+      throw operatorUndefined(operator, expression.location());
     }
     if (left instanceof Value.NullValue || right instanceof Value.NullValue)
-      throw operatorNullUndefined(operator, expression.location());
+      throw operatorNull(operator, expression.location());
     if (operator.equals("~"))
       return new Value.StringValue(
           JsOperations.payloadText(left, expression.location())
@@ -517,6 +518,19 @@ public final class Interpreter {
         location);
   }
 
+  private static TemplateRenderException operatorUndefined(
+      String operator, SourceLocation location) {
+    return new TemplateRenderException(
+        "Cannot perform operation " + operator + " on undefined values",
+        ErrorCategory.UNDEFINED_OR_ACCESS,
+        location);
+  }
+
+  private static TemplateRenderException operatorNull(String operator, SourceLocation location) {
+    return new TemplateRenderException(
+        "Cannot perform operation on null values", ErrorCategory.UNDEFINED_OR_ACCESS, location);
+  }
+
   private static TemplateRenderException operatorUnsupportedTypes(
       String operator, Value left, Value right, SourceLocation location) {
     return new TemplateRenderException(
@@ -576,6 +590,10 @@ public final class Interpreter {
 
   private static Value member(Expression.MemberExpression n, Environment e, RenderBudget b) {
     var target = evaluateExpression(n.object(), e, b);
+    if (target instanceof Value.StringValue string && string.undefinedBacked())
+      return Value.UndefinedValue.INSTANCE;
+    if (n.computed() && n.property() instanceof Expression.SliceExpression slice)
+      return slice(target, slice, e, b, n.location());
     var p =
         !n.computed() && n.property() instanceof Expression.Identifier id
             ? new Value.StringValue(id.value())
@@ -594,7 +612,6 @@ public final class Interpreter {
     if (target instanceof Value.ArrayValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.TupleValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.StringValue x) {
-      if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       if (p instanceof Value.StringValue) return Value.UndefinedValue.INSTANCE;
       if (!(p instanceof Value.IntegerValue))
         throw access(
@@ -607,6 +624,44 @@ public final class Interpreter {
     if (!(p instanceof Value.StringValue))
       throw access("Cannot access property with non-string: got " + type(p), n.location());
     return Value.UndefinedValue.INSTANCE;
+  }
+
+  private static Value slice(
+      Value target,
+      Expression.SliceExpression expression,
+      Environment environment,
+      RenderBudget budget,
+      SourceLocation memberLocation) {
+    if (!(arrayLike(target) || target instanceof Value.StringValue))
+      throw access("Slice object must be an array or string", memberLocation);
+    var start = sliceComponent(expression.start(), environment, budget);
+    var stop = sliceComponent(expression.stop(), environment, budget);
+    var step = sliceComponent(expression.step(), environment, budget);
+    Double startValue = sliceBound(start, expression.start(), "start");
+    Double stopValue = sliceBound(stop, expression.stop(), "stop");
+    Double stepValue = sliceBound(step, expression.step(), "step");
+    if (arrayLike(target))
+      return new Value.ArrayValue(
+          JsSlice.slice(arrayValues(target), startValue, stopValue, stepValue));
+    var string = ((Value.StringValue) target).value();
+    var codePoints = string.codePoints().boxed().toList();
+    var result = new StringBuilder();
+    for (var codePoint : JsSlice.slice(codePoints, startValue, stopValue, stepValue))
+      result.appendCodePoint(codePoint);
+    return new Value.StringValue(result.toString());
+  }
+
+  private static Value sliceComponent(
+      Expression expression, Environment environment, RenderBudget budget) {
+    return expression == null
+        ? Value.UndefinedValue.INSTANCE
+        : evaluateExpression(expression, environment, budget);
+  }
+
+  private static Double sliceBound(Value value, Expression expression, String name) {
+    if (value instanceof Value.UndefinedValue) return null;
+    if (value instanceof Value.IntegerValue integer) return integer.value();
+    throw access("Slice " + name + " must be numeric or undefined", expression.location());
   }
 
   private static TemplateRenderException access(String message, SourceLocation location) {
