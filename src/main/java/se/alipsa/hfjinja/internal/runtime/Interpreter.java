@@ -578,9 +578,7 @@ public final class Interpreter {
   private static Value member(Expression.MemberExpression n, Environment e, RenderBudget b) {
     var target = evaluateExpression(n.object(), e, b);
     if (n.computed() && n.property() instanceof Expression.SliceExpression slice)
-      return target instanceof Value.StringValue string && string.undefinedBacked()
-          ? Value.UndefinedValue.INSTANCE
-          : slice(target, slice, e, b, n.location());
+      return slice(target, slice, e, b, n.location());
     var p =
         !n.computed() && n.property() instanceof Expression.Identifier id
             ? new Value.StringValue(id.value())
@@ -628,6 +626,8 @@ public final class Interpreter {
     Double startValue = sliceBound(start, expression.start(), "start");
     Double stopValue = sliceBound(stop, expression.stop(), "stop");
     Double stepValue = sliceBound(step, expression.step(), "step");
+    if (target instanceof Value.StringValue string && string.undefinedBacked())
+      return Value.UndefinedValue.INSTANCE;
     if (arrayLike(target))
       return new Value.ArrayValue(
           JsSlice.slice(arrayValues(target), startValue, stopValue, stepValue));
