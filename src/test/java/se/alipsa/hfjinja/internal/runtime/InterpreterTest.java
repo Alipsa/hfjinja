@@ -58,6 +58,85 @@ class InterpreterTest {
   }
 
   @Test
+  void evaluatesSequenceSlicesWithPinnedRuntimeSemantics() {
+    assertEquals(
+        "[1, 3]|[1, 2, 3]|[]|[]|[]||[2, 1]|😀B|olleh",
+        Template.parse(
+                "{{ [0,1,2,3,4][1:4:2] }}|{{ [0,1,2,3,4][-4:-1] }}|"
+                    + "{{ [0,1,2][3000000000:] }}|{{ [0,1][::0] }}|{{ [][:] }}|"
+                    + "{{ ''[:] }}|{{ (1,2)[::-1] }}|{{ 'A😀BC'[1:3] }}|"
+                    + "{{ 'hello'[::-1] }}")
+            .render(Map.of()));
+    assertEquals(
+        "[0, 1, 2]|[2]|[]",
+        Template.parse("{{ [0,1,2][-3000000000:] }}|{{ [0,1,2][(1 + 1):] }}|{{ [][:] }}")
+            .render(Map.of()));
+    assertEquals("false", Template.parse("{{ (1,2)[:] is string }}").render(Map.of()));
+
+    var receiver =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1}[:] }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, receiver.category());
+    assertEquals(new SourceLocation(3, 1, 4), receiver.location().orElseThrow());
+    assertEquals("Slice object must be an array or string", receiver.getMessage());
+    var receiverBeforeBounds =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1}[missing + 1:] }}").render(Map.of()));
+    assertEquals("Slice object must be an array or string", receiverBeforeBounds.getMessage());
+
+    var component =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [1]['x':] }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, component.category());
+    assertEquals(new SourceLocation(7, 1, 8), component.location().orElseThrow());
+    assertEquals("Slice start must be numeric or undefined", component.getMessage());
+    assertEquals(
+        "Slice stop must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1][:'x'] }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        "Slice step must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1][::true] }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        "Slice start must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1][1.0:] }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        "Slice start must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [0,1,2][(6 / 2):] }}").render(Map.of()))
+            .getMessage());
+
+    var evaluatedBeforeValidation =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [0,1]['a': missing + 1] }}").render(Map.of()));
+    assertEquals(
+        "Cannot perform operation + on undefined values", evaluatedBeforeValidation.getMessage());
+    assertEquals(new SourceLocation(14, 1, 15), evaluatedBeforeValidation.location().orElseThrow());
+
+    // Upstream throws TypeError: undefined is not iterable (cannot read property
+    // Symbol(Symbol.iterator)).
+    assertEquals("", Template.parse("{{ 'abc'[9][0:1] }}").render(Map.of()));
+    var undefinedProperty =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'[9][missing + 1] }}").render(Map.of()));
+    assertEquals("Cannot perform operation + on undefined values", undefinedProperty.getMessage());
+  }
+
+  @Test
   void evaluatesExpressionOperatorsWithUpstreamValueSemantics() {
     assertEquals("03", Template.parse("{{ 0 and 5 }}{{ 3 or 5 }}").render(Map.of()));
     assertEquals(
@@ -65,6 +144,16 @@ class InterpreterTest {
     assertEquals("true", Template.parse("{{ true or raise_exception('boom') }}").render(Map.of()));
     assertEquals(
         "truefalse", Template.parse("{{ none == missing }}{{ none != missing }}").render(Map.of()));
+    assertEquals(
+        "falsetruefalsetrue",
+        Template.parse("{{ none == 1 }}{{ none != 1 }}{{ missing == 1 }}{{ missing != 1 }}")
+            .render(Map.of()));
+    assertEquals(
+        "Cannot perform operation on null values",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 1 + none }}").render(Map.of()))
+            .getMessage());
     assertEquals("true", Template.parse("{{ '1' == true }}").render(Map.of()));
     assertEquals(
         "truetruetruetrue",
@@ -232,11 +321,7 @@ class InterpreterTest {
     assertEquals(
         "Infinity|-Infinity",
         Template.parse("{{ 1.0 / 0.0 }}|{{ 1.0 / (0.0 * (0.0 - 1.0)) }}").render(Map.of()));
-    var nil =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ none == 0 }}").render(Map.of()));
-    assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, nil.category());
+    assertEquals("false", Template.parse("{{ none == 0 }}").render(Map.of()));
     var unsupported =
         assertThrows(
             TemplateRenderException.class, () -> Template.parse("{{ true + 1 }}").render(Map.of()));
