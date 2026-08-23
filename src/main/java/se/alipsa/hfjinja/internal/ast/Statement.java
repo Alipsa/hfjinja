@@ -65,7 +65,8 @@ public sealed interface Statement
    * @param loopVariable the identifier or tuple bound on each iteration
    * @param iterable the expression producing the values to iterate over
    * @param body statements run once per iterated value
-   * @param defaultBlock statements run instead when {@code iterable} is empty ({@code for ... else})
+   * @param defaultBlock statements run instead when {@code iterable} is empty ({@code for ...
+   *     else})
    * @param location the start of the {@code for} tag
    */
   record For(
@@ -116,8 +117,8 @@ public sealed interface Statement
    * An assignment or block-capture statement; {@code value} is null for block capture.
    *
    * @param assignee the identifier or tuple being assigned
-   * @param value the assigned expression, or null when this is a block-capture ({@code
-   *     set ... endset})
+   * @param value the assigned expression, or null when this is a block-capture ({@code set ...
+   *     endset})
    * @param body the captured block's statements; empty unless this is a block-capture
    * @param location the start of the {@code set} tag
    */

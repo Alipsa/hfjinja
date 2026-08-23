@@ -255,7 +255,9 @@ public sealed interface Expression extends Statement {
   record SliceExpression(
       Expression start, Expression stop, Expression step, SourceLocation location)
       implements Expression {
-    /** Rejects a null {@code location}; {@code start}, {@code stop}, and {@code step} may be null. */
+    /**
+     * Rejects a null {@code location}; {@code start}, {@code stop}, and {@code step} may be null.
+     */
     public SliceExpression {
       Objects.requireNonNull(location);
     }
@@ -303,7 +305,9 @@ public sealed interface Expression extends Statement {
   record Ternary(
       Expression condition, Expression trueExpr, Expression falseExpr, SourceLocation location)
       implements Expression {
-    /** Rejects a null {@code condition}, {@code trueExpr}, {@code falseExpr}, or {@code location}. */
+    /**
+     * Rejects a null {@code condition}, {@code trueExpr}, {@code falseExpr}, or {@code location}.
+     */
     public Ternary {
       Objects.requireNonNull(condition);
       Objects.requireNonNull(trueExpr);

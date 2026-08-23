@@ -1,5 +1,10 @@
 # Repository guidance
 
+## Generated documentation
+
+- When generating Javadoc manually, write it only under `build/` or a temporary directory; never
+  use the repository root as the output directory.
+
 ## Pull requests
 
 - Create pull requests ready for review by default; use drafts only when explicitly requested.

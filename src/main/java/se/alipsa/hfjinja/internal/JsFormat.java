@@ -47,39 +47,57 @@ public final class JsFormat {
 
   /** Renders a runtime value using the project's JSON-compatible value representation. */
   public static String runtimeJson(Value value, SourceLocation location) {
-    var rendered = runtimeJsonValue(value, location, new IdentityHashMap<>());
+    return runtimeJson(value, location, false);
+  }
+
+  /** Renders a runtime value using the project's JSON-compatible value representation. */
+  public static String runtimeJson(
+      Value value, SourceLocation location, boolean convertUndefinedToNull) {
+    var rendered =
+        runtimeJsonValue(value, location, new IdentityHashMap<>(), convertUndefinedToNull);
     return rendered == null ? "undefined" : rendered;
   }
 
   private static String runtimeJsonValue(
-      Value value, SourceLocation location, IdentityHashMap<Value, Boolean> visiting) {
+      Value value,
+      SourceLocation location,
+      IdentityHashMap<Value, Boolean> visiting,
+      boolean convertUndefinedToNull) {
     return switch (value) {
       case Value.NullValue ignored -> "null";
-      case Value.UndefinedValue ignored -> "undefined";
+      case Value.UndefinedValue ignored -> convertUndefinedToNull ? "null" : "undefined";
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> jsonString(x.value());
       case Value.FloatValue x -> jsonString(x.value());
       case Value.StringValue x -> x.undefinedBacked() ? null : quote(x.value());
-      case Value.ArrayValue x -> jsonArray(x.values(), location, visiting, x);
-      case Value.ObjectValue x -> jsonObject(x.values(), location, visiting, x);
+      case Value.ArrayValue x ->
+          jsonArray(x.values(), location, visiting, x, convertUndefinedToNull);
+      case Value.ObjectValue x ->
+          jsonObject(x.values(), location, visiting, x, convertUndefinedToNull);
       case Value.TupleValue ignored -> jsonUnsupported("TupleValue", location);
-      case Value.KeywordArgumentsValue ignored -> jsonUnsupported("KeywordArgumentsValue", location);
+      case Value.KeywordArgumentsValue ignored ->
+          jsonUnsupported("KeywordArgumentsValue", location);
       case Value.CallableValue ignored -> jsonUnsupported("FunctionValue", location);
     };
   }
 
   private static String jsonUnsupported(String type, SourceLocation location) {
-    throw new TemplateRenderException("Cannot convert to JSON: " + type, ErrorCategory.TYPE, location);
+    throw new TemplateRenderException(
+        "Cannot convert to JSON: " + type, ErrorCategory.TYPE, location);
   }
 
   private static String jsonArray(
-      List<Value> values, SourceLocation location, IdentityHashMap<Value, Boolean> visiting, Value container) {
+      List<Value> values,
+      SourceLocation location,
+      IdentityHashMap<Value, Boolean> visiting,
+      Value container,
+      boolean convertUndefinedToNull) {
     enterJson(container, visiting, location);
     try {
       var result = new StringBuilder("[");
       for (int i = 0; i < values.size(); i++) {
         if (i > 0) result.append(", ");
-        var rendered = runtimeJsonValue(values.get(i), location, visiting);
+        var rendered = runtimeJsonValue(values.get(i), location, visiting, convertUndefinedToNull);
         if (rendered != null) result.append(rendered);
       }
       return result.append(']').toString();
@@ -89,7 +107,11 @@ public final class JsFormat {
   }
 
   private static String jsonObject(
-      Map<?, Value> values, SourceLocation location, IdentityHashMap<Value, Boolean> visiting, Value container) {
+      Map<?, Value> values,
+      SourceLocation location,
+      IdentityHashMap<Value, Boolean> visiting,
+      Value container,
+      boolean convertUndefinedToNull) {
     enterJson(container, visiting, location);
     try {
       var result = new StringBuilder("{");
@@ -98,7 +120,8 @@ public final class JsFormat {
         if (!first) result.append(", ");
         first = false;
         result.append(jsonObjectKey(entry.getKey())).append(": ");
-        var rendered = runtimeJsonValue(entry.getValue(), location, visiting);
+        var rendered =
+            runtimeJsonValue(entry.getValue(), location, visiting, convertUndefinedToNull);
         result.append(rendered == null ? "undefined" : rendered);
       }
       return result.append('}').toString();
@@ -116,7 +139,8 @@ public final class JsFormat {
   private static void enterJson(
       Value value, IdentityHashMap<Value, Boolean> visiting, SourceLocation location) {
     if (visiting.put(value, Boolean.TRUE) != null)
-      throw new TemplateRenderException("Cannot convert cyclic value to JSON", ErrorCategory.TYPE, location);
+      throw new TemplateRenderException(
+          "Cannot convert cyclic value to JSON", ErrorCategory.TYPE, location);
   }
 
   /**

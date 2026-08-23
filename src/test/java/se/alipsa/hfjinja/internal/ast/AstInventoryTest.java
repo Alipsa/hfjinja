@@ -21,12 +21,16 @@ class AstInventoryTest {
     while (matcher.find()) expected.add(matcher.group(1));
     expected.removeAll(Set.of("Statement", "Expression", "Literal"));
     var actual = new TreeSet<String>();
-    actual.addAll(records(Statement.class)); actual.addAll(records(Expression.class)); actual.remove("ObjectEntry");
+    actual.addAll(records(Statement.class));
+    actual.addAll(records(Expression.class));
+    actual.remove("ObjectEntry");
     assertEquals(expected, actual);
   }
 
   private static Set<String> records(Class<?> type) {
-    return Arrays.stream(type.getDeclaredClasses()).filter(Class::isRecord).map(Class::getSimpleName)
+    return Arrays.stream(type.getDeclaredClasses())
+        .filter(Class::isRecord)
+        .map(Class::getSimpleName)
         .collect(Collectors.toCollection(TreeSet::new));
   }
 }

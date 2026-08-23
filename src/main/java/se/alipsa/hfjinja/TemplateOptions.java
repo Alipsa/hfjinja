@@ -7,7 +7,8 @@ public final class TemplateOptions {
   private static final int DEFAULT_MAX_AST_DEPTH = 256;
 
   /** Defaults matching upstream's public Template constructor. */
-  public static final TemplateOptions DEFAULT = builder().trimBlocks(true).lstripBlocks(true).build();
+  public static final TemplateOptions DEFAULT =
+      builder().trimBlocks(true).lstripBlocks(true).build();
 
   private final int maxSourceLength;
   private final int maxTokenCount;
@@ -15,8 +16,12 @@ public final class TemplateOptions {
   private final boolean trimBlocks;
   private final boolean lstripBlocks;
 
-  private TemplateOptions(int maxSourceLength, int maxTokenCount, int maxAstDepth,
-      boolean trimBlocks, boolean lstripBlocks) {
+  private TemplateOptions(
+      int maxSourceLength,
+      int maxTokenCount,
+      int maxAstDepth,
+      boolean trimBlocks,
+      boolean lstripBlocks) {
     this.maxSourceLength = maxSourceLength;
     this.maxTokenCount = maxTokenCount;
     this.maxAstDepth = maxAstDepth;
@@ -158,7 +163,8 @@ public final class TemplateOptions {
      * @return the immutable parse-time options
      */
     public TemplateOptions build() {
-      return new TemplateOptions(maxSourceLength, maxTokenCount, maxAstDepth, trimBlocks, lstripBlocks);
+      return new TemplateOptions(
+          maxSourceLength, maxTokenCount, maxAstDepth, trimBlocks, lstripBlocks);
     }
   }
 }

@@ -9,6 +9,7 @@ public class HfJinjaException extends RuntimeException {
 
   /** This failure's stable category. */
   private final ErrorCategory category;
+
   /** Where in the source this failure occurred, or null if not applicable. */
   private final SourceLocation location;
 

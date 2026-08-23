@@ -425,8 +425,7 @@ public final class Parser {
               var start = slices.get(0);
               var stop = slices.size() > 1 ? slices.get(1) : null;
               var step = slices.size() > 2 ? slices.get(2) : null;
-              return new Expression.SliceExpression(
-                  start, stop, step, openBracket);
+              return new Expression.SliceExpression(start, stop, step, openBracket);
             }
             return slices.get(0);
           });

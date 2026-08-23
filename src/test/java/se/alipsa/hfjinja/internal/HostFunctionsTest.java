@@ -116,7 +116,8 @@ class HostFunctionsTest {
                     false,
                     CALL_LOCATION));
 
-    assertEquals("Host function 'known' cannot receive undefined value at argument 0", error.getMessage());
+    assertEquals(
+        "Host function 'known' cannot receive undefined value at argument 0", error.getMessage());
   }
 
   @Test
