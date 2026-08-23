@@ -168,7 +168,7 @@ final class JsOperations {
     return switch (value) {
       case Value.ArrayValue ignored -> JsFormat.runtimeJson(value, location);
       case Value.ObjectValue ignored -> JsFormat.runtimeJson(value, location);
-      case Value.TupleValue x -> arrayPayloadText(x.values(), location);
+      case Value.TupleValue ignored -> JsFormat.runtimeJson(value, location);
       default -> payloadText(value, location);
     };
   }
