@@ -145,6 +145,10 @@ class InterpreterTest {
     assertEquals(
         "truefalse", Template.parse("{{ none == missing }}{{ none != missing }}").render(Map.of()));
     assertEquals(
+        "falsetruefalsetrue",
+        Template.parse("{{ none == 1 }}{{ none != 1 }}{{ missing == 1 }}{{ missing != 1 }}")
+            .render(Map.of()));
+    assertEquals(
         "Cannot perform operation on null values",
         assertThrows(
                 TemplateRenderException.class,
@@ -317,11 +321,7 @@ class InterpreterTest {
     assertEquals(
         "Infinity|-Infinity",
         Template.parse("{{ 1.0 / 0.0 }}|{{ 1.0 / (0.0 * (0.0 - 1.0)) }}").render(Map.of()));
-    var nil =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ none == 0 }}").render(Map.of()));
-    assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, nil.category());
+    assertEquals("false", Template.parse("{{ none == 0 }}").render(Map.of()));
     var unsupported =
         assertThrows(
             TemplateRenderException.class, () -> Template.parse("{{ true + 1 }}").render(Map.of()));

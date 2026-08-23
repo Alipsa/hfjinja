@@ -168,11 +168,6 @@ public final class Interpreter {
 
     var right = evaluateExpression(expression.right(), env, budget);
     if (operator.equals("==") || operator.equals("!=")) {
-      if (JsOperations.nilLike(left) || JsOperations.nilLike(right)) {
-        boolean bothNil = JsOperations.nilLike(left) && JsOperations.nilLike(right);
-        if (!bothNil) throw operatorNullUndefined(operator, expression.location());
-        return new Value.BooleanValue(operator.equals("=="));
-      }
       boolean equal = JsOperations.looseEquals(left, right);
       return new Value.BooleanValue(operator.equals("==") ? equal : !equal);
     }
@@ -508,14 +503,6 @@ public final class Interpreter {
   private static boolean undefinedLike(Value value) {
     return value instanceof Value.UndefinedValue
         || value instanceof Value.StringValue string && string.undefinedBacked();
-  }
-
-  private static TemplateRenderException operatorNullUndefined(
-      String operator, SourceLocation location) {
-    return new TemplateRenderException(
-        "Cannot perform operation " + operator + " on null or undefined values",
-        ErrorCategory.UNDEFINED_OR_ACCESS,
-        location);
   }
 
   private static TemplateRenderException operatorUndefined(
