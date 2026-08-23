@@ -280,7 +280,6 @@ public final class Interpreter {
           case "string" -> operand instanceof Value.StringValue string && !string.undefinedBacked();
           case "iterable" ->
               operand instanceof Value.ArrayValue
-                  || operand instanceof Value.TupleValue
                   || operand instanceof Value.StringValue string && !string.undefinedBacked();
           case "sequence" ->
               operand instanceof Value.ArrayValue

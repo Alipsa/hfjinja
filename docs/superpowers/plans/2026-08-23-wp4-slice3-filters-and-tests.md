@@ -50,9 +50,9 @@ slice, or keyword/spread work.
    | `lower`, `upper`, `trim` | present string; no arguments | transformed `StringValue` | `TYPE` receiver, `ARITY` arguments |
    | `join` | array/tuple or present string; optional string separator | `StringValue`; string is joined by Unicode code point, e.g. `'abc'|join(',')` → `a,b,c` | `TYPE` receiver/separator, `VALUE` unknown keyword, `ARITY` excess |
    | `int`, `float` | string, number, boolean; optional default | parsed/coerced numeric value, default on failed string parse (`'NaN'|float` → `0.0`); `int(true)` → `1`, `float(true)` → `1.0`, and `int` floors finite floats (`int(-1.9)` → `-2`); non-finite numeric values stay non-finite | `TYPE` receiver, `VALUE` unknown keyword, `ARITY` excess |
-   | `defined`, `undefined`, `none`, `boolean`, `number`, `string` | no arguments | `BooleanValue`; only undefined is undefined, while null is `none` and defined | `ARITY` arguments |
-   | `iterable` | array/tuple or present string | `BooleanValue`; distinct from `sequence` | `ARITY` arguments |
-   | `sequence` | array/tuple, object, or present string | `BooleanValue`; upstream includes objects here but not in `iterable` | `ARITY` arguments |
+   | `defined`, `undefined`, `none`, `boolean`, `number`, `string` | bare identifier only; parentheses are currently rejected by the parser with `SYNTAX` | `BooleanValue`; only undefined is undefined, while null is `none` and defined | unsupported names produce `TYPE` at runtime |
+   | `iterable` | array or present string; tuples are not iterable because the upstream check requires the `ArrayValue` tag | `BooleanValue`; distinct from `sequence` | parentheses are currently rejected by the parser with `SYNTAX` |
+   | `sequence` | array/tuple, object, or present string | `BooleanValue`; upstream includes objects here but not in `iterable` | parentheses are currently rejected by the parser with `SYNTAX` |
    | `eq`, `equalto` | parser permits only the identifier, while useful upstream equality requires a comparison argument | Not implemented in this slice | explicitly rejected with `TYPE` until a parser/AST extension lands |
 
 2. Add regressions before implementation.

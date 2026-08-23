@@ -97,11 +97,11 @@ class InterpreterTest {
                     + "{{ 'bad' | int(default='fallback') }}|{{ {'b': 1} | tojson }}")
             .render(Map.of()));
     assertEquals(
-        "truetruetruetruetruetruetruetrue",
+        "truetruetruetruetruetruetruetruefalse",
         Template.parse(
                 "{{ missing is undefined }}{{ none is defined }}{{ none is none }}"
                     + "{{ true is boolean }}{{ 1 is number }}{{ 'x' is string }}"
-                    + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}")
+                    + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}{{ (1, 2) is iterable }}")
             .render(Map.of()));
     assertEquals(
         "fallback|true|false",
