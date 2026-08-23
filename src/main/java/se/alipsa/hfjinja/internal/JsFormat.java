@@ -63,17 +63,22 @@ public final class JsFormat {
       case Value.ArrayValue x -> jsonArray(x.values(), location, visiting, x);
       case Value.ObjectValue x -> jsonObject(x.values(), location, visiting, x);
       case Value.TupleValue ignored -> jsonUnsupported("TupleValue", location);
-      case Value.KeywordArgumentsValue ignored -> jsonUnsupported("KeywordArgumentsValue", location);
+      case Value.KeywordArgumentsValue ignored ->
+          jsonUnsupported("KeywordArgumentsValue", location);
       case Value.CallableValue ignored -> jsonUnsupported("FunctionValue", location);
     };
   }
 
   private static String jsonUnsupported(String type, SourceLocation location) {
-    throw new TemplateRenderException("Cannot convert to JSON: " + type, ErrorCategory.TYPE, location);
+    throw new TemplateRenderException(
+        "Cannot convert to JSON: " + type, ErrorCategory.TYPE, location);
   }
 
   private static String jsonArray(
-      List<Value> values, SourceLocation location, IdentityHashMap<Value, Boolean> visiting, Value container) {
+      List<Value> values,
+      SourceLocation location,
+      IdentityHashMap<Value, Boolean> visiting,
+      Value container) {
     enterJson(container, visiting, location);
     try {
       var result = new StringBuilder("[");
@@ -89,7 +94,10 @@ public final class JsFormat {
   }
 
   private static String jsonObject(
-      Map<?, Value> values, SourceLocation location, IdentityHashMap<Value, Boolean> visiting, Value container) {
+      Map<?, Value> values,
+      SourceLocation location,
+      IdentityHashMap<Value, Boolean> visiting,
+      Value container) {
     enterJson(container, visiting, location);
     try {
       var result = new StringBuilder("{");
@@ -116,7 +124,8 @@ public final class JsFormat {
   private static void enterJson(
       Value value, IdentityHashMap<Value, Boolean> visiting, SourceLocation location) {
     if (visiting.put(value, Boolean.TRUE) != null)
-      throw new TemplateRenderException("Cannot convert cyclic value to JSON", ErrorCategory.TYPE, location);
+      throw new TemplateRenderException(
+          "Cannot convert cyclic value to JSON", ErrorCategory.TYPE, location);
   }
 
   /**

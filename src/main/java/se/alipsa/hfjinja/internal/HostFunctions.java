@@ -32,12 +32,14 @@ public final class HostFunctions {
     Objects.requireNonNull(positionalArguments, "positionalArguments");
     Objects.requireNonNull(location, "location");
     if (hasKeywordArguments) {
-      throw failure("Host function '" + name + "' does not accept keyword arguments", null, location);
+      throw failure(
+          "Host function '" + name + "' does not accept keyword arguments", null, location);
     }
 
     var convertedValues = new IdentityHashMap<Value, Object>();
     var sourceValues = new IdentityHashMap<Object, Value>();
-    var arguments = hostArguments(positionalArguments, name, location, convertedValues, sourceValues);
+    var arguments =
+        hostArguments(positionalArguments, name, location, convertedValues, sourceValues);
     final Object result;
     try {
       result = function.apply(arguments);
@@ -47,7 +49,8 @@ public final class HostFunctions {
     try {
       return Values.fromHostFunctionReturn(result, sourceValues);
     } catch (RuntimeException exception) {
-      throw failure("Host function '" + name + "' returned an unsupported value", exception, location);
+      throw failure(
+          "Host function '" + name + "' returned an unsupported value", exception, location);
     }
   }
 
@@ -60,15 +63,20 @@ public final class HostFunctions {
     var arguments = new ArrayList<Object>(positionalArguments.size());
     for (int index = 0; index < positionalArguments.size(); index++) {
       try {
-        var argument = Objects.requireNonNull(
-            positionalArguments.get(index), "positionalArguments[" + index + "]");
-        arguments.add(Values.toHost(
-            argument, convertedValues, sourceValues, Values.HostPath.argument(index)));
+        var argument =
+            Objects.requireNonNull(
+                positionalArguments.get(index), "positionalArguments[" + index + "]");
+        arguments.add(
+            Values.toHost(
+                argument, convertedValues, sourceValues, Values.HostPath.argument(index)));
       } catch (Values.UndefinedHostValueException exception) {
         throw failure(
-            "Host function '" + name + "' cannot receive " + exception.getMessage(), null, location);
+            "Host function '" + name + "' cannot receive " + exception.getMessage(),
+            null,
+            location);
       } catch (RuntimeException exception) {
-        throw failure("Host function '" + name + "' cannot receive argument " + index, exception, location);
+        throw failure(
+            "Host function '" + name + "' cannot receive argument " + index, exception, location);
       }
     }
     return Collections.unmodifiableList(arguments);

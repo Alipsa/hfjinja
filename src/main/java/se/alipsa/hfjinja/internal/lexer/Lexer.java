@@ -18,16 +18,16 @@ import se.alipsa.hfjinja.TemplateSyntaxException;
  * newline strip and, when enabled, {@code trim_blocks}/{@code lstrip_blocks}/the {@code generation}
  * tag strip), not the caller's original string. This is exact whenever {@code trim_blocks} and
  * {@code lstrip_blocks} are both off and no {@code generation} tag is present. Remapping locations
- * back through those content-dependent rewrites is
- * a known v1 limitation, deferred until a concrete need arises.
+ * back through those content-dependent rewrites is a known v1 limitation, deferred until a concrete
+ * need arises.
  */
 public final class Lexer {
   /**
    * The ECMA-262 WhiteSpace and LineTerminator character set, as a regex bracket-class body built
    * from explicit backslash-u escapes. It is wider than Java's default whitespace notions: it adds
-   * NBSP, the Unicode {@code Zs} space separators, U+2028/U+2029, and U+FEFF, none of which
-   * {@link Character#isWhitespace} or {@link Pattern}'s default {@code \s} treat as whitespace.
-   * Kept in sync by hand with {@link #isJsWhitespace(char)} below — a bracket character class and a
+   * NBSP, the Unicode {@code Zs} space separators, U+2028/U+2029, and U+FEFF, none of which {@link
+   * Character#isWhitespace} or {@link Pattern}'s default {@code \s} treat as whitespace. Kept in
+   * sync by hand with {@link #isJsWhitespace(char)} below — a bracket character class and a
    * per-char predicate can't share one definition, since the class needs the {@code X-Y} range
    * syntax that a plain predicate expresses as a numeric comparison instead.
    */
@@ -45,47 +45,53 @@ public final class Lexer {
   /**
    * Strips the HF-transformers-specific {@code {% generation %}}/{@code {% endgeneration %}} tags,
    * honoring their {@code -} whitespace-control modifiers. Upstream compiles this with JS's {@code
-   * gs} flags. Its literal <code>&#123;%</code> prefix is deliberately matched before surrounding whitespace
-   * is examined, preventing unsuccessful searches through long whitespace runs from becoming
-   * quadratic.
+   * gs} flags. Its literal <code>&#123;%</code> prefix is deliberately matched before surrounding
+   * whitespace is examined, preventing unsuccessful searches through long whitespace runs from
+   * becoming quadratic.
    */
-  private static final Pattern GENERATION_TAG_PATTERN = Pattern.compile(
-      "\\{%(-?)[" + JS_WHITESPACE_CHAR_CLASS + "]*(?:end)?generation["
-          + JS_WHITESPACE_CHAR_CLASS + "]*(-?)%\\}");
+  private static final Pattern GENERATION_TAG_PATTERN =
+      Pattern.compile(
+          "\\{%(-?)["
+              + JS_WHITESPACE_CHAR_CLASS
+              + "]*(?:end)?generation["
+              + JS_WHITESPACE_CHAR_CLASS
+              + "]*(-?)%\\}");
 
-  private static final Map<Character, Character> ESCAPE_CHARACTERS = Map.of(
-      'n', '\n', 't', '\t', 'r', '\r', 'b', '\b', 'f', '\f', 'v', '\u000B',
-      '\'', '\'', '"', '"', '\\', '\\');
+  private static final Map<Character, Character> ESCAPE_CHARACTERS =
+      Map.of(
+          'n', '\n', 't', '\t', 'r', '\r', 'b', '\b', 'f', '\f', 'v', '\u000B', '\'', '\'', '"',
+          '"', '\\', '\\');
 
   /** Match order is behaviorally significant: longer prefixes must be tried before shorter ones. */
-  private static final List<TokenPattern> ORDERED_MAPPING_TABLE = List.of(
-      new TokenPattern("{%", TokenType.OpenStatement),
-      new TokenPattern("%}", TokenType.CloseStatement),
-      new TokenPattern("{{", TokenType.OpenExpression),
-      new TokenPattern("}}", TokenType.CloseExpression),
-      new TokenPattern("(", TokenType.OpenParen),
-      new TokenPattern(")", TokenType.CloseParen),
-      new TokenPattern("{", TokenType.OpenCurlyBracket),
-      new TokenPattern("}", TokenType.CloseCurlyBracket),
-      new TokenPattern("[", TokenType.OpenSquareBracket),
-      new TokenPattern("]", TokenType.CloseSquareBracket),
-      new TokenPattern(",", TokenType.Comma),
-      new TokenPattern(".", TokenType.Dot),
-      new TokenPattern(":", TokenType.Colon),
-      new TokenPattern("|", TokenType.Pipe),
-      new TokenPattern("<=", TokenType.ComparisonBinaryOperator),
-      new TokenPattern(">=", TokenType.ComparisonBinaryOperator),
-      new TokenPattern("==", TokenType.ComparisonBinaryOperator),
-      new TokenPattern("!=", TokenType.ComparisonBinaryOperator),
-      new TokenPattern("<", TokenType.ComparisonBinaryOperator),
-      new TokenPattern(">", TokenType.ComparisonBinaryOperator),
-      new TokenPattern("+", TokenType.AdditiveBinaryOperator),
-      new TokenPattern("-", TokenType.AdditiveBinaryOperator),
-      new TokenPattern("~", TokenType.AdditiveBinaryOperator),
-      new TokenPattern("*", TokenType.MultiplicativeBinaryOperator),
-      new TokenPattern("/", TokenType.MultiplicativeBinaryOperator),
-      new TokenPattern("%", TokenType.MultiplicativeBinaryOperator),
-      new TokenPattern("=", TokenType.Equals));
+  private static final List<TokenPattern> ORDERED_MAPPING_TABLE =
+      List.of(
+          new TokenPattern("{%", TokenType.OpenStatement),
+          new TokenPattern("%}", TokenType.CloseStatement),
+          new TokenPattern("{{", TokenType.OpenExpression),
+          new TokenPattern("}}", TokenType.CloseExpression),
+          new TokenPattern("(", TokenType.OpenParen),
+          new TokenPattern(")", TokenType.CloseParen),
+          new TokenPattern("{", TokenType.OpenCurlyBracket),
+          new TokenPattern("}", TokenType.CloseCurlyBracket),
+          new TokenPattern("[", TokenType.OpenSquareBracket),
+          new TokenPattern("]", TokenType.CloseSquareBracket),
+          new TokenPattern(",", TokenType.Comma),
+          new TokenPattern(".", TokenType.Dot),
+          new TokenPattern(":", TokenType.Colon),
+          new TokenPattern("|", TokenType.Pipe),
+          new TokenPattern("<=", TokenType.ComparisonBinaryOperator),
+          new TokenPattern(">=", TokenType.ComparisonBinaryOperator),
+          new TokenPattern("==", TokenType.ComparisonBinaryOperator),
+          new TokenPattern("!=", TokenType.ComparisonBinaryOperator),
+          new TokenPattern("<", TokenType.ComparisonBinaryOperator),
+          new TokenPattern(">", TokenType.ComparisonBinaryOperator),
+          new TokenPattern("+", TokenType.AdditiveBinaryOperator),
+          new TokenPattern("-", TokenType.AdditiveBinaryOperator),
+          new TokenPattern("~", TokenType.AdditiveBinaryOperator),
+          new TokenPattern("*", TokenType.MultiplicativeBinaryOperator),
+          new TokenPattern("/", TokenType.MultiplicativeBinaryOperator),
+          new TokenPattern("%", TokenType.MultiplicativeBinaryOperator),
+          new TokenPattern("=", TokenType.Equals));
 
   private Lexer() {}
 
@@ -101,7 +107,9 @@ public final class Lexer {
     Objects.requireNonNull(options, "options");
     if (source.length() > options.maxSourceLength()) {
       throw new TemplateRenderException(
-          "Source length " + source.length() + " exceeds the configured limit of "
+          "Source length "
+              + source.length()
+              + " exceeds the configured limit of "
               + options.maxSourceLength(),
           ErrorCategory.RESOURCE_LIMIT,
           null);
@@ -134,7 +142,8 @@ public final class Lexer {
         whitespaceBefore--;
       }
       var whitespaceAfter = matcher.end();
-      while (whitespaceAfter < template.length() && isJsWhitespace(template.charAt(whitespaceAfter))) {
+      while (whitespaceAfter < template.length()
+          && isJsWhitespace(template.charAt(whitespaceAfter))) {
         whitespaceAfter++;
       }
       result.append(template, copyPosition, whitespaceBefore);
@@ -159,10 +168,20 @@ public final class Lexer {
 
   /** See {@link #JS_WHITESPACE_CHAR_CLASS} for why this can't share a definition with it. */
   private static boolean isJsWhitespace(char c) {
-    return c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r' || c == '\u0020'
-        || c == '\u00A0' || c == '\u1680'
+    return c == '\t'
+        || c == '\n'
+        || c == '\u000B'
+        || c == '\f'
+        || c == '\r'
+        || c == '\u0020'
+        || c == '\u00A0'
+        || c == '\u1680'
         || (c >= '\u2000' && c <= '\u200A')
-        || c == '\u2028' || c == '\u2029' || c == '\u202F' || c == '\u205F' || c == '\u3000'
+        || c == '\u2028'
+        || c == '\u2029'
+        || c == '\u202F'
+        || c == '\u205F'
+        || c == '\u3000'
         || c == '\uFEFF';
   }
 
@@ -393,10 +412,10 @@ public final class Lexer {
      * Consumes characters while {@code predicate} holds, resolving backslash escapes inline. Only
      * the string-literal call site ever exercises the escape branch: {@code '\\'} never satisfies
      * {@link #isJsWhitespace}, {@link #isIntegerChar}, or {@link #isWordChar}, so it's structurally
-     * unreachable from the other three call sites. Faithfully preserves an upstream quirk: the
-     * "ran off the end" check fires unconditionally right after consuming any character (escaped or
-     * not) — this is upstream's only mechanism for detecting an unterminated tag, since more content
-     * (a closing delimiter) is always grammatically expected while scanning inside one.
+     * unreachable from the other three call sites. Faithfully preserves an upstream quirk: the "ran
+     * off the end" check fires unconditionally right after consuming any character (escaped or not)
+     * — this is upstream's only mechanism for detecting an unterminated tag, since more content (a
+     * closing delimiter) is always grammatically expected while scanning inside one.
      */
     private String consumeWhile(CharPredicate predicate) {
       var text = new StringBuilder();

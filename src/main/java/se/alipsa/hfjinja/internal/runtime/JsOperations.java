@@ -100,8 +100,10 @@ final class JsOperations {
       return number(right) == (x.value() ? 1 : 0);
     if (left instanceof Value.BooleanValue x) return looseNumberEquals(x.value() ? 1 : 0, right);
     if (right instanceof Value.BooleanValue x) return looseNumberEquals(x.value() ? 1 : 0, left);
-    if (numeric(left) && right instanceof Value.StringValue x) return number(left) == stringNumber(x.value());
-    if (numeric(right) && left instanceof Value.StringValue x) return number(right) == stringNumber(x.value());
+    if (numeric(left) && right instanceof Value.StringValue x)
+      return number(left) == stringNumber(x.value());
+    if (numeric(right) && left instanceof Value.StringValue x)
+      return number(right) == stringNumber(x.value());
     return strictValueEquals(left, right);
   }
 
@@ -187,7 +189,8 @@ final class JsOperations {
     if (text.isEmpty()) return 0;
     if (text.equals("Infinity") || text.equals("+Infinity")) return Double.POSITIVE_INFINITY;
     if (text.equals("-Infinity")) return Double.NEGATIVE_INFINITY;
-    if (text.matches("0[xX][0-9a-fA-F]+")) return new BigInteger(text.substring(2), 16).doubleValue();
+    if (text.matches("0[xX][0-9a-fA-F]+"))
+      return new BigInteger(text.substring(2), 16).doubleValue();
     if (text.matches("0[oO][0-7]+")) return new BigInteger(text.substring(2), 8).doubleValue();
     if (text.matches("0[bB][01]+")) return new BigInteger(text.substring(2), 2).doubleValue();
     if (!text.matches("[+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?")) return Double.NaN;

@@ -253,8 +253,7 @@ class LexerTest {
     @Test
     void avoidsQuadraticGenerationTagSearchWhenGenerationIsPlainText() {
       var source = " ".repeat(10_000) + "generation";
-      var tokens = assertTimeout(
-          Duration.ofSeconds(1), () -> Lexer.tokenize(source, RAW));
+      var tokens = assertTimeout(Duration.ofSeconds(1), () -> Lexer.tokenize(source, RAW));
       assertEquals(1, tokens.size());
       assertEquals(TokenType.Text, tokens.get(0).type());
       assertEquals(source, tokens.get(0).value());
@@ -262,16 +261,12 @@ class LexerTest {
 
     @Test
     void stripsTheTagButKeepsSurroundingWhitespaceWithoutHyphens() {
-      assertShapes(
-          " {% generation %}A{% endgeneration %} ",
-          shape(TokenType.Text, " A "));
+      assertShapes(" {% generation %}A{% endgeneration %} ", shape(TokenType.Text, " A "));
     }
 
     @Test
     void stripsTheTagAndSurroundingWhitespaceWithHyphens() {
-      assertShapes(
-          " {%- generation -%}A{%- endgeneration -%} ",
-          shape(TokenType.Text, "A"));
+      assertShapes(" {%- generation -%}A{%- endgeneration -%} ", shape(TokenType.Text, "A"));
     }
   }
 
@@ -348,16 +343,16 @@ class LexerTest {
     @Test
     void rejectsSourceLongerThanTheConfiguredLimit() {
       var options = TemplateOptions.builder().maxSourceLength(5).build();
-      var error = assertThrows(
-          TemplateRenderException.class, () -> Lexer.tokenize("123456", options));
+      var error =
+          assertThrows(TemplateRenderException.class, () -> Lexer.tokenize("123456", options));
       assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
     }
 
     @Test
     void rejectsTokenCountBeyondTheConfiguredLimit() {
       var options = TemplateOptions.builder().maxTokenCount(2).build();
-      var error = assertThrows(
-          TemplateRenderException.class, () -> Lexer.tokenize("{{ a }}", options));
+      var error =
+          assertThrows(TemplateRenderException.class, () -> Lexer.tokenize("{{ a }}", options));
       assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
     }
   }
@@ -375,8 +370,10 @@ class LexerTest {
 
     @Test
     void tracksEcmaScriptLineTerminatorsWithoutDoubleCountingCrlf() {
-      var error = assertThrows(TemplateSyntaxException.class, () ->
-          Lexer.tokenize("A\r\nB\rC\u2028D\u2029{{ ! }}", TemplateOptions.DEFAULT));
+      var error =
+          assertThrows(
+              TemplateSyntaxException.class,
+              () -> Lexer.tokenize("A\r\nB\rC\u2028D\u2029{{ ! }}", TemplateOptions.DEFAULT));
       assertEquals(new SourceLocation(12, 5, 4), error.location().orElseThrow());
     }
   }
@@ -392,17 +389,18 @@ class LexerTest {
   }
 
   private static void assertShapes(String source, TemplateOptions options, TokenShape... expected) {
-    var actual = Lexer.tokenize(source, options).stream()
-        .map(token -> new TokenShape(token.type(), token.value()))
-        .collect(Collectors.toList());
+    var actual =
+        Lexer.tokenize(source, options).stream()
+            .map(token -> new TokenShape(token.type(), token.value()))
+            .collect(Collectors.toList());
     assertEquals(List.of(expected), actual);
   }
 
   private static TemplateSyntaxException assertSyntaxError(String source) {
-    return assertThrows(
-        TemplateSyntaxException.class, () -> Lexer.tokenize(source, RAW));
+    return assertThrows(TemplateSyntaxException.class, () -> Lexer.tokenize(source, RAW));
   }
 
   /** Raw scanning keeps lexer shape assertions independent of public parse defaults. */
-  private static final TemplateOptions RAW = TemplateOptions.builder().trimBlocks(false).lstripBlocks(false).build();
+  private static final TemplateOptions RAW =
+      TemplateOptions.builder().trimBlocks(false).lstripBlocks(false).build();
 }

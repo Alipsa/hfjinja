@@ -158,9 +158,7 @@ public final class Values {
             var pathLength = path.length();
             path.appendKey(key);
             try {
-              values.put(
-                  key,
-                  toHost(entry.getValue(), converted, sourceValues, path, visiting));
+              values.put(key, toHost(entry.getValue(), converted, sourceValues, path, visiting));
             } finally {
               path.restore(pathLength);
             }

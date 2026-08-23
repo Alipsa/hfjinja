@@ -1,6 +1,8 @@
 plugins {
   id 'java-library'
   id 'maven-publish'
+  id 'codenarc'
+  id 'com.diffplug.spotless' version '8.10.0'
 }
 
 group = 'se.alipsa'
@@ -19,9 +21,35 @@ repositories {
 }
 
 dependencies {
+  codenarc 'org.codenarc:CodeNarc:3.7.0-groovy-4.0'
   testImplementation platform('org.junit:junit-bom:5.12.2')
   testImplementation 'org.junit.jupiter:junit-jupiter'
   testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+spotless {
+  java {
+    target 'src/*/java/**/*.java'
+    googleJavaFormat('1.28.0')
+  }
+  format('gradle') {
+    target '*.gradle'
+    trimTrailingWhitespace()
+    endWithNewline()
+  }
+}
+
+tasks.register('codenarcBuildScripts', CodeNarc) {
+  group = 'verification'
+  description = 'Runs CodeNarc against the Gradle Groovy build scripts.'
+  source = files('build.gradle', 'settings.gradle')
+  configFile = file('config/codenarc/build-scripts.groovy')
+  reports {
+    html.required = true
+    html.outputLocation = layout.buildDirectory.file('reports/codenarc/build-scripts.html')
+    xml.required = true
+    xml.outputLocation = layout.buildDirectory.file('reports/codenarc/build-scripts.xml')
+  }
 }
 
 tasks.withType(Test).configureEach {
@@ -106,7 +134,8 @@ tasks.register('corpusCoverage', Exec) {
 
 tasks.named('check') {
   dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeOracleVersion'), tasks.named('nodeCorpusVerify'),
-      tasks.named('corpusCoverage'), tasks.named('upstreamVerify'), tasks.named('astSnapshotVerify')
+      tasks.named('corpusCoverage'), tasks.named('upstreamVerify'), tasks.named('astSnapshotVerify'),
+      tasks.named('codenarcBuildScripts')
 }
 
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile

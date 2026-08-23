@@ -29,29 +29,51 @@ class InterpreterTest {
   @Test
   void evaluatesExpressionOperatorsWithUpstreamValueSemantics() {
     assertEquals("03", Template.parse("{{ 0 and 5 }}{{ 3 or 5 }}").render(Map.of()));
-    assertEquals("false", Template.parse("{{ false and raise_exception('boom') }}").render(Map.of()));
+    assertEquals(
+        "false", Template.parse("{{ false and raise_exception('boom') }}").render(Map.of()));
     assertEquals("true", Template.parse("{{ true or raise_exception('boom') }}").render(Map.of()));
-    assertEquals("truefalse", Template.parse("{{ none == missing }}{{ none != missing }}").render(Map.of()));
+    assertEquals(
+        "truefalse", Template.parse("{{ none == missing }}{{ none != missing }}").render(Map.of()));
     assertEquals("true", Template.parse("{{ '1' == true }}").render(Map.of()));
-    assertEquals("truetruetruetrue", Template.parse("{{ 1 == true }}{{ 0 == false }}{{ true == 1 }}{{ false == 0 }}").render(Map.of()));
-    assertEquals("truetruefalse", Template.parse("{{ true == true }}{{ false == false }}{{ true != true }}").render(Map.of()));
-    assertEquals("truefalse", Template.parse("{{ 'abc'[5] == missing }}{{ 'abc'[5] != missing }}").render(Map.of()));
-    assertEquals("3|3.0|ab|true|true", Template.parse("{{ 1 + 2 }}|{{ 6.0 / 2 }}|{{ 'a' ~ 'b' }}|{{ 'a' in 'cat' }}|{{ 'a' in {'a': 1} }}").render(Map.of()));
+    assertEquals(
+        "truetruetruetrue",
+        Template.parse("{{ 1 == true }}{{ 0 == false }}{{ true == 1 }}{{ false == 0 }}")
+            .render(Map.of()));
+    assertEquals(
+        "truetruefalse",
+        Template.parse("{{ true == true }}{{ false == false }}{{ true != true }}")
+            .render(Map.of()));
+    assertEquals(
+        "truefalse",
+        Template.parse("{{ 'abc'[5] == missing }}{{ 'abc'[5] != missing }}").render(Map.of()));
+    assertEquals(
+        "3|3.0|ab|true|true",
+        Template.parse(
+                "{{ 1 + 2 }}|{{ 6.0 / 2 }}|{{ 'a' ~ 'b' }}|{{ 'a' in 'cat' }}|{{ 'a' in {'a': 1} }}")
+            .render(Map.of()));
     assertEquals("[1, 2]", Template.parse("{{ [1] + [2] }}").render(Map.of()));
-    assertEquals("[1, 2, 3]|true", Template.parse("{{ (1, 2) + [3] }}|{{ 1 in (1, 2) }}").render(Map.of()));
-    assertEquals("[object Map]|1.0|[object Map]", Template.parse("{{ {'a': 1} ~ '' }}|{{ [1.0] ~ '' }}|{{ '' + {'a': 1} }}").render(Map.of()));
+    assertEquals(
+        "[1, 2, 3]|true", Template.parse("{{ (1, 2) + [3] }}|{{ 1 in (1, 2) }}").render(Map.of()));
+    assertEquals(
+        "[object Map]|1.0|[object Map]",
+        Template.parse("{{ {'a': 1} ~ '' }}|{{ [1.0] ~ '' }}|{{ '' + {'a': 1} }}")
+            .render(Map.of()));
     assertEquals("1|1.0", Template.parse("{{ 1.0 ~ '' }}|{{ [1.0] ~ '' }}").render(Map.of()));
     assertEquals("undefined", Template.parse("{{ [none] ~ '' }}").render(Map.of()));
     var directUndefined =
         assertThrows(
-            TemplateRenderException.class, () -> Template.parse("{{ 'abc'[5] ~ '' }}").render(Map.of()));
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'[5] ~ '' }}").render(Map.of()));
     assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, directUndefined.category());
     var nestedTuple =
         assertThrows(
-            TemplateRenderException.class, () -> Template.parse("{{ [(1, 2)] ~ '' }}").render(Map.of()));
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [(1, 2)] ~ '' }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, nestedTuple.category());
     assertEquals("Cannot convert to JSON: TupleValue", nestedTuple.getMessage());
-    assertEquals("truetruetrue", Template.parse("{{ 1 < 1.5 }}{{ 1.0 <= 1 }}{{ 1.0 in [1] }}").render(Map.of()));
+    assertEquals(
+        "truetruetrue",
+        Template.parse("{{ 1 < 1.5 }}{{ 1.0 <= 1 }}{{ 1.0 in [1] }}").render(Map.of()));
     assertEquals("false", Template.parse("{{ 'x' in missing }}").render(Map.of()));
     assertEquals("true", Template.parse("{{ 'x' not in missing }}").render(Map.of()));
     var arrayNeedle =
@@ -99,42 +121,71 @@ class InterpreterTest {
 
   @Test
   void categorizesFilterAndTestFailures() {
-    var unknownFilter = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ 'x' | no_such_filter }}").render(Map.of()));
+    var unknownFilter =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'x' | no_such_filter }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, unknownFilter.category());
     assertTrue(unknownFilter.location().isPresent());
-    var receiver = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ 1 | lower }}").render(Map.of()));
+    var receiver =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 1 | lower }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, receiver.category());
-    var arity = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ 'x' | trim(1) }}").render(Map.of()));
+    var arity =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'x' | trim(1) }}").render(Map.of()));
     assertEquals(ErrorCategory.ARITY, arity.category());
-    var toJsonArgument = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ {} | tojson(indent=2) }}").render(Map.of()));
+    var toJsonArgument =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {} | tojson(indent=2) }}").render(Map.of()));
     assertEquals(ErrorCategory.ARITY, toJsonArgument.category());
-    var defaultFlag = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ missing | default('x', 1) }}").render(Map.of()));
+    var defaultFlag =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ missing | default('x', 1) }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, defaultFlag.category());
-    var value = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ 'x' | join(other='-') }}").render(Map.of()));
+    var value =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'x' | join(other='-') }}").render(Map.of()));
     assertEquals(ErrorCategory.VALUE, value.category());
-    var unknownTest = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ 1 is no_such_test }}").render(Map.of()));
+    var unknownTest =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 1 is no_such_test }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, unknownTest.category());
-    var deferredEquality = assertThrows(
-        TemplateRenderException.class, () -> Template.parse("{{ 1 is equalto }}").render(Map.of()));
+    var deferredEquality =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 1 is equalto }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, deferredEquality.category());
   }
 
   @Test
   void distinguishesUnaryRawTruthinessAndOperatorErrors() {
     assertEquals("falsefalse", Template.parse("{{ not [] }}{{ not {} }}").render(Map.of()));
-    assertEquals("falsefalse", Template.parse("{% if [] %}true{% else %}false{% endif %}{% if {} %}true{% else %}false{% endif %}").render(Map.of()));
-    assertEquals("0.0|-Infinity", Template.parse("{{ 0.0 * (0.0 - 1.0) }}|{{ 1.0 / (0.0 * (0.0 - 1.0)) }}").render(Map.of()));
-    assertEquals("Infinity|-Infinity", Template.parse("{{ 1.0 / 0.0 }}|{{ 1.0 / (0.0 * (0.0 - 1.0)) }}").render(Map.of()));
-    var nil = assertThrows(TemplateRenderException.class, () -> Template.parse("{{ none == 0 }}").render(Map.of()));
+    assertEquals(
+        "falsefalse",
+        Template.parse(
+                "{% if [] %}true{% else %}false{% endif %}{% if {} %}true{% else %}false{% endif %}")
+            .render(Map.of()));
+    assertEquals(
+        "0.0|-Infinity",
+        Template.parse("{{ 0.0 * (0.0 - 1.0) }}|{{ 1.0 / (0.0 * (0.0 - 1.0)) }}").render(Map.of()));
+    assertEquals(
+        "Infinity|-Infinity",
+        Template.parse("{{ 1.0 / 0.0 }}|{{ 1.0 / (0.0 * (0.0 - 1.0)) }}").render(Map.of()));
+    var nil =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ none == 0 }}").render(Map.of()));
     assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, nil.category());
-    var unsupported = assertThrows(TemplateRenderException.class, () -> Template.parse("{{ true + 1 }}").render(Map.of()));
+    var unsupported =
+        assertThrows(
+            TemplateRenderException.class, () -> Template.parse("{{ true + 1 }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, unsupported.category());
   }
 
@@ -410,14 +461,12 @@ class InterpreterTest {
         "no", Template.parse("{% if 'abc'[5] %}yes{% else %}no{% endif %}").render(Map.of()));
     assertEquals("[]", Template.parse("{{ ['abc'[5]] }}").render(Map.of()));
     assertEquals("[undefined]", Template.parse("{{ [missing] }}").render(Map.of()));
-    assertEquals(
-        "", Template.parse("{{ {'undefined': 1}['abc'[5]] }}").render(Map.of()));
+    assertEquals("", Template.parse("{{ {'undefined': 1}['abc'[5]] }}").render(Map.of()));
     assertEquals("[]", Template.parse("{{ range(0, 'abc'[5]) }}").render(Map.of()));
     assertEquals("[0, 1, 2]", Template.parse("{{ range(0, 3, 'abc'[5]) }}").render(Map.of()));
     assertEquals("", raisedMessage("{{ raise_exception('abc'[5]) }}", Map.of()));
     assertEquals("{undefined: 1}", Template.parse("{{ {'abc'[5]: 1} }}").render(Map.of()));
     assertEquals(
-        "1",
-        Template.parse("{% set o = {'abc'[5]: 1} %}{{ o['abc'[5]] }}").render(Map.of()));
+        "1", Template.parse("{% set o = {'abc'[5]: 1} %}{{ o['abc'[5]] }}").render(Map.of()));
   }
 }

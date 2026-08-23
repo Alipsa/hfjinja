@@ -14,14 +14,31 @@ import se.alipsa.hfjinja.SourceLocation;
  */
 @SuppressWarnings("doclint:missing")
 public sealed interface Value
-    permits Value.UndefinedValue, Value.NullValue, Value.BooleanValue, Value.IntegerValue,
-        Value.FloatValue, Value.StringValue, Value.ArrayValue, Value.TupleValue,
-        Value.ObjectValue, Value.KeywordArgumentsValue, Value.CallableValue {
-  enum UndefinedValue implements Value { INSTANCE }
-  enum NullValue implements Value { INSTANCE }
+    permits Value.UndefinedValue,
+        Value.NullValue,
+        Value.BooleanValue,
+        Value.IntegerValue,
+        Value.FloatValue,
+        Value.StringValue,
+        Value.ArrayValue,
+        Value.TupleValue,
+        Value.ObjectValue,
+        Value.KeywordArgumentsValue,
+        Value.CallableValue {
+  enum UndefinedValue implements Value {
+    INSTANCE
+  }
+
+  enum NullValue implements Value {
+    INSTANCE
+  }
+
   record BooleanValue(boolean value) implements Value {}
+
   record IntegerValue(double value) implements Value {}
+
   record FloatValue(double value) implements Value {}
+
   /** A string value, optionally backed by JavaScript {@code undefined}. */
   record StringValue(String value, boolean undefinedBacked) implements Value {
     public StringValue(String value) {
@@ -33,12 +50,21 @@ public sealed interface Value
       return new StringValue("undefined", true);
     }
   }
+
   record ArrayValue(List<Value> values) implements Value {
-    public ArrayValue { values = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(values, "values"))); }
+    public ArrayValue {
+      values =
+          Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(values, "values")));
+    }
   }
+
   record TupleValue(List<Value> values) implements Value {
-    public TupleValue { values = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(values, "values"))); }
+    public TupleValue {
+      values =
+          Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(values, "values")));
+    }
   }
+
   /** Mutable by design for template member assignment; never use as a hash-based key. */
   final class ObjectValue implements Value {
     private final Map<Object, Value> values;
@@ -66,12 +92,19 @@ public sealed interface Value
       return "ObjectValue[values=" + values + "]";
     }
   }
+
   /** Object-like call keyword arguments, distinct because they are not JSON-renderable upstream. */
   record KeywordArgumentsValue(Map<String, Value> values) implements Value {
-    public KeywordArgumentsValue { values = new LinkedHashMap<>(Objects.requireNonNull(values, "values")); }
+    public KeywordArgumentsValue {
+      values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
+    }
   }
+
   record CallableValue(Callable callable) implements Value {
-    public CallableValue { Objects.requireNonNull(callable); }
+    public CallableValue {
+      Objects.requireNonNull(callable);
+    }
+
     @FunctionalInterface
     public interface Callable {
       Value invoke(List<Value> arguments, boolean hasKeywordArguments, SourceLocation location);
