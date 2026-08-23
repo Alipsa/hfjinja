@@ -84,9 +84,9 @@ class InterpreterTest {
     assertEquals("a-b-c", Template.parse("{{ 'abc' | join('-') }}").render(Map.of()));
     assertEquals("null", Template.parse("{{ (1.0 / 0.0) | tojson }}").render(Map.of()));
     assertEquals(
-        "1|1.0|1|Infinity|Infinity",
+        "1|1.0|1|-2|Infinity|Infinity",
         Template.parse(
-                "{{ true | int }}|{{ true | float }}|{{ 1.9 | int }}|"
+                "{{ true | int }}|{{ true | float }}|{{ 1.9 | int }}|{{ (0 - 1.9) | int }}|"
                     + "{{ (1.0 / 0.0) | int }}|{{ (1.0 / 0.0) | float }}")
             .render(Map.of()));
   }

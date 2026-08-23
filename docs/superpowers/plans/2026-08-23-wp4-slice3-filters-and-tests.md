@@ -49,7 +49,7 @@ slice, or keyword/spread work.
    | `length` | array/tuple, string, object; no arguments | `IntegerValue` length | `TYPE` receiver, `ARITY` arguments |
    | `lower`, `upper`, `trim` | present string; no arguments | transformed `StringValue` | `TYPE` receiver, `ARITY` arguments |
    | `join` | array/tuple or present string; optional string separator | `StringValue`; string is joined by Unicode code point, e.g. `'abc'|join(',')` → `a,b,c` | `TYPE` receiver/separator, `VALUE` unknown keyword, `ARITY` excess |
-   | `int`, `float` | string, number, boolean; optional default | parsed/coerced numeric value, default on failed string parse; `int(true)` → `1`, `float(true)` → `1.0`, finite floats floor for `int`, and non-finite numeric values stay non-finite | `TYPE` receiver, `VALUE` unknown keyword, `ARITY` excess |
+   | `int`, `float` | string, number, boolean; optional default | parsed/coerced numeric value, default on failed string parse; `int(true)` → `1`, `float(true)` → `1.0`, and `int` floors finite floats (`int(-1.9)` → `-2`); non-finite numeric values stay non-finite | `TYPE` receiver, `VALUE` unknown keyword, `ARITY` excess |
    | `defined`, `undefined`, `none`, `boolean`, `number`, `string` | no arguments | `BooleanValue`; only undefined is undefined, while null is `none` and defined | `ARITY` arguments |
    | `iterable` | array/tuple or present string | `BooleanValue`; distinct from `sequence` | `ARITY` arguments |
    | `sequence` | array/tuple, object, or present string | `BooleanValue`; upstream includes objects here but not in `iterable` | `ARITY` arguments |
