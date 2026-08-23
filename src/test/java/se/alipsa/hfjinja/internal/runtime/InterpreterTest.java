@@ -75,15 +75,20 @@ class InterpreterTest {
                     + "{{ 'bad' | int(default='fallback') }}|{{ {'b': 1} | tojson }}")
             .render(Map.of()));
     assertEquals(
-        "truetruetruetruetruetruetruetruetruefalse",
+        "truetruetruetruetruetruetruetrue",
         Template.parse(
                 "{{ missing is undefined }}{{ none is defined }}{{ none is none }}"
                     + "{{ true is boolean }}{{ 1 is number }}{{ 'x' is string }}"
-                    + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}"
-                    + "{{ missing is eq }}{{ '1' is equalto }}")
+                    + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}")
             .render(Map.of()));
     assertEquals("a-b-c", Template.parse("{{ 'abc' | join('-') }}").render(Map.of()));
     assertEquals("null", Template.parse("{{ (1.0 / 0.0) | tojson }}").render(Map.of()));
+    assertEquals(
+        "1|1.0|1|Infinity|Infinity",
+        Template.parse(
+                "{{ true | int }}|{{ true | float }}|{{ 1.9 | int }}|"
+                    + "{{ (1.0 / 0.0) | int }}|{{ (1.0 / 0.0) | float }}")
+            .render(Map.of()));
   }
 
   @Test
@@ -98,12 +103,21 @@ class InterpreterTest {
     var arity = assertThrows(
         TemplateRenderException.class, () -> Template.parse("{{ 'x' | trim(1) }}").render(Map.of()));
     assertEquals(ErrorCategory.ARITY, arity.category());
+    var toJsonArgument = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ {} | tojson(indent=2) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, toJsonArgument.category());
+    var defaultFlag = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ missing | default('x', 1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, defaultFlag.category());
     var value = assertThrows(
         TemplateRenderException.class, () -> Template.parse("{{ 'x' | join(other='-') }}").render(Map.of()));
     assertEquals(ErrorCategory.VALUE, value.category());
     var unknownTest = assertThrows(
         TemplateRenderException.class, () -> Template.parse("{{ 1 is no_such_test }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, unknownTest.category());
+    var deferredEquality = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ 1 is equalto }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, deferredEquality.category());
   }
 
   @Test

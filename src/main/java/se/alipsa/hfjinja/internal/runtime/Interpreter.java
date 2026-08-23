@@ -249,8 +249,7 @@ public final class Interpreter {
 
   private static Value test(Expression.TestExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
-    var test = new NamedArguments(expression.test().value(), List.of(), Map.of());
-    boolean result = switch (test.name()) {
+    boolean result = switch (expression.test().value()) {
       case "defined" -> !undefinedLike(operand);
       case "undefined" -> undefinedLike(operand);
       case "none" -> operand instanceof Value.NullValue;
@@ -261,17 +260,9 @@ public final class Interpreter {
           || operand instanceof Value.StringValue string && !string.undefinedBacked();
       case "sequence" -> operand instanceof Value.ArrayValue || operand instanceof Value.TupleValue
           || operand instanceof Value.ObjectValue || operand instanceof Value.StringValue string && !string.undefinedBacked();
-      case "eq", "equalto" -> testEqual(operand, test, expression.location());
-      default -> throw filterType("Unknown test: " + test.name(), expression.location());
+      default -> throw filterType("Unknown test: " + expression.test().value(), expression.location());
     };
     return new Value.BooleanValue(expression.negate() ? !result : result);
-  }
-
-  private static boolean testEqual(Value operand, NamedArguments test, SourceLocation location) {
-    requireNoKeywords(test, location);
-    if (!test.positional().isEmpty())
-      throw new TemplateRenderException("`" + test.name() + "` test accepts no arguments", ErrorCategory.ARITY, location);
-    return testValueEquals(operand, Value.UndefinedValue.INSTANCE);
   }
 
   private static Value filterToJson(Value operand, NamedArguments filter, SourceLocation location) {
@@ -392,11 +383,6 @@ public final class Interpreter {
       throw new TemplateRenderException("`" + arguments.name() + "` filter accepts no arguments", ErrorCategory.ARITY, location);
   }
 
-  private static void requireNoKeywords(NamedArguments arguments, SourceLocation location) {
-    if (!arguments.keywords().isEmpty())
-      throw new TemplateRenderException("`" + arguments.name() + "` test accepts no keyword arguments", ErrorCategory.ARITY, location);
-  }
-
   private static void requireNoUnknownKeywords(NamedArguments arguments, SourceLocation location, String allowed) {
     for (var key : arguments.keywords().keySet()) if (!key.equals(allowed))
       throw new TemplateRenderException("Unknown `" + arguments.name() + "` filter argument: " + key, ErrorCategory.VALUE, location);
@@ -413,16 +399,6 @@ public final class Interpreter {
   private static boolean undefinedLike(Value value) {
     return value instanceof Value.UndefinedValue
         || value instanceof Value.StringValue string && string.undefinedBacked();
-  }
-
-  private static boolean testValueEquals(Value left, Value right) {
-    if (JsOperations.numeric(left) && JsOperations.numeric(right))
-      return JsOperations.toNumber(left) == JsOperations.toNumber(right);
-    if (left instanceof Value.StringValue a && right instanceof Value.StringValue b)
-      return a.undefinedBacked() == b.undefinedBacked() && a.value().equals(b.value());
-    if (left instanceof Value.BooleanValue a && right instanceof Value.BooleanValue b)
-      return a.value() == b.value();
-    return left == right;
   }
 
   private static TemplateRenderException operatorNullUndefined(String operator, SourceLocation location) {
