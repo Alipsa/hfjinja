@@ -147,6 +147,11 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ missing | default('x', 1) }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, defaultFlag.category());
+    var defaultIdentifier =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'x' | default }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, defaultIdentifier.category());
     var value =
         assertThrows(
             TemplateRenderException.class,
@@ -162,6 +167,23 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ 1 is equalto }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, deferredEquality.category());
+  }
+
+  @Test
+  void pinsFilterEdgeCasesAgainstNodeOracle() {
+    assertEquals("abc", Template.parse("{{ '\u00a0abc\u00a0' | trim }}").render(Map.of()));
+    assertEquals(
+        "Infinity|0.0",
+        Template.parse("{{ 'Infinity' | float }}|{{ 'NaN' | float }}").render(Map.of()));
+    assertEquals("1,2-3,4", Template.parse("{{ [[1,2], [3,4]] | join('-') }}").render(Map.of()));
+    assertEquals(
+        "1--x-", Template.parse("{{ [1, missing, 'x', none] | join('-') }}").render(Map.of()));
+    assertEquals(
+        "null|[null]|{\"a\": null}",
+        Template.parse(
+                "{{ missing | tojson }}|{{ [missing] | tojson }}|"
+                    + "{{ {'a': missing} | tojson }}")
+            .render(Map.of()));
   }
 
   @Test

@@ -245,7 +245,12 @@ public final class Interpreter {
     var filter = namedArguments(expression.filter(), env, budget, expression.location(), "filter");
     return switch (filter.name()) {
       case "tojson" -> filterToJson(operand, filter, expression.location());
-      case "default" -> filterDefault(operand, filter, expression.location());
+      case "default" -> {
+        if (expression.filter() instanceof Expression.Identifier)
+          throw filterType(
+              "`default` filter must be called with parentheses", expression.location());
+        yield filterDefault(operand, filter, expression.location());
+      }
       case "length" -> filterLength(operand, filter, expression.location());
       case "lower" ->
           filterString(
@@ -253,7 +258,8 @@ public final class Interpreter {
       case "upper" ->
           filterString(
               operand, filter, expression.location(), value -> value.toUpperCase(Locale.ROOT));
-      case "trim" -> filterString(operand, filter, expression.location(), String::trim);
+      case "trim" ->
+          filterString(operand, filter, expression.location(), JsOperations::trimEcmaWhitespace);
       case "join" -> filterJoin(operand, filter, expression.location());
       case "int" -> filterNumber(operand, filter, expression.location(), true);
       case "float" -> filterNumber(operand, filter, expression.location(), false);
@@ -289,7 +295,7 @@ public final class Interpreter {
 
   private static Value filterToJson(Value operand, NamedArguments filter, SourceLocation location) {
     requireNoArguments(filter, location);
-    return new Value.StringValue(JsFormat.runtimeJson(operand, location));
+    return new Value.StringValue(JsFormat.runtimeJson(operand, location, true));
   }
 
   private static Value filterDefault(
@@ -365,10 +371,17 @@ public final class Interpreter {
 
   private static String joinText(Value value, SourceLocation location) {
     return switch (value) {
-      case Value.UndefinedValue ignored -> "undefined";
-      case Value.StringValue string -> string.undefinedBacked() ? "undefined" : string.value();
-      case Value.ArrayValue ignored -> JsFormat.runtimeJson(value, location);
-      case Value.TupleValue ignored -> JsFormat.runtimeJson(value, location);
+      case Value.NullValue ignored -> "";
+      case Value.UndefinedValue ignored -> "";
+      case Value.StringValue string -> string.undefinedBacked() ? "" : string.value();
+      case Value.ArrayValue array ->
+          array.values().stream()
+              .map(item -> joinText(item, location))
+              .collect(java.util.stream.Collectors.joining(","));
+      case Value.TupleValue tuple ->
+          tuple.values().stream()
+              .map(item -> joinText(item, location))
+              .collect(java.util.stream.Collectors.joining(","));
       default -> JsOperations.payloadText(value, location);
     };
   }
@@ -413,10 +426,14 @@ public final class Interpreter {
   }
 
   private static double parseFloat(String text) {
+    var trimmed = JsOperations.trimEcmaWhitespace(text);
+    if (trimmed.equals("Infinity") || trimmed.equals("+Infinity")) return Double.POSITIVE_INFINITY;
+    if (trimmed.equals("-Infinity")) return Double.NEGATIVE_INFINITY;
+    if (trimmed.equals("NaN")) return Double.NaN;
     var matcher =
         java.util.regex.Pattern.compile(
-                "^[\\s]*([+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?)")
-            .matcher(text);
+                "^([+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?)")
+            .matcher(trimmed);
     if (!matcher.find()) return Double.NaN;
     try {
       return Double.parseDouble(matcher.group(1));

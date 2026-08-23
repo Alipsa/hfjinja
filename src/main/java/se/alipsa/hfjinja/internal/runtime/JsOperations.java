@@ -197,7 +197,7 @@ final class JsOperations {
     return Double.parseDouble(text);
   }
 
-  private static String trimEcmaWhitespace(String value) {
+  static String trimEcmaWhitespace(String value) {
     int start = 0;
     int end = value.length();
     while (start < end && isEcmaWhitespace(value.charAt(start))) start++;
