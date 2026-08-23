@@ -3,6 +3,7 @@ package se.alipsa.hfjinja.internal.runtime;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.internal.JsFormat;
 import se.alipsa.hfjinja.internal.Value;
 
@@ -11,9 +12,9 @@ import se.alipsa.hfjinja.internal.Value;
 final class JsOperations {
   private JsOperations() {}
 
-  static Value add(Value left, Value right) {
+  static Value add(Value left, Value right, SourceLocation location) {
     if (left instanceof Value.StringValue || right instanceof Value.StringValue)
-      return new Value.StringValue(toText(left) + toText(right));
+      return new Value.StringValue(payloadText(left, location) + payloadText(right, location));
     return numericAdd(left, right);
   }
 
@@ -43,9 +44,9 @@ final class JsOperations {
     };
   }
 
-  static Value concatenate(Value.ArrayValue left, Value.ArrayValue right) {
-    var values = new ArrayList<Value>(left.values());
-    values.addAll(right.values());
+  static Value concatenate(List<Value> left, List<Value> right) {
+    var values = new ArrayList<Value>(left);
+    values.addAll(right);
     return new Value.ArrayValue(values);
   }
 
@@ -61,19 +62,20 @@ final class JsOperations {
     return haystack.values().containsKey(needle.undefinedBacked() ? needle : needle.value());
   }
 
-  static String toText(Value value) {
+  /** Returns the JavaScript stringification of a runtime value's underlying payload. */
+  static String payloadText(Value value, SourceLocation location) {
     return switch (value) {
       case Value.StringValue x -> x.value();
       case Value.IntegerValue x -> JsFormat.plainString(x.value());
-      case Value.FloatValue x -> JsFormat.plainString(x.value());
+      case Value.FloatValue x -> floatText(x.value());
       case Value.BooleanValue x -> Boolean.toString(x.value());
-      case Value.NullValue ignored -> "null";
+      case Value.NullValue ignored -> "undefined";
       case Value.UndefinedValue ignored -> "undefined";
-      case Value.ArrayValue x -> arrayText(x.values());
-      case Value.TupleValue x -> arrayText(x.values());
-      case Value.ObjectValue ignored -> "[object Object]";
-      case Value.KeywordArgumentsValue ignored -> "[object Object]";
-      case Value.CallableValue ignored -> "function";
+      case Value.ArrayValue x -> arrayPayloadText(x.values(), location);
+      case Value.TupleValue x -> arrayPayloadText(x.values(), location);
+      case Value.ObjectValue ignored -> "[object Map]";
+      case Value.KeywordArgumentsValue ignored -> "[object Map]";
+      case Value.CallableValue ignored -> "[object Object]";
     };
   }
 
@@ -148,14 +150,30 @@ final class JsOperations {
     return value instanceof Value.IntegerValue x ? x.value() : ((Value.FloatValue) value).value();
   }
 
-  private static String arrayText(List<Value> values) {
+  private static String arrayPayloadText(List<Value> values, SourceLocation location) {
     var text = new StringBuilder();
     for (int i = 0; i < values.size(); i++) {
       if (i > 0) text.append(',');
       var value = values.get(i);
-      if (!(value instanceof Value.NullValue || value instanceof Value.UndefinedValue)) text.append(toText(value));
+      if (!(value instanceof Value.NullValue || value instanceof Value.UndefinedValue))
+        text.append(wrapperText(value, location));
     }
     return text.toString();
+  }
+
+  private static String wrapperText(Value value, SourceLocation location) {
+    return switch (value) {
+      case Value.ArrayValue ignored -> Interpreter.renderJson(value, location);
+      case Value.ObjectValue ignored -> Interpreter.renderJson(value, location);
+      case Value.TupleValue x -> arrayPayloadText(x.values(), location);
+      default -> payloadText(value, location);
+    };
+  }
+
+  private static String floatText(double value) {
+    return value % 1 == 0 && Math.abs(value) < 1e21
+        ? new java.math.BigDecimal(value).setScale(1).toPlainString()
+        : JsFormat.plainString(value);
   }
 
   private static double stringNumber(String value) {

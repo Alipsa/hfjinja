@@ -163,12 +163,10 @@ public final class Interpreter {
 
     var right = evaluateExpression(expression.right(), env, budget);
     if (operator.equals("==") || operator.equals("!=")) {
-      if (left instanceof Value.NullValue || left instanceof Value.UndefinedValue
-          || right instanceof Value.NullValue || right instanceof Value.UndefinedValue) {
-        boolean bothNil =
-            (left instanceof Value.NullValue || left instanceof Value.UndefinedValue)
-                && (right instanceof Value.NullValue || right instanceof Value.UndefinedValue);
+      if (nilLike(left) || nilLike(right)) {
+        boolean bothNil = nilLike(left) && nilLike(right);
         if (!bothNil) throw operatorNullUndefined(operator, expression.location());
+        return new Value.BooleanValue(operator.equals("=="));
       }
       boolean equal = JsOperations.looseEquals(left, right);
       return new Value.BooleanValue(operator.equals("==") ? equal : !equal);
@@ -180,24 +178,27 @@ public final class Interpreter {
     }
     if (left instanceof Value.NullValue || right instanceof Value.NullValue)
       throw operatorNullUndefined(operator, expression.location());
-    if (operator.equals("~")) return new Value.StringValue(JsOperations.toText(left) + JsOperations.toText(right));
+    if (operator.equals("~"))
+      return new Value.StringValue(
+          JsOperations.payloadText(left, expression.location())
+              + JsOperations.payloadText(right, expression.location()));
     if (JsOperations.numeric(left) && JsOperations.numeric(right)) {
-      if (operator.equals("+")) return JsOperations.add(left, right);
+      if (operator.equals("+")) return JsOperations.add(left, right, expression.location());
       if (operator.equals("-") || operator.equals("*") || operator.equals("/") || operator.equals("%"))
         return JsOperations.arithmetic(operator, left, right);
       if (operator.equals("<") || operator.equals(">") || operator.equals("<=") || operator.equals(">="))
         return new Value.BooleanValue(JsOperations.compare(operator, left, right));
-    } else if (left instanceof Value.ArrayValue array && right instanceof Value.ArrayValue other) {
-      if (operator.equals("+")) return JsOperations.concatenate(array, other);
-    } else if (right instanceof Value.ArrayValue array
+    } else if (arrayLike(left) && arrayLike(right)) {
+      if (operator.equals("+")) return JsOperations.concatenate(arrayValues(left), arrayValues(right));
+    } else if (arrayLike(right)
         && !(left instanceof Value.ArrayValue || left instanceof Value.TupleValue)) {
       if (operator.equals("in") || operator.equals("not in")) {
-        boolean present = JsOperations.contains(left, array);
+        boolean present = JsOperations.contains(left, new Value.ArrayValue(arrayValues(right)));
         return new Value.BooleanValue(operator.equals("in") ? present : !present);
       }
     }
     if (left instanceof Value.StringValue || right instanceof Value.StringValue) {
-      if (operator.equals("+")) return JsOperations.add(left, right);
+      if (operator.equals("+")) return JsOperations.add(left, right, expression.location());
     }
     if (left instanceof Value.StringValue string && right instanceof Value.StringValue other) {
       if (operator.equals("in") || operator.equals("not in")) {
@@ -212,6 +213,22 @@ public final class Interpreter {
       }
     }
     throw operatorUnsupportedTypes(operator, left, right, expression.location());
+  }
+
+  private static boolean nilLike(Value value) {
+    return value instanceof Value.NullValue
+        || value instanceof Value.UndefinedValue
+        || value instanceof Value.StringValue string && string.undefinedBacked();
+  }
+
+  private static boolean arrayLike(Value value) {
+    return value instanceof Value.ArrayValue || value instanceof Value.TupleValue;
+  }
+
+  private static List<Value> arrayValues(Value value) {
+    return value instanceof Value.ArrayValue array
+        ? array.values()
+        : ((Value.TupleValue) value).values();
   }
 
   private static Value unary(Expression.UnaryExpression expression, Environment env, RenderBudget budget) {
@@ -661,7 +678,7 @@ public final class Interpreter {
             : JsOperations.toNumber(current) > JsOperations.toNumber(stop)) {
       budget.chargeRangeElement(l);
       r.add(rangeElement(current));
-      current = JsOperations.add(current, step);
+      current = JsOperations.add(current, step, l);
     }
     return new Value.ArrayValue(r);
   }
