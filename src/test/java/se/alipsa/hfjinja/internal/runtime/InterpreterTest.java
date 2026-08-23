@@ -93,6 +93,30 @@ class InterpreterTest {
     assertEquals(ErrorCategory.TYPE, component.category());
     assertEquals(new SourceLocation(7, 1, 8), component.location().orElseThrow());
     assertEquals("Slice start must be numeric or undefined", component.getMessage());
+    assertEquals(
+        "Slice stop must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1][:'x'] }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        "Slice step must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1][::true] }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        "Slice start must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1][1.0:] }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        "Slice start must be numeric or undefined",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [0,1,2][(6 / 2):] }}").render(Map.of()))
+            .getMessage());
 
     var evaluatedBeforeValidation =
         assertThrows(
@@ -105,6 +129,11 @@ class InterpreterTest {
     // Upstream throws TypeError: undefined is not iterable (cannot read property
     // Symbol(Symbol.iterator)).
     assertEquals("", Template.parse("{{ 'abc'[9][0:1] }}").render(Map.of()));
+    var undefinedProperty =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'[9][missing + 1] }}").render(Map.of()));
+    assertEquals("Cannot perform operation + on undefined values", undefinedProperty.getMessage());
   }
 
   @Test
@@ -115,6 +144,12 @@ class InterpreterTest {
     assertEquals("true", Template.parse("{{ true or raise_exception('boom') }}").render(Map.of()));
     assertEquals(
         "truefalse", Template.parse("{{ none == missing }}{{ none != missing }}").render(Map.of()));
+    assertEquals(
+        "Cannot perform operation on null values",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 1 + none }}").render(Map.of()))
+            .getMessage());
     assertEquals("true", Template.parse("{{ '1' == true }}").render(Map.of()));
     assertEquals(
         "truetruetruetrue",

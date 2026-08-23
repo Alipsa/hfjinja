@@ -183,7 +183,7 @@ public final class Interpreter {
       throw operatorUndefined(operator, expression.location());
     }
     if (left instanceof Value.NullValue || right instanceof Value.NullValue)
-      throw operatorNull(operator, expression.location());
+      throw operatorNull(expression.location());
     if (operator.equals("~"))
       return new Value.StringValue(
           JsOperations.payloadText(left, expression.location())
@@ -526,7 +526,7 @@ public final class Interpreter {
         location);
   }
 
-  private static TemplateRenderException operatorNull(String operator, SourceLocation location) {
+  private static TemplateRenderException operatorNull(SourceLocation location) {
     return new TemplateRenderException(
         "Cannot perform operation on null values", ErrorCategory.UNDEFINED_OR_ACCESS, location);
   }
@@ -590,10 +590,10 @@ public final class Interpreter {
 
   private static Value member(Expression.MemberExpression n, Environment e, RenderBudget b) {
     var target = evaluateExpression(n.object(), e, b);
-    if (target instanceof Value.StringValue string && string.undefinedBacked())
-      return Value.UndefinedValue.INSTANCE;
     if (n.computed() && n.property() instanceof Expression.SliceExpression slice)
-      return slice(target, slice, e, b, n.location());
+      return target instanceof Value.StringValue string && string.undefinedBacked()
+          ? Value.UndefinedValue.INSTANCE
+          : slice(target, slice, e, b, n.location());
     var p =
         !n.computed() && n.property() instanceof Expression.Identifier id
             ? new Value.StringValue(id.value())
@@ -612,6 +612,7 @@ public final class Interpreter {
     if (target instanceof Value.ArrayValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.TupleValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.StringValue x) {
+      if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       if (p instanceof Value.StringValue) return Value.UndefinedValue.INSTANCE;
       if (!(p instanceof Value.IntegerValue))
         throw access(
