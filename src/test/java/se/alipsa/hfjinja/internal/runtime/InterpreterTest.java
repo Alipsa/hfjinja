@@ -64,6 +64,49 @@ class InterpreterTest {
   }
 
   @Test
+  void evaluatesSelectedFiltersAndTestsWithPinnedRuntimeSemantics() {
+    assertEquals(
+        "x|true|x|abc|3|1-true-x|12|1.25|fallback|{\"b\": 1}",
+        Template.parse(
+                "{{ missing | default('x') }}|{{ none | default('x') is none }}|"
+                    + "{{ false | default('x', true) }}|{{ '  AbC  ' | trim | lower }}|"
+                    + "{{ 'ABC' | lower | length }}|{{ [1, true, 'x'] | join('-') }}|"
+                    + "{{ '12.9x' | int }}|{{ '1.25x' | float }}|"
+                    + "{{ 'bad' | int(default='fallback') }}|{{ {'b': 1} | tojson }}")
+            .render(Map.of()));
+    assertEquals(
+        "truetruetruetruetruetruetruetruetruefalse",
+        Template.parse(
+                "{{ missing is undefined }}{{ none is defined }}{{ none is none }}"
+                    + "{{ true is boolean }}{{ 1 is number }}{{ 'x' is string }}"
+                    + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}"
+                    + "{{ missing is eq }}{{ '1' is equalto }}")
+            .render(Map.of()));
+    assertEquals("a-b-c", Template.parse("{{ 'abc' | join('-') }}").render(Map.of()));
+    assertEquals("null", Template.parse("{{ (1.0 / 0.0) | tojson }}").render(Map.of()));
+  }
+
+  @Test
+  void categorizesFilterAndTestFailures() {
+    var unknownFilter = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ 'x' | no_such_filter }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, unknownFilter.category());
+    assertTrue(unknownFilter.location().isPresent());
+    var receiver = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ 1 | lower }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, receiver.category());
+    var arity = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ 'x' | trim(1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, arity.category());
+    var value = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ 'x' | join(other='-') }}").render(Map.of()));
+    assertEquals(ErrorCategory.VALUE, value.category());
+    var unknownTest = assertThrows(
+        TemplateRenderException.class, () -> Template.parse("{{ 1 is no_such_test }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, unknownTest.category());
+  }
+
+  @Test
   void distinguishesUnaryRawTruthinessAndOperatorErrors() {
     assertEquals("falsefalse", Template.parse("{{ not [] }}{{ not {} }}").render(Map.of()));
     assertEquals("falsefalse", Template.parse("{% if [] %}true{% else %}false{% endif %}{% if {} %}true{% else %}false{% endif %}").render(Map.of()));

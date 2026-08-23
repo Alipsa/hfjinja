@@ -132,10 +132,8 @@ public final class Interpreter {
               : Value.UndefinedValue.INSTANCE;
       case Expression.BinaryExpression x -> binary(x, env, budget);
       case Expression.UnaryExpression x -> unary(x, env, budget);
-      case Expression.FilterExpression x ->
-          throw unsupportedExpression("FilterExpression", x.location());
-      case Expression.TestExpression x ->
-          throw unsupportedExpression("TestExpression", x.location());
+      case Expression.FilterExpression x -> filter(x, env, budget);
+      case Expression.TestExpression x -> test(x, env, budget);
       case Expression.Ternary x -> throw unsupportedExpression("Ternary", x.location());
       case Expression.SliceExpression x ->
           throw unsupportedExpression("SliceExpression", x.location());
@@ -228,6 +226,203 @@ public final class Interpreter {
     if (expression.operator().value().equals("not"))
       return new Value.BooleanValue(!JsOperations.rawTruthy(argument));
     throw operatorUnsupportedUnary(expression.operator().value(), argument, expression.location());
+  }
+
+  private record NamedArguments(String name, List<Value> positional, Map<String, Value> keywords) {}
+
+  private static Value filter(Expression.FilterExpression expression, Environment env, RenderBudget budget) {
+    var operand = evaluateExpression(expression.operand(), env, budget);
+    var filter = namedArguments(expression.filter(), env, budget, expression.location(), "filter");
+    return switch (filter.name()) {
+      case "tojson" -> filterToJson(operand, filter, expression.location());
+      case "default" -> filterDefault(operand, filter, expression.location());
+      case "length" -> filterLength(operand, filter, expression.location());
+      case "lower" -> filterString(operand, filter, expression.location(), value -> value.toLowerCase(Locale.ROOT));
+      case "upper" -> filterString(operand, filter, expression.location(), value -> value.toUpperCase(Locale.ROOT));
+      case "trim" -> filterString(operand, filter, expression.location(), String::trim);
+      case "join" -> filterJoin(operand, filter, expression.location());
+      case "int" -> filterNumber(operand, filter, expression.location(), true);
+      case "float" -> filterNumber(operand, filter, expression.location(), false);
+      default -> throw filterType("Unknown filter: " + filter.name(), expression.location());
+    };
+  }
+
+  private static Value test(Expression.TestExpression expression, Environment env, RenderBudget budget) {
+    var operand = evaluateExpression(expression.operand(), env, budget);
+    var test = new NamedArguments(expression.test().value(), List.of(), Map.of());
+    boolean result = switch (test.name()) {
+      case "defined" -> !undefinedLike(operand);
+      case "undefined" -> undefinedLike(operand);
+      case "none" -> operand instanceof Value.NullValue;
+      case "boolean" -> operand instanceof Value.BooleanValue;
+      case "number" -> JsOperations.numeric(operand);
+      case "string" -> operand instanceof Value.StringValue string && !string.undefinedBacked();
+      case "iterable" -> operand instanceof Value.ArrayValue || operand instanceof Value.TupleValue
+          || operand instanceof Value.StringValue string && !string.undefinedBacked();
+      case "sequence" -> operand instanceof Value.ArrayValue || operand instanceof Value.TupleValue
+          || operand instanceof Value.ObjectValue || operand instanceof Value.StringValue string && !string.undefinedBacked();
+      case "eq", "equalto" -> testEqual(operand, test, expression.location());
+      default -> throw filterType("Unknown test: " + test.name(), expression.location());
+    };
+    return new Value.BooleanValue(expression.negate() ? !result : result);
+  }
+
+  private static boolean testEqual(Value operand, NamedArguments test, SourceLocation location) {
+    requireNoKeywords(test, location);
+    if (!test.positional().isEmpty())
+      throw new TemplateRenderException("`" + test.name() + "` test accepts no arguments", ErrorCategory.ARITY, location);
+    return testValueEquals(operand, Value.UndefinedValue.INSTANCE);
+  }
+
+  private static Value filterToJson(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    return new Value.StringValue(JsFormat.runtimeJson(operand, location));
+  }
+
+  private static Value filterDefault(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoUnknownKeywords(filter, location, "boolean");
+    if (filter.positional().size() > 2)
+      throw new TemplateRenderException("`default` filter accepts at most two arguments", ErrorCategory.ARITY, location);
+    var fallback = filter.positional().isEmpty() ? new Value.StringValue("") : filter.positional().get(0);
+    Value booleanFlag = filter.positional().size() > 1 ? filter.positional().get(1) : filter.keywords().get("boolean");
+    if (booleanFlag == null) booleanFlag = new Value.BooleanValue(false);
+    if (!(booleanFlag instanceof Value.BooleanValue flag))
+      throw new TemplateRenderException("`default` filter flag must be a boolean", ErrorCategory.TYPE, location);
+    return undefinedLike(operand) || flag.value() && !truthy(operand) ? fallback : operand;
+  }
+
+  private static Value filterLength(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    int length;
+    if (operand instanceof Value.ArrayValue array) length = array.values().size();
+    else if (operand instanceof Value.TupleValue tuple) length = tuple.values().size();
+    else if (operand instanceof Value.StringValue string && !string.undefinedBacked()) length = string.value().length();
+    else if (operand instanceof Value.ObjectValue object) length = object.values().size();
+    else throw filterReceiver("length", operand, location);
+    return new Value.IntegerValue(length);
+  }
+
+  private static Value filterString(
+      Value operand, NamedArguments filter, SourceLocation location, java.util.function.UnaryOperator<String> operation) {
+    requireNoArguments(filter, location);
+    if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
+      throw filterReceiver(filter.name(), operand, location);
+    return new Value.StringValue(operation.apply(string.value()));
+  }
+
+  private static Value filterJoin(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoUnknownKeywords(filter, location, "separator");
+    if (filter.positional().size() > 1)
+      throw new TemplateRenderException("`join` filter accepts at most one argument", ErrorCategory.ARITY, location);
+    Value separator = filter.positional().isEmpty() ? filter.keywords().get("separator") : filter.positional().get(0);
+    if (separator == null) separator = new Value.StringValue("");
+    if (!(separator instanceof Value.StringValue string) || string.undefinedBacked())
+      throw new TemplateRenderException("separator must be a string", ErrorCategory.TYPE, location);
+    List<Value> values;
+    if (operand instanceof Value.ArrayValue array) values = array.values();
+    else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
+    else if (operand instanceof Value.StringValue value && !value.undefinedBacked()) {
+      values = value.value().codePoints()
+          .mapToObj(c -> (Value) new Value.StringValue(new String(Character.toChars(c)))).toList();
+    } else throw filterReceiver("join", operand, location);
+    return new Value.StringValue(values.stream().map(v -> joinText(v, location)).collect(java.util.stream.Collectors.joining(string.value())));
+  }
+
+  private static String joinText(Value value, SourceLocation location) {
+    return switch (value) {
+      case Value.UndefinedValue ignored -> "undefined";
+      case Value.StringValue string -> string.undefinedBacked() ? "undefined" : string.value();
+      case Value.ArrayValue ignored -> JsFormat.runtimeJson(value, location);
+      case Value.TupleValue ignored -> JsFormat.runtimeJson(value, location);
+      default -> JsOperations.payloadText(value, location);
+    };
+  }
+
+  private static Value filterNumber(Value operand, NamedArguments filter, SourceLocation location, boolean integer) {
+    requireNoUnknownKeywords(filter, location, "default");
+    if (filter.positional().size() > 1)
+      throw new TemplateRenderException("`" + filter.name() + "` filter accepts at most one argument", ErrorCategory.ARITY, location);
+    var fallback = filter.positional().isEmpty() ? filter.keywords().get("default") : filter.positional().get(0);
+    if (fallback == null) fallback = integer ? new Value.IntegerValue(0) : new Value.FloatValue(0);
+    if (operand instanceof Value.IntegerValue value) return integer ? value : new Value.FloatValue(value.value());
+    if (operand instanceof Value.FloatValue value) return integer ? new Value.IntegerValue(Math.floor(value.value())) : value;
+    if (operand instanceof Value.BooleanValue value)
+      return integer ? new Value.IntegerValue(value.value() ? 1 : 0) : new Value.FloatValue(value.value() ? 1 : 0);
+    if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
+      throw filterReceiver(filter.name(), operand, location);
+    var parsed = integer ? parseInt(string.value()) : parseFloat(string.value());
+    return Double.isNaN(parsed) ? fallback : integer ? new Value.IntegerValue(parsed) : new Value.FloatValue(parsed);
+  }
+
+  private static double parseInt(String text) {
+    var matcher = java.util.regex.Pattern.compile("^[\\s]*([+-]?\\d+)").matcher(text);
+    if (!matcher.find()) return Double.NaN;
+    try { return Double.parseDouble(matcher.group(1)); } catch (NumberFormatException ignored) { return Double.NaN; }
+  }
+
+  private static double parseFloat(String text) {
+    var matcher = java.util.regex.Pattern.compile("^[\\s]*([+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?)").matcher(text);
+    if (!matcher.find()) return Double.NaN;
+    try { return Double.parseDouble(matcher.group(1)); } catch (NumberFormatException ignored) { return Double.NaN; }
+  }
+
+  private static NamedArguments namedArguments(
+      Expression expression, Environment env, RenderBudget budget, SourceLocation location, String kind) {
+    if (expression instanceof Expression.Identifier id) return new NamedArguments(id.value(), List.of(), Map.of());
+    if (!(expression instanceof Expression.CallExpression call) || !(call.callee() instanceof Expression.Identifier id))
+      throw filterType("Unknown " + kind + ": " + expression.getClass().getSimpleName(), location);
+    var positional = new ArrayList<Value>();
+    var keywords = new LinkedHashMap<String, Value>();
+    boolean sawKeyword = false;
+    for (var argument : call.args()) {
+      if (argument instanceof Expression.KeywordArgumentExpression keyword) {
+        sawKeyword = true;
+        keywords.put(keyword.key().value(), evaluateExpression(keyword.value(), env, budget));
+      } else {
+        if (sawKeyword)
+          throw new TemplateRenderException("Positional arguments cannot follow keyword arguments", ErrorCategory.SYNTAX, argument.location());
+        positional.add(evaluateExpression(argument, env, budget));
+      }
+    }
+    return new NamedArguments(id.value(), List.copyOf(positional), Map.copyOf(keywords));
+  }
+
+  private static void requireNoArguments(NamedArguments arguments, SourceLocation location) {
+    if (!arguments.positional().isEmpty() || !arguments.keywords().isEmpty())
+      throw new TemplateRenderException("`" + arguments.name() + "` filter accepts no arguments", ErrorCategory.ARITY, location);
+  }
+
+  private static void requireNoKeywords(NamedArguments arguments, SourceLocation location) {
+    if (!arguments.keywords().isEmpty())
+      throw new TemplateRenderException("`" + arguments.name() + "` test accepts no keyword arguments", ErrorCategory.ARITY, location);
+  }
+
+  private static void requireNoUnknownKeywords(NamedArguments arguments, SourceLocation location, String allowed) {
+    for (var key : arguments.keywords().keySet()) if (!key.equals(allowed))
+      throw new TemplateRenderException("Unknown `" + arguments.name() + "` filter argument: " + key, ErrorCategory.VALUE, location);
+  }
+
+  private static TemplateRenderException filterReceiver(String name, Value value, SourceLocation location) {
+    return filterType("Cannot apply filter `" + name + "` to type: " + type(value), location);
+  }
+
+  private static TemplateRenderException filterType(String message, SourceLocation location) {
+    return new TemplateRenderException(message, ErrorCategory.TYPE, location);
+  }
+
+  private static boolean undefinedLike(Value value) {
+    return value instanceof Value.UndefinedValue
+        || value instanceof Value.StringValue string && string.undefinedBacked();
+  }
+
+  private static boolean testValueEquals(Value left, Value right) {
+    if (JsOperations.numeric(left) && JsOperations.numeric(right))
+      return JsOperations.toNumber(left) == JsOperations.toNumber(right);
+    if (left instanceof Value.StringValue a && right instanceof Value.StringValue b)
+      return a.undefinedBacked() == b.undefinedBacked() && a.value().equals(b.value());
+    if (left instanceof Value.BooleanValue a && right instanceof Value.BooleanValue b)
+      return a.value() == b.value();
+    return left == right;
   }
 
   private static TemplateRenderException operatorNullUndefined(String operator, SourceLocation location) {
