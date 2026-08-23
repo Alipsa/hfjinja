@@ -173,8 +173,9 @@ class InterpreterTest {
   void pinsFilterEdgeCasesAgainstNodeOracle() {
     assertEquals("abc", Template.parse("{{ '\u00a0abc\u00a0' | trim }}").render(Map.of()));
     assertEquals(
-        "Infinity|0.0",
-        Template.parse("{{ 'Infinity' | float }}|{{ 'NaN' | float }}").render(Map.of()));
+        "Infinity|Infinity|0.0",
+        Template.parse("{{ 'Infinity' | float }}|{{ 'Infinityx' | float }}|{{ 'NaN' | float }}")
+            .render(Map.of()));
     assertEquals("1,2-3,4", Template.parse("{{ [[1,2], [3,4]] | join('-') }}").render(Map.of()));
     assertEquals(
         "1--x-", Template.parse("{{ [1, missing, 'x', none] | join('-') }}").render(Map.of()));

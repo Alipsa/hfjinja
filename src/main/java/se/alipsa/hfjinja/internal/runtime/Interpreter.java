@@ -427,9 +427,10 @@ public final class Interpreter {
 
   private static double parseFloat(String text) {
     var trimmed = JsOperations.trimEcmaWhitespace(text);
-    if (trimmed.equals("Infinity") || trimmed.equals("+Infinity")) return Double.POSITIVE_INFINITY;
-    if (trimmed.equals("-Infinity")) return Double.NEGATIVE_INFINITY;
-    if (trimmed.equals("NaN")) return Double.NaN;
+    if (trimmed.startsWith("Infinity") || trimmed.startsWith("+Infinity"))
+      return Double.POSITIVE_INFINITY;
+    if (trimmed.startsWith("-Infinity")) return Double.NEGATIVE_INFINITY;
+    if (trimmed.startsWith("NaN")) return Double.NaN;
     var matcher =
         java.util.regex.Pattern.compile(
                 "^([+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?)")
