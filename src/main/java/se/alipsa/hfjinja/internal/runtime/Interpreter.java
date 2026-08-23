@@ -134,7 +134,7 @@ public final class Interpreter {
       case Expression.UnaryExpression x -> unary(x, env, budget);
       case Expression.FilterExpression x -> filter(x, env, budget);
       case Expression.TestExpression x -> test(x, env, budget);
-      case Expression.Ternary x -> throw unsupportedExpression("Ternary", x.location());
+      case Expression.Ternary x -> ternary(x, env, budget);
       case Expression.SliceExpression x ->
           throw unsupportedExpression("SliceExpression", x.location());
       case Expression.KeywordArgumentExpression x ->
@@ -142,6 +142,13 @@ public final class Interpreter {
       case Expression.SpreadExpression x ->
           throw unsupportedExpression("SpreadExpression", x.location());
     };
+  }
+
+  private static Value ternary(
+      Expression.Ternary expression, Environment env, RenderBudget budget) {
+    return truthy(evaluateExpression(expression.condition(), env, budget))
+        ? evaluateExpression(expression.trueExpr(), env, budget)
+        : evaluateExpression(expression.falseExpr(), env, budget);
   }
 
   private static TemplateRenderException unsupportedExpression(String n, SourceLocation l) {

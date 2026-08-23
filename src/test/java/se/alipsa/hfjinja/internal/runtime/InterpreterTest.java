@@ -13,6 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.RenderOptions;
+import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.Template;
 import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.internal.JsFormat;
@@ -24,6 +25,36 @@ class InterpreterTest {
     assertFalse(Interpreter.truthy(new se.alipsa.hfjinja.internal.Value.FloatValue(Double.NaN)));
     assertTrue(Interpreter.truthy(new se.alipsa.hfjinja.internal.Value.IntegerValue(1d)));
     assertTrue(Interpreter.truthy(new se.alipsa.hfjinja.internal.Value.FloatValue(1d)));
+  }
+
+  @Test
+  void evaluatesTernaryExpressionsWithPinnedRuntimeTruthiness() {
+    assertEquals(
+        "yes|no|no|no|no|no|no|no|no|no|yes|yes|yes|yes|yes|yes|yes|yes",
+        Template.parse(
+                "{{ 'yes' if true else 'no' }}|{{ 'yes' if false else 'no' }}|"
+                    + "{{ 'yes' if missing else 'no' }}|{{ 'yes' if none else 'no' }}|"
+                    + "{{ 'yes' if '' else 'no' }}|{{ 'yes' if 0 else 'no' }}|"
+                    + "{{ 'yes' if 0.0 else 'no' }}|{{ 'yes' if [] else 'no' }}|"
+                    + "{{ 'yes' if {} else 'no' }}|{{ 'yes' if (0.0 / 0.0) else 'no' }}|"
+                    + "{{ 'yes' if 'x' else 'no' }}|{{ 'yes' if 1 else 'no' }}|"
+                    + "{{ 'yes' if 1.0 else 'no' }}|{{ 'yes' if [1] else 'no' }}|"
+                    + "{{ 'yes' if {'x': 1} else 'no' }}|{{ 'yes' if (1, 2) else 'no' }}|"
+                    + "{{ 'yes' if namespace(a=1) else 'no' }}|{{ 'yes' if range else 'no' }}")
+            .render(Map.of()));
+    assertEquals(
+        "b", Template.parse("{{ 'a' if false else ('b' if true else 'c') }}").render(Map.of()));
+    assertEquals(
+        "safe",
+        Template.parse("{{ raise_exception('boom') if false else 'safe' }}").render(Map.of()));
+    var selectedBranch =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ raise_exception('boom') if true else 'safe' }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.EXPLICIT_RAISE, selectedBranch.category());
+    assertEquals(new SourceLocation(3, 1, 4), selectedBranch.location().orElseThrow());
   }
 
   @Test
