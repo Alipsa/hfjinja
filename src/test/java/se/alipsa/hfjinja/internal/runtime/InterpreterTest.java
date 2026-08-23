@@ -81,6 +81,12 @@ class InterpreterTest {
                     + "{{ true is boolean }}{{ 1 is number }}{{ 'x' is string }}"
                     + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}")
             .render(Map.of()));
+    assertEquals(
+        "fallback|true|false",
+        Template.parse(
+                "{{ 'abc'[5] | default('fallback') }}|{{ 'abc'[5] is undefined }}|"
+                    + "{{ 'abc'[5] is defined }}")
+            .render(Map.of()));
     assertEquals("a-b-c", Template.parse("{{ 'abc' | join('-') }}").render(Map.of()));
     assertEquals("null", Template.parse("{{ (1.0 / 0.0) | tojson }}").render(Map.of()));
     assertEquals(
