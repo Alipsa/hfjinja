@@ -13,6 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.RenderOptions;
+import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.Template;
 import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.internal.JsFormat;
@@ -53,7 +54,7 @@ class InterpreterTest {
                 Template.parse("{{ raise_exception('boom') if true else 'safe' }}")
                     .render(Map.of()));
     assertEquals(ErrorCategory.EXPLICIT_RAISE, selectedBranch.category());
-    assertTrue(selectedBranch.location().isPresent());
+    assertEquals(new SourceLocation(3, 1, 4), selectedBranch.location().orElseThrow());
   }
 
   @Test
