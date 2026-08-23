@@ -40,7 +40,12 @@ class InterpreterTest {
     assertEquals("[1, 2]", Template.parse("{{ [1] + [2] }}").render(Map.of()));
     assertEquals("[1, 2, 3]|true", Template.parse("{{ (1, 2) + [3] }}|{{ 1 in (1, 2) }}").render(Map.of()));
     assertEquals("[object Map]|1.0|[object Map]", Template.parse("{{ {'a': 1} ~ '' }}|{{ [1.0] ~ '' }}|{{ '' + {'a': 1} }}").render(Map.of()));
+    assertEquals("1|1.0", Template.parse("{{ 1.0 ~ '' }}|{{ [1.0] ~ '' }}").render(Map.of()));
     assertEquals("undefined", Template.parse("{{ [none] ~ '' }}").render(Map.of()));
+    var directUndefined =
+        assertThrows(
+            TemplateRenderException.class, () -> Template.parse("{{ 'abc'[5] ~ '' }}").render(Map.of()));
+    assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, directUndefined.category());
     var nestedTuple =
         assertThrows(
             TemplateRenderException.class, () -> Template.parse("{{ [(1, 2)] ~ '' }}").render(Map.of()));

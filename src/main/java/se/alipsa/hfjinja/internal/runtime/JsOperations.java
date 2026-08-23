@@ -3,7 +3,9 @@ package se.alipsa.hfjinja.internal.runtime;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.SourceLocation;
+import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.internal.JsFormat;
 import se.alipsa.hfjinja.internal.Value;
 
@@ -65,9 +67,9 @@ final class JsOperations {
   /** Returns the upstream payload stringification used by string {@code +}. */
   static String payloadText(Value value, SourceLocation location) {
     return switch (value) {
-      case Value.StringValue x -> x.value();
+      case Value.StringValue x -> x.undefinedBacked() ? undefinedPayload(location) : x.value();
       case Value.IntegerValue x -> JsFormat.plainString(x.value());
-      case Value.FloatValue x -> floatText(x.value());
+      case Value.FloatValue x -> JsFormat.plainString(x.value());
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.NullValue ignored -> "undefined";
       case Value.UndefinedValue ignored -> "undefined";
@@ -169,12 +171,15 @@ final class JsOperations {
       case Value.ArrayValue ignored -> JsFormat.runtimeJson(value, location);
       case Value.ObjectValue ignored -> JsFormat.runtimeJson(value, location);
       case Value.TupleValue ignored -> JsFormat.runtimeJson(value, location);
+      case Value.StringValue x -> x.undefinedBacked() ? "undefined" : x.value();
+      case Value.FloatValue x -> JsFormat.floatString(x.value());
       default -> payloadText(value, location);
     };
   }
 
-  private static String floatText(double value) {
-    return JsFormat.floatString(value);
+  private static String undefinedPayload(SourceLocation location) {
+    throw new TemplateRenderException(
+        "Cannot stringify undefined value", ErrorCategory.UNDEFINED_OR_ACCESS, location);
   }
 
   private static double stringNumber(String value) {
