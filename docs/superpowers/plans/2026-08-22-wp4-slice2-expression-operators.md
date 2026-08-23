@@ -31,6 +31,11 @@ the corpus gate remain later slices.
   null/undefined) but not JavaScript object-to-primitive coercion. Equality involving arrays or
   objects therefore remains identity-based until a later slice characterizes that broader JS
   behavior.
+- String operators preserve the upstream runtime's payload path: direct object payloads render as
+  `[object Map]`, direct arrays join their wrapped values (so `[1.0] ~ ''` is `1.0`), and nested
+  objects/arrays retain their JSON wrapper form. Null and undefined array elements retain the
+  upstream `undefined` payload text. Java cannot reproduce JavaScript function source text, so
+  callable payloads deliberately use the stable `function` marker instead.
 - `runtime.ts` remains `implemented` in `upstream/mapping.yml`; append any new Java/test files to
   its inline lists in the same change.  `utils.ts` and `index.ts` remain planned.
 

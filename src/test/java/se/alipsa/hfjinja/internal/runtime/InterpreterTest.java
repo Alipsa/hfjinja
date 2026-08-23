@@ -40,6 +40,7 @@ class InterpreterTest {
     assertEquals("[1, 2]", Template.parse("{{ [1] + [2] }}").render(Map.of()));
     assertEquals("[1, 2, 3]|true", Template.parse("{{ (1, 2) + [3] }}|{{ 1 in (1, 2) }}").render(Map.of()));
     assertEquals("[object Map]|1.0|[object Map]", Template.parse("{{ {'a': 1} ~ '' }}|{{ [1.0] ~ '' }}|{{ '' + {'a': 1} }}").render(Map.of()));
+    assertEquals("undefined", Template.parse("{{ [none] ~ '' }}").render(Map.of()));
     assertEquals("truetruetrue", Template.parse("{{ 1 < 1.5 }}{{ 1.0 <= 1 }}{{ 1.0 in [1] }}").render(Map.of()));
     assertEquals("false", Template.parse("{{ 'x' in missing }}").render(Map.of()));
     assertEquals("true", Template.parse("{{ 'x' not in missing }}").render(Map.of()));

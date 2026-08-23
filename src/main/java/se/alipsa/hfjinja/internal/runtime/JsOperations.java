@@ -62,7 +62,7 @@ final class JsOperations {
     return haystack.values().containsKey(needle.undefinedBacked() ? needle : needle.value());
   }
 
-  /** Returns the JavaScript stringification of a runtime value's underlying payload. */
+  /** Returns the upstream payload stringification used by string {@code +}. */
   static String payloadText(Value value, SourceLocation location) {
     return switch (value) {
       case Value.StringValue x -> x.value();
@@ -75,7 +75,7 @@ final class JsOperations {
       case Value.TupleValue x -> arrayPayloadText(x.values(), location);
       case Value.ObjectValue ignored -> "[object Map]";
       case Value.KeywordArgumentsValue ignored -> "[object Map]";
-      case Value.CallableValue ignored -> "[object Object]";
+      case Value.CallableValue ignored -> "function";
     };
   }
 
@@ -89,9 +89,7 @@ final class JsOperations {
   }
 
   static boolean looseEquals(Value left, Value right) {
-    if (left instanceof Value.NullValue || left instanceof Value.UndefinedValue)
-      return right instanceof Value.NullValue || right instanceof Value.UndefinedValue;
-    if (right instanceof Value.NullValue || right instanceof Value.UndefinedValue) return false;
+    if (nilLike(left) || nilLike(right)) return nilLike(left) && nilLike(right);
     if (left instanceof Value.BooleanValue a && right instanceof Value.BooleanValue b)
       return a.value() == b.value();
     if (numeric(left) && right instanceof Value.BooleanValue x)
@@ -119,6 +117,12 @@ final class JsOperations {
 
   static boolean numeric(Value value) {
     return value instanceof Value.IntegerValue || value instanceof Value.FloatValue;
+  }
+
+  static boolean nilLike(Value value) {
+    return value instanceof Value.NullValue
+        || value instanceof Value.UndefinedValue
+        || value instanceof Value.StringValue string && string.undefinedBacked();
   }
 
   private static boolean looseNumberEquals(double number, Value other) {
@@ -155,25 +159,22 @@ final class JsOperations {
     for (int i = 0; i < values.size(); i++) {
       if (i > 0) text.append(',');
       var value = values.get(i);
-      if (!(value instanceof Value.NullValue || value instanceof Value.UndefinedValue))
-        text.append(wrapperText(value, location));
+      text.append(wrapperText(value, location));
     }
     return text.toString();
   }
 
   private static String wrapperText(Value value, SourceLocation location) {
     return switch (value) {
-      case Value.ArrayValue ignored -> Interpreter.renderJson(value, location);
-      case Value.ObjectValue ignored -> Interpreter.renderJson(value, location);
+      case Value.ArrayValue ignored -> JsFormat.runtimeJson(value, location);
+      case Value.ObjectValue ignored -> JsFormat.runtimeJson(value, location);
       case Value.TupleValue x -> arrayPayloadText(x.values(), location);
       default -> payloadText(value, location);
     };
   }
 
   private static String floatText(double value) {
-    return value % 1 == 0 && Math.abs(value) < 1e21
-        ? new java.math.BigDecimal(value).setScale(1).toPlainString()
-        : JsFormat.plainString(value);
+    return JsFormat.floatString(value);
   }
 
   private static double stringNumber(String value) {

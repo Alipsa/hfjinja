@@ -24,6 +24,8 @@ class JsOperationsTest {
   @Test
   void implementsLooseEqualityRawTruthinessAndMembership() {
     assertTrue(JsOperations.looseEquals(Value.NullValue.INSTANCE, Value.UndefinedValue.INSTANCE));
+    assertTrue(JsOperations.looseEquals(Value.StringValue.undefined(), Value.UndefinedValue.INSTANCE));
+    assertFalse(JsOperations.looseEquals(Value.StringValue.undefined(), new Value.StringValue("undefined")));
     assertTrue(JsOperations.looseEquals(new Value.StringValue("1"), new Value.BooleanValue(true)));
     assertTrue(JsOperations.looseEquals(new Value.IntegerValue(1), new Value.BooleanValue(true)));
     assertTrue(JsOperations.looseEquals(new Value.IntegerValue(0), new Value.BooleanValue(false)));

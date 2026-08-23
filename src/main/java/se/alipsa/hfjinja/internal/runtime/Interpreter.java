@@ -1,8 +1,6 @@
 package se.alipsa.hfjinja.internal.runtime;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -163,8 +161,8 @@ public final class Interpreter {
 
     var right = evaluateExpression(expression.right(), env, budget);
     if (operator.equals("==") || operator.equals("!=")) {
-      if (nilLike(left) || nilLike(right)) {
-        boolean bothNil = nilLike(left) && nilLike(right);
+      if (JsOperations.nilLike(left) || JsOperations.nilLike(right)) {
+        boolean bothNil = JsOperations.nilLike(left) && JsOperations.nilLike(right);
         if (!bothNil) throw operatorNullUndefined(operator, expression.location());
         return new Value.BooleanValue(operator.equals("=="));
       }
@@ -213,12 +211,6 @@ public final class Interpreter {
       }
     }
     throw operatorUnsupportedTypes(operator, left, right, expression.location());
-  }
-
-  private static boolean nilLike(Value value) {
-    return value instanceof Value.NullValue
-        || value instanceof Value.UndefinedValue
-        || value instanceof Value.StringValue string && string.undefinedBacked();
   }
 
   private static boolean arrayLike(Value value) {
@@ -564,98 +556,10 @@ public final class Interpreter {
     };
   }
 
-  private static String renderFloat(double v) {
-    if (v % 1 == 0 && Math.abs(v) < 1e21)
-      return new BigDecimal(v).setScale(1, RoundingMode.UNNECESSARY).toPlainString();
-    return JsFormat.plainString(v);
-  }
+  private static String renderFloat(double v) { return JsFormat.floatString(v); }
 
   static String renderJson(Value v, SourceLocation l) {
-    var rendered = renderJsonValue(v, l, new java.util.IdentityHashMap<>());
-    return rendered == null ? "undefined" : rendered;
-  }
-
-  private static String renderJsonValue(
-      Value v, SourceLocation l, java.util.IdentityHashMap<Value, Boolean> visiting) {
-    return switch (v) {
-      case Value.NullValue ignored -> "null";
-      case Value.UndefinedValue ignored -> "undefined";
-      case Value.BooleanValue x -> Boolean.toString(x.value());
-      case Value.IntegerValue x -> JsFormat.jsonString(x.value());
-      case Value.FloatValue x -> JsFormat.jsonString(x.value());
-      case Value.StringValue x -> x.undefinedBacked() ? null : JsFormat.quote(x.value());
-      case Value.ArrayValue x -> jsonArray(x.values(), l, visiting, x);
-      case Value.ObjectValue x -> jsonObject(x.values(), l, visiting, x);
-      case Value.TupleValue ignored ->
-          throw new TemplateRenderException(
-              "Cannot convert to JSON: TupleValue", ErrorCategory.TYPE, l);
-      case Value.KeywordArgumentsValue ignored ->
-          throw new TemplateRenderException(
-              "Cannot convert to JSON: KeywordArgumentsValue", ErrorCategory.TYPE, l);
-      case Value.CallableValue ignored ->
-          throw new TemplateRenderException(
-              "Cannot convert to JSON: FunctionValue", ErrorCategory.TYPE, l);
-    };
-  }
-
-  private static void enterJson(
-      Value value, java.util.IdentityHashMap<Value, Boolean> visiting, SourceLocation location) {
-    if (visiting.put(value, Boolean.TRUE) != null)
-      throw new TemplateRenderException(
-          "Cannot convert cyclic value to JSON", ErrorCategory.TYPE, location);
-  }
-
-  private static String jsonArray(
-      List<Value> values,
-      SourceLocation l,
-      java.util.IdentityHashMap<Value, Boolean> visiting,
-      Value container) {
-    enterJson(container, visiting, l);
-    try {
-      var r = new StringBuilder("[");
-      for (int i = 0; i < values.size(); i++) {
-        if (i > 0) r.append(", ");
-        var rendered = renderJsonValue(values.get(i), l, visiting);
-        if (rendered != null) r.append(rendered);
-      }
-      return r.append(']').toString();
-    } finally {
-      visiting.remove(container);
-    }
-  }
-
-  private static String jsonObject(
-      Map<?, Value> values,
-      SourceLocation l,
-      java.util.IdentityHashMap<Value, Boolean> visiting,
-      Value container) {
-    enterJson(container, visiting, l);
-    try {
-      var r = new StringBuilder("{");
-      boolean first = true;
-      for (var x : values.entrySet()) {
-        if (!first) r.append(", ");
-        first = false;
-        r.append(jsonObjectKey(x.getKey()))
-            .append(": ")
-            .append(jsonObjectValue(x.getValue(), l, visiting));
-      }
-      return r.append('}').toString();
-    } finally {
-      visiting.remove(container);
-    }
-  }
-
-  private static String jsonObjectValue(
-      Value value, SourceLocation location, java.util.IdentityHashMap<Value, Boolean> visiting) {
-    var rendered = renderJsonValue(value, location, visiting);
-    return rendered == null ? "undefined" : rendered;
-  }
-
-  private static String jsonObjectKey(Object key) {
-    return key instanceof Value.StringValue string && string.undefinedBacked()
-        ? "undefined"
-        : JsFormat.quote((String) key);
+    return JsFormat.runtimeJson(v, l);
   }
 
   private static Value range(List<Value> a, boolean k, SourceLocation l, RenderBudget budget) {
