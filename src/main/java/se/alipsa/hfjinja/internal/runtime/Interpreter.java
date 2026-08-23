@@ -1,9 +1,6 @@
 package se.alipsa.hfjinja.internal.runtime;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.math.RoundingMode;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -133,10 +130,8 @@ public final class Interpreter {
           truthy(evaluateExpression(x.test(), env, budget))
               ? evaluateExpression(x.lhs(), env, budget)
               : Value.UndefinedValue.INSTANCE;
-      case Expression.BinaryExpression x ->
-          throw unsupportedExpression("BinaryExpression", x.location());
-      case Expression.UnaryExpression x ->
-          throw unsupportedExpression("UnaryExpression", x.location());
+      case Expression.BinaryExpression x -> binary(x, env, budget);
+      case Expression.UnaryExpression x -> unary(x, env, budget);
       case Expression.FilterExpression x ->
           throw unsupportedExpression("FilterExpression", x.location());
       case Expression.TestExpression x ->
@@ -154,6 +149,108 @@ public final class Interpreter {
   private static TemplateRenderException unsupportedExpression(String n, SourceLocation l) {
     return new TemplateRenderException(
         n + " is not yet supported", ErrorCategory.UNDEFINED_OR_ACCESS, l);
+  }
+
+  private static Value binary(Expression.BinaryExpression expression, Environment env, RenderBudget budget) {
+    var left = evaluateExpression(expression.left(), env, budget);
+    var operator = expression.operator().value();
+    if (operator.equals("and"))
+      return truthy(left) ? evaluateExpression(expression.right(), env, budget) : left;
+    if (operator.equals("or"))
+      return truthy(left) ? left : evaluateExpression(expression.right(), env, budget);
+
+    var right = evaluateExpression(expression.right(), env, budget);
+    if (operator.equals("==") || operator.equals("!=")) {
+      if (JsOperations.nilLike(left) || JsOperations.nilLike(right)) {
+        boolean bothNil = JsOperations.nilLike(left) && JsOperations.nilLike(right);
+        if (!bothNil) throw operatorNullUndefined(operator, expression.location());
+        return new Value.BooleanValue(operator.equals("=="));
+      }
+      boolean equal = JsOperations.looseEquals(left, right);
+      return new Value.BooleanValue(operator.equals("==") ? equal : !equal);
+    }
+    if (left instanceof Value.UndefinedValue || right instanceof Value.UndefinedValue) {
+      if (right instanceof Value.UndefinedValue && (operator.equals("in") || operator.equals("not in")))
+        return new Value.BooleanValue(operator.equals("not in"));
+      throw operatorNullUndefined(operator, expression.location());
+    }
+    if (left instanceof Value.NullValue || right instanceof Value.NullValue)
+      throw operatorNullUndefined(operator, expression.location());
+    if (operator.equals("~"))
+      return new Value.StringValue(
+          JsOperations.payloadText(left, expression.location())
+              + JsOperations.payloadText(right, expression.location()));
+    if (JsOperations.numeric(left) && JsOperations.numeric(right)) {
+      if (operator.equals("+")) return JsOperations.add(left, right, expression.location());
+      if (operator.equals("-") || operator.equals("*") || operator.equals("/") || operator.equals("%"))
+        return JsOperations.arithmetic(operator, left, right);
+      if (operator.equals("<") || operator.equals(">") || operator.equals("<=") || operator.equals(">="))
+        return new Value.BooleanValue(JsOperations.compare(operator, left, right));
+    } else if (arrayLike(left) && arrayLike(right)) {
+      if (operator.equals("+")) return JsOperations.concatenate(arrayValues(left), arrayValues(right));
+    } else if (arrayLike(right)
+        && !(left instanceof Value.ArrayValue || left instanceof Value.TupleValue)) {
+      if (operator.equals("in") || operator.equals("not in")) {
+        boolean present = JsOperations.contains(left, new Value.ArrayValue(arrayValues(right)));
+        return new Value.BooleanValue(operator.equals("in") ? present : !present);
+      }
+    }
+    if (left instanceof Value.StringValue || right instanceof Value.StringValue) {
+      if (operator.equals("+")) return JsOperations.add(left, right, expression.location());
+    }
+    if (left instanceof Value.StringValue string && right instanceof Value.StringValue other) {
+      if (operator.equals("in") || operator.equals("not in")) {
+        boolean present = JsOperations.contains(string, other);
+        return new Value.BooleanValue(operator.equals("in") ? present : !present);
+      }
+    }
+    if (left instanceof Value.StringValue string && right instanceof Value.ObjectValue object) {
+      if (operator.equals("in") || operator.equals("not in")) {
+        boolean present = JsOperations.contains(string, object);
+        return new Value.BooleanValue(operator.equals("in") ? present : !present);
+      }
+    }
+    throw operatorUnsupportedTypes(operator, left, right, expression.location());
+  }
+
+  private static boolean arrayLike(Value value) {
+    return value instanceof Value.ArrayValue || value instanceof Value.TupleValue;
+  }
+
+  private static List<Value> arrayValues(Value value) {
+    return value instanceof Value.ArrayValue array
+        ? array.values()
+        : ((Value.TupleValue) value).values();
+  }
+
+  private static Value unary(Expression.UnaryExpression expression, Environment env, RenderBudget budget) {
+    var argument = evaluateExpression(expression.argument(), env, budget);
+    if (expression.operator().value().equals("not"))
+      return new Value.BooleanValue(!JsOperations.rawTruthy(argument));
+    throw operatorUnsupportedUnary(expression.operator().value(), argument, expression.location());
+  }
+
+  private static TemplateRenderException operatorNullUndefined(String operator, SourceLocation location) {
+    return new TemplateRenderException(
+        "Cannot perform operation " + operator + " on null or undefined values",
+        ErrorCategory.UNDEFINED_OR_ACCESS,
+        location);
+  }
+
+  private static TemplateRenderException operatorUnsupportedTypes(
+      String operator, Value left, Value right, SourceLocation location) {
+    return new TemplateRenderException(
+        "Unknown operator \"" + operator + "\" between " + type(left) + " and " + type(right),
+        ErrorCategory.TYPE,
+        location);
+  }
+
+  private static TemplateRenderException operatorUnsupportedUnary(
+      String operator, Value operand, SourceLocation location) {
+    return new TemplateRenderException(
+        "Unknown unary operator \"" + operator + "\" for " + type(operand),
+        ErrorCategory.TYPE,
+        location);
   }
 
   private static List<Value> values(List<Expression> items, Environment e, RenderBudget b) {
@@ -459,98 +556,10 @@ public final class Interpreter {
     };
   }
 
-  private static String renderFloat(double v) {
-    if (v % 1 == 0 && Math.abs(v) < 1e21)
-      return new BigDecimal(v).setScale(1, RoundingMode.UNNECESSARY).toPlainString();
-    return JsFormat.plainString(v);
-  }
+  private static String renderFloat(double v) { return JsFormat.floatString(v); }
 
   static String renderJson(Value v, SourceLocation l) {
-    var rendered = renderJsonValue(v, l, new java.util.IdentityHashMap<>());
-    return rendered == null ? "undefined" : rendered;
-  }
-
-  private static String renderJsonValue(
-      Value v, SourceLocation l, java.util.IdentityHashMap<Value, Boolean> visiting) {
-    return switch (v) {
-      case Value.NullValue ignored -> "null";
-      case Value.UndefinedValue ignored -> "undefined";
-      case Value.BooleanValue x -> Boolean.toString(x.value());
-      case Value.IntegerValue x -> JsFormat.jsonString(x.value());
-      case Value.FloatValue x -> JsFormat.jsonString(x.value());
-      case Value.StringValue x -> x.undefinedBacked() ? null : JsFormat.quote(x.value());
-      case Value.ArrayValue x -> jsonArray(x.values(), l, visiting, x);
-      case Value.ObjectValue x -> jsonObject(x.values(), l, visiting, x);
-      case Value.TupleValue ignored ->
-          throw new TemplateRenderException(
-              "Cannot convert to JSON: TupleValue", ErrorCategory.TYPE, l);
-      case Value.KeywordArgumentsValue ignored ->
-          throw new TemplateRenderException(
-              "Cannot convert to JSON: KeywordArgumentsValue", ErrorCategory.TYPE, l);
-      case Value.CallableValue ignored ->
-          throw new TemplateRenderException(
-              "Cannot convert to JSON: FunctionValue", ErrorCategory.TYPE, l);
-    };
-  }
-
-  private static void enterJson(
-      Value value, java.util.IdentityHashMap<Value, Boolean> visiting, SourceLocation location) {
-    if (visiting.put(value, Boolean.TRUE) != null)
-      throw new TemplateRenderException(
-          "Cannot convert cyclic value to JSON", ErrorCategory.TYPE, location);
-  }
-
-  private static String jsonArray(
-      List<Value> values,
-      SourceLocation l,
-      java.util.IdentityHashMap<Value, Boolean> visiting,
-      Value container) {
-    enterJson(container, visiting, l);
-    try {
-      var r = new StringBuilder("[");
-      for (int i = 0; i < values.size(); i++) {
-        if (i > 0) r.append(", ");
-        var rendered = renderJsonValue(values.get(i), l, visiting);
-        if (rendered != null) r.append(rendered);
-      }
-      return r.append(']').toString();
-    } finally {
-      visiting.remove(container);
-    }
-  }
-
-  private static String jsonObject(
-      Map<?, Value> values,
-      SourceLocation l,
-      java.util.IdentityHashMap<Value, Boolean> visiting,
-      Value container) {
-    enterJson(container, visiting, l);
-    try {
-      var r = new StringBuilder("{");
-      boolean first = true;
-      for (var x : values.entrySet()) {
-        if (!first) r.append(", ");
-        first = false;
-        r.append(jsonObjectKey(x.getKey()))
-            .append(": ")
-            .append(jsonObjectValue(x.getValue(), l, visiting));
-      }
-      return r.append('}').toString();
-    } finally {
-      visiting.remove(container);
-    }
-  }
-
-  private static String jsonObjectValue(
-      Value value, SourceLocation location, java.util.IdentityHashMap<Value, Boolean> visiting) {
-    var rendered = renderJsonValue(value, location, visiting);
-    return rendered == null ? "undefined" : rendered;
-  }
-
-  private static String jsonObjectKey(Object key) {
-    return key instanceof Value.StringValue string && string.undefinedBacked()
-        ? "undefined"
-        : JsFormat.quote((String) key);
+    return JsFormat.runtimeJson(v, l);
   }
 
   private static Value range(List<Value> a, boolean k, SourceLocation l, RenderBudget budget) {
@@ -565,12 +574,15 @@ public final class Interpreter {
     if (step instanceof Value.IntegerValue integerStep && integerStep.value() == 0
         || step instanceof Value.FloatValue floatStep && floatStep.value() == 0)
       throw new TemplateRenderException("range() step must not be zero", ErrorCategory.VALUE, l);
-    boolean ascending = jsNumber(step) > 0;
+    boolean ascending = JsOperations.toNumber(step) > 0;
     var r = new ArrayList<Value>();
-    while (ascending ? jsNumber(current) < jsNumber(stop) : jsNumber(current) > jsNumber(stop)) {
+    while (
+        ascending
+            ? JsOperations.toNumber(current) < JsOperations.toNumber(stop)
+            : JsOperations.toNumber(current) > JsOperations.toNumber(stop)) {
       budget.chargeRangeElement(l);
       r.add(rangeElement(current));
-      current = jsAdd(current, step);
+      current = JsOperations.add(current, step, l);
     }
     return new Value.ArrayValue(r);
   }
@@ -590,66 +602,6 @@ public final class Interpreter {
             || value instanceof Value.StringValue string && string.undefinedBacked()
         ? Value.UndefinedValue.INSTANCE
         : value;
-  }
-
-  private static Value jsAdd(Value left, Value right) {
-    if (left instanceof Value.StringValue || right instanceof Value.StringValue)
-      return new Value.StringValue(jsText(left) + jsText(right));
-    double sum = jsNumber(left) + jsNumber(right);
-    return Double.isFinite(sum) && sum == Math.rint(sum)
-        ? new Value.IntegerValue(sum)
-        : new Value.FloatValue(sum);
-  }
-
-  private static String jsText(Value value) {
-    return switch (value) {
-      case Value.StringValue x -> x.value();
-      case Value.IntegerValue x -> JsFormat.plainString(x.value());
-      case Value.FloatValue x -> JsFormat.plainString(x.value());
-      case Value.BooleanValue x -> Boolean.toString(x.value());
-      case Value.NullValue ignored -> "null";
-      case Value.UndefinedValue ignored -> "undefined";
-      default -> "[object Object]";
-    };
-  }
-
-  private static double jsNumber(Value v) {
-    if (v instanceof Value.IntegerValue x) return x.value();
-    if (v instanceof Value.FloatValue x) return x.value();
-    if (v instanceof Value.NullValue) return 0;
-    if (v instanceof Value.BooleanValue x) return x.value() ? 1 : 0;
-    if (v instanceof Value.StringValue x) {
-      var s = trimEcmaWhitespace(x.value());
-      if (s.isEmpty()) return 0;
-      if (s.equals("Infinity") || s.equals("+Infinity")) return Double.POSITIVE_INFINITY;
-      if (s.equals("-Infinity")) return Double.NEGATIVE_INFINITY;
-      if (s.matches("0[xX][0-9a-fA-F]+")) return new BigInteger(s.substring(2), 16).doubleValue();
-      if (s.matches("0[oO][0-7]+")) return new BigInteger(s.substring(2), 8).doubleValue();
-      if (s.matches("0[bB][01]+")) return new BigInteger(s.substring(2), 2).doubleValue();
-      if (!s.matches("[+-]?(?:(?:\\d+\\.?\\d*)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?")) return Double.NaN;
-      return Double.parseDouble(s);
-    }
-    return Double.NaN;
-  }
-
-  private static String trimEcmaWhitespace(String value) {
-    int start = 0;
-    int end = value.length();
-    while (start < end && isEcmaWhitespace(value.charAt(start))) start++;
-    while (end > start && isEcmaWhitespace(value.charAt(end - 1))) end--;
-    return value.substring(start, end);
-  }
-
-  private static boolean isEcmaWhitespace(char value) {
-    return Character.getType(value) == Character.SPACE_SEPARATOR
-        || value == '\u0009'
-        || value == '\u000B'
-        || value == '\u000C'
-        || value == '\n'
-        || value == '\r'
-        || value == '\u2028'
-        || value == '\u2029'
-        || value == '\uFEFF';
   }
 
   private static Value raise(List<Value> a, boolean k, SourceLocation l) {

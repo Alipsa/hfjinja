@@ -5,3 +5,6 @@ out/
 /.idea/
 /.remember/
 /hfjinja.iml
+
+# Javadoc site generated in the repository root
+/*.html
