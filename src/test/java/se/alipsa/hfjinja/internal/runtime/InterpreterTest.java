@@ -34,6 +34,7 @@ class InterpreterTest {
     assertEquals("truefalse", Template.parse("{{ none == missing }}{{ none != missing }}").render(Map.of()));
     assertEquals("true", Template.parse("{{ '1' == true }}").render(Map.of()));
     assertEquals("truetruetruetrue", Template.parse("{{ 1 == true }}{{ 0 == false }}{{ true == 1 }}{{ false == 0 }}").render(Map.of()));
+    assertEquals("truetruefalse", Template.parse("{{ true == true }}{{ false == false }}{{ true != true }}").render(Map.of()));
     assertEquals("3|3.0|ab|true|true", Template.parse("{{ 1 + 2 }}|{{ 6.0 / 2 }}|{{ 'a' ~ 'b' }}|{{ 'a' in 'cat' }}|{{ 'a' in {'a': 1} }}").render(Map.of()));
     assertEquals("[1, 2]", Template.parse("{{ [1] + [2] }}").render(Map.of()));
     assertEquals("truetruetrue", Template.parse("{{ 1 < 1.5 }}{{ 1.0 <= 1 }}{{ 1.0 in [1] }}").render(Map.of()));

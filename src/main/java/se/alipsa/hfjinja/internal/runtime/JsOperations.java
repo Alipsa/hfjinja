@@ -90,6 +90,8 @@ final class JsOperations {
     if (left instanceof Value.NullValue || left instanceof Value.UndefinedValue)
       return right instanceof Value.NullValue || right instanceof Value.UndefinedValue;
     if (right instanceof Value.NullValue || right instanceof Value.UndefinedValue) return false;
+    if (left instanceof Value.BooleanValue a && right instanceof Value.BooleanValue b)
+      return a.value() == b.value();
     if (numeric(left) && right instanceof Value.BooleanValue x)
       return number(left) == (x.value() ? 1 : 0);
     if (numeric(right) && left instanceof Value.BooleanValue x)
