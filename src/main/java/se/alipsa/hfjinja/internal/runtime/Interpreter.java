@@ -302,12 +302,7 @@ public final class Interpreter {
   private static Value test(
       Expression.TestExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
-    boolean result =
-        namedTest(
-            expression.test().value(),
-            operand,
-            Value.UndefinedValue.INSTANCE,
-            expression.location());
+    boolean result = namedTest(expression.test().value(), operand, null, expression.location());
     return new Value.BooleanValue(expression.negate() ? !result : result);
   }
 
@@ -412,12 +407,11 @@ public final class Interpreter {
     requireNoArguments(filter, location);
     if (operand instanceof Value.StringValue string) return string;
     if (operand instanceof Value.ArrayValue
+        || operand instanceof Value.TupleValue
         || operand instanceof Value.IntegerValue
         || operand instanceof Value.FloatValue
         || operand instanceof Value.BooleanValue)
       return new Value.StringValue(renderText(operand, location));
-    if (operand instanceof Value.TupleValue tuple)
-      return new Value.StringValue(renderText(new Value.ArrayValue(tuple.values()), location));
     throw filterReceiver("string", operand, location);
   }
 
@@ -446,14 +440,15 @@ public final class Interpreter {
     var attr = requireFilterString(filter, 0, location);
     String testName =
         filter.positional().size() > 1 ? requireFilterString(filter, 1, location).value() : null;
-    Value comparison =
-        filter.positional().size() > 2 ? filter.positional().get(2) : Value.UndefinedValue.INSTANCE;
+    Value comparison = filter.positional().size() > 2 ? filter.positional().get(2) : null;
     var result = new ArrayList<Value>();
     for (var item : values) {
       var attrValue = ((Value.ObjectValue) item).values().get(attr.value());
       boolean matched =
           attrValue != null
-              && (testName == null || namedTest(testName, attrValue, comparison, location));
+              && (testName == null
+                  ? truthy(attrValue)
+                  : namedTest(testName, attrValue, comparison, location));
       if (matched == select) result.add(item);
     }
     return new Value.ArrayValue(result);
@@ -470,7 +465,11 @@ public final class Interpreter {
   private static boolean namedTest(
       String name, Value value, Value comparison, SourceLocation location) {
     return switch (name) {
-      case "equalto", "eq" -> JsOperations.strictEquals(value, comparison);
+      case "equalto", "eq" -> {
+        if (comparison == null)
+          throw filterType("`" + name + "` test requires a comparison value", location);
+        yield JsOperations.strictEquals(value, comparison);
+      }
       case "defined" -> !undefinedLike(value);
       case "undefined" -> undefinedLike(value);
       case "none" -> value instanceof Value.NullValue;

@@ -284,7 +284,11 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ 1 is no_such_test }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, unknownTest.category());
-    assertEquals("false", Template.parse("{{ 1 is equalto }}").render(Map.of()));
+    var deferredEquality =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 1 is equalto }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, deferredEquality.category());
   }
 
   @Test
@@ -352,6 +356,12 @@ class InterpreterTest {
     assertEquals(
         "EMPTY",
         Template.parse("{% for x in [1, 2] if false %}{{ x }}{% else %}EMPTY{% endfor %}")
+            .render(Map.of()));
+    assertEquals(
+        "1|3",
+        Template.parse(
+                "{% set xs = [{'x': ''}, {'x': false}, {'x': []}, {'x': 'a'}] %}"
+                    + "{{ xs|selectattr('x')|length }}|{{ xs|rejectattr('x')|length }}")
             .render(Map.of()));
   }
 
@@ -1155,9 +1165,8 @@ class InterpreterTest {
   @Test
   void supportsMistralListStringAndObjectItems() {
     assertEquals(
-        "[1, 2]|[1, 2]|true",
-        Template.parse("{{ [1, 2]|list }}|{{ (1, 2)|string }}|{{ (1, 2)|list is sequence }}")
-            .render(Map.of()));
+        "[1, 2]|true",
+        Template.parse("{{ [1, 2]|list }}|{{ (1, 2)|list is sequence }}").render(Map.of()));
     assertEquals(
         "a=1,b=2,",
         Template.parse(
@@ -1168,5 +1177,10 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ {'a': 1}|string }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, error.category());
+    var tupleError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ (1, 2)|string }}").render(Map.of()));
+    assertEquals("Cannot convert to JSON: TupleValue", tupleError.getMessage());
   }
 }

@@ -107,7 +107,8 @@ Upstream implements `string` per operand type, and **not for every type**:
 | Operand | Upstream | Reference |
 | --- | --- | --- |
 | `StringValue` | no-op, returns operand | `runtime.ts:1062-1063` |
-| `ArrayValue` (and `TupleValue`, which extends it) | `toJSON(operand, {}, 0, false)` | `runtime.ts:1016-1017`, `:535` |
+| `ArrayValue` | `toJSON(operand, {}, 0, false)` | `runtime.ts:1016-1017` |
+| `TupleValue` | throws `Cannot convert to JSON: TupleValue` (its runtime `type` is distinct) | `runtime.ts:386-388` |
 | `IntegerValue` / `FloatValue` | `operand.toString()` | `runtime.ts:1085-1086` |
 | `BooleanValue` | `"true"` / `"false"` | `runtime.ts:1118-1119` |
 | **`ObjectValue`** | **throws** `Unknown ObjectValue filter: string` | `runtime.ts:1090-1108` |
@@ -138,7 +139,6 @@ private static Value filterToString(Value operand, NamedArguments filter, Source
   requireNoArguments(filter, location);
   if (operand instanceof Value.StringValue string) return string;
   if (operand instanceof Value.ArrayValue
-      || operand instanceof Value.TupleValue
       || operand instanceof Value.IntegerValue
       || operand instanceof Value.FloatValue
       || operand instanceof Value.BooleanValue) {
@@ -488,8 +488,8 @@ narrower unit tests for the new primitives in isolation:
   `[AVAILABLE_TOOLS]` gate.
 - **`equalto` is strict** — `selectattr("n", "equalto", 1)` must *not* match `"1"`, and
   must not match `true`. Locks the `==` vs `===` distinction.
-- **`equalto` with no comparison value** matches only nil-like attributes (upstream passes
-  `undefined`), rather than raising.
+- **`equalto` with no comparison value** raises `TYPE`, matching upstream's missing-second-
+  argument failure; an explicitly evaluated undefined value remains a comparison value.
 - `list` filter identity on `ArrayValue` **and `TupleValue`**, plus its type-error case.
 - `string` filter across `StringValue`/`ArrayValue`/`TupleValue`/`IntegerValue`/
   `FloatValue`/`BooleanValue`, and the `ObjectValue` type-error case.
