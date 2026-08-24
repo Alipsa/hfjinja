@@ -12,6 +12,7 @@ import se.alipsa.hfjinja.internal.Value;
 // in its invoke(...) signature — module-info.java exports only se.alipsa.hfjinja, so this is not a
 // public-API change. The constructor stays package-private: nothing outside internal.runtime can
 // construct one.
+/** Per-render lexical scope of template runtime values. */
 public final class Environment {
   private final Environment parent;
   private final Map<String, Value> variables = new LinkedHashMap<>();

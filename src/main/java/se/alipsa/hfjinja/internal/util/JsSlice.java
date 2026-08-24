@@ -10,6 +10,7 @@ public final class JsSlice {
   /**
    * Slices {@code values} according to the pinned upstream {@code utils.ts::slice} rules.
    *
+   * @param <T> element type
    * @param values input sequence
    * @param start start bound, or null when omitted
    * @param stop exclusive stop bound, or null when omitted
