@@ -17,15 +17,37 @@ hash) for two repository/revision pairs under Apache-2.0:
 - `Qwen/Qwen2.5-32B-Instruct` at `afb2829595f63efa3548e9d6b13aa66e61aa0f38`
 
 Both templates were fetched from the pinned revisions and rendered against the pinned
-Node oracle (`upstream/vendor/dist/index.cjs`, `@huggingface/jinja` 0.5.9) during planning
-to determine real scope and produce verified expected output (see "Verification already
-performed" below). Finding: **Qwen renders correctly today with zero interpreter
-changes** — every construct it uses (`tojson`, `loop.first`/`loop.last`/`loop.index0`,
-plain member/index access, boolean context flags) is already implemented. **Mistral needs
-four new primitives**: the `selectattr`/`rejectattr` filters (and an internal `equalto`/`eq`
-test-function registry they depend on), the `list` and `string` filters, and method-call
-resolution for `tool.items()` on an `ObjectValue`. The user chose to bundle both models
-into this one slice, since Qwen only adds fixture-wiring work, not interpreter risk.
+Node oracle (`upstream/vendor/dist/index.js` — the file `run-node-oracle.mjs` actually
+imports; `dist/index.cjs` also exists but is not what the oracle loads —
+`@huggingface/jinja` 0.5.9) during planning to determine real scope and produce verified
+expected output (see "Verification already performed" below). Finding: **Qwen renders
+correctly today with zero interpreter changes** — every construct it uses (`tojson`,
+`loop.first`/`loop.last`/`loop.index0`, plain member/index access, boolean context flags)
+is already implemented. **Mistral needs four new primitives**: the
+`selectattr`/`rejectattr` filters (and an internal `equalto`/`eq` test-function registry
+they depend on), the `list` and `string` filters, and method-call resolution for
+`tool.items()` on an `ObjectValue`. The user chose to bundle both models into this one
+slice, since Qwen only adds fixture-wiring work, not interpreter risk.
+
+### Mistral constructs that already work (verified, no code needed)
+
+Three further load-bearing constructs in the Mistral template are already implemented.
+They need no changes, but two of them constrain the code below, so they are recorded here
+rather than left implicit:
+
+- `{%- set ns = namespace() %}` — `Environment.java:21` registers `namespace` as a
+  `CallableValue` returning a plain `ObjectValue`.
+- `{%- set ns.index = ns.index + 1 %}` — member-target assignment, `Interpreter.java:980`.
+- `{%- if tools is not none and (message == user_messages[-1]) %}` — **object identity**
+  comparison, and the sole gate on the entire `[AVAILABLE_TOOLS]` block. Upstream compares
+  `left.value == right.value`, i.e. two `Map` references (`runtime.ts:847`); hfjinja's
+  `looseEquals` falls through to `strictValueEquals`, which ends in `left == right`
+  reference identity for objects (`JsOperations.java:144`). These agree **only because
+  both sides hold the same instance**. This imposes a hard invariant on `filterSelectAttr`
+  below: it must append the original `item` reference, never a copy or a rebuilt
+  `ObjectValue`. Note `Value.ObjectValue` also overrides `equals()` structurally, so a
+  refactor that reaches for `.equals()` here would silently make every user message with
+  identical content compare equal and emit `[AVAILABLE_TOOLS]` more than once.
 
 No public API changes are needed: chat-template inputs (`messages`, `tools`, `bos_token`,
 `eos_token`, `add_generation_prompt`) are just ordinary `Map<String,Object>` context
@@ -33,14 +55,28 @@ values passed to the existing `Template.render(context, options)`.
 
 ## New interpreter primitives (Mistral only)
 
-All changes are in `src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java`.
-Cross-checked against `upstream/vendor/src/runtime.ts`.
+Java changes are confined to two files, both cross-checked against
+`upstream/vendor/src/runtime.ts`:
+
+- `src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java` — the four
+  primitives below.
+- `src/main/java/se/alipsa/hfjinja/internal/runtime/JsOperations.java` — one added
+  package-visible `strictEquals` wrapper (see `equalto` below).
+
+Two non-Java files also change: `tools/corpus/error-patterns-0.5.9.json` (required — see
+"Error-pattern table") and `NOTICE`.
 
 ### 1. `list` filter
 
 New `applyFilter` case, identity on `ArrayValue` (upstream `runtime.ts:1000-1001`:
 `case "list": return operand;`), matching the existing `filterReceiver`/`requireNoArguments`
-pattern used by `filterLength` etc.:
+pattern used by `filterLength` etc.
+
+`TupleValue` must be accepted too: upstream declares `class TupleValue extends ArrayValue`
+(`runtime.ts:535`), so the whole `ArrayValue` filter branch — `list` included — applies to
+tuples. hfjinja models `TupleValue` as a sibling record rather than a subtype, so every
+array-shaped filter has to name it explicitly; `filterLength` (`Interpreter.java:358-359`)
+and `filterJoin` (`:396-397`) already do exactly this, and `list` follows them:
 
 ```java
 case "list" -> filterList(operand, filter, location);
@@ -48,19 +84,46 @@ case "list" -> filterList(operand, filter, location);
 private static Value filterList(Value operand, NamedArguments filter, SourceLocation location) {
   requireNoArguments(filter, location);
   if (operand instanceof Value.ArrayValue array) return array;
+  if (operand instanceof Value.TupleValue tuple) return tuple;
   throw filterReceiver("list", operand, location);
 }
 ```
 
+(Upstream's `list` lives only in the `ArrayValue` branch, so `"abc"|list` and
+`{...}|list` throw there as they do here — the Python-Jinja behaviours of splitting a
+string into characters or a dict into keys are not implemented upstream and are not added
+here.)
+
 ### 2. `string` filter
 
-Upstream (`runtime.ts:1016-1017,1062-1063,1085-1086`) is a no-op on `StringValue`, and for
-Array/Object/Integer/Float/Boolean stringifies with `toJSON(operand, {}, 0, false)` — the
-`false` is `convertUndefinedToNull`, which is exactly the 3-arg overload
-`JsFormat.runtimeJson(value, location, false)` hfjinja already has (used internally by
-`renderText`'s `renderJson` helper). Reuse `renderText()`, which already implements this
-exact per-type stringification (`Boolean`→`"true"/"false"`, `Integer`→`plainString`,
-`Float`→`renderFloat`, `Array`/`Object`→`renderJson` = `runtimeJson(v, l, false)`):
+Upstream implements `string` per operand type, and **not for every type**:
+
+| Operand | Upstream | Reference |
+| --- | --- | --- |
+| `StringValue` | no-op, returns operand | `runtime.ts:1062-1063` |
+| `ArrayValue` (and `TupleValue`, which extends it) | `toJSON(operand, {}, 0, false)` | `runtime.ts:1016-1017`, `:535` |
+| `IntegerValue` / `FloatValue` | `operand.toString()` | `runtime.ts:1085-1086` |
+| `BooleanValue` | `"true"` / `"false"` | `runtime.ts:1118-1119` |
+| **`ObjectValue`** | **throws** `Unknown ObjectValue filter: string` | `runtime.ts:1090-1108` |
+| `NullValue` / `UndefinedValue` / `FunctionValue` | throws `Cannot apply filter …` | `runtime.ts:1123` |
+
+**`ObjectValue` must be rejected.** The ObjectValue filter branch handles only `items` and
+`length`, then falls through to `operand.builtins.get(filterName)` — whose keys are
+`get`/`items`/`keys`/`values`/`dictsort` — and throws when that misses. `ObjectValue` does
+define `toString()` as `toJSON(this, {}, 0, false)` (`runtime.ts:492`), but that is the
+`toString` method, not the `string` filter, and nothing routes the filter to it. This is
+load-bearing for Mistral, not academic: `content|string` is reached with
+`content = message.content` whenever a `tool`/`tool_results` message's `content` is a dict
+with no nested `.content` key, so accepting `ObjectValue` would emit JSON where upstream
+raises. `KeywordArgumentsValue` is likewise rejected — upstream's extends `ObjectValue`
+and so throws for the same reason.
+
+For the accepted types, `renderText()` already implements exactly the right
+stringification (`Boolean`→`"true"/"false"`, `Integer`→`plainString`, `Float`→
+`renderFloat` = `JsFormat.floatString`, matching upstream's
+`value % 1 === 0 ? toFixed(1) : toString()` at `runtime.ts:98-100`, `Array`/`Tuple`→
+`renderJson` = `runtimeJson(v, l, false)`, whose `false` is the `convertUndefinedToNull`
+argument upstream passes):
 
 ```java
 case "string" -> filterToString(operand, filter, location);
@@ -69,7 +132,7 @@ private static Value filterToString(Value operand, NamedArguments filter, Source
   requireNoArguments(filter, location);
   if (operand instanceof Value.StringValue string) return string;
   if (operand instanceof Value.ArrayValue
-      || operand instanceof Value.ObjectValue
+      || operand instanceof Value.TupleValue
       || operand instanceof Value.IntegerValue
       || operand instanceof Value.FloatValue
       || operand instanceof Value.BooleanValue) {
@@ -79,9 +142,15 @@ private static Value filterToString(Value operand, NamedArguments filter, Source
 }
 ```
 
-(`Null`/`Undefined`/`Callable` operands are rejected with a TYPE error rather than routed
-into `renderText`, which asserts on those cases — upstream has no `string` case for them
-either.)
+(`Object`/`KeywordArguments`/`Null`/`Undefined`/`Callable` operands all reach the
+`filterReceiver` TYPE error, matching the upstream throws in the table above. The
+`Null`/`Undefined` cases additionally must not be routed into `renderText`, which asserts
+on them.)
+
+Note the `StringValue` no-op returns undefined-backed strings unchanged, where sibling
+filters (`filterString` for `lower`/`upper`/`trim`, `filterJoin`) reject them. That is
+deliberate — upstream's `string` is a bare `return operand` with no undefined check — but
+call it out in the code comment so it does not read as an oversight.
 
 ### 3. `selectattr` / `rejectattr` filters + internal `equalto`/`eq` test dispatch
 
@@ -108,17 +177,26 @@ private static Value filterSelectAttr(
     throw new TemplateRenderException(
         "`" + filter.name() + "` filter requires 1 to 3 arguments", ErrorCategory.ARITY, location);
   if (!(operand instanceof Value.ArrayValue array)) throw filterReceiver(filter.name(), operand, location);
-  var attr = requireFilterString(filter, 0, location);
-  String testName = filter.positional().size() > 1 ? requireFilterString(filter, 1, location).value() : null;
-  Value comparison = filter.positional().size() > 2 ? filter.positional().get(2) : null;
-  var result = new ArrayList<Value>();
-  for (var item : array.values()) {
-    if (!(item instanceof Value.ObjectValue object))
+  // Upstream checks array-of-objects up front, before evaluating any argument
+  // (runtime.ts:1275-1277), so keep this ahead of the argument checks below.
+  for (var item : array.values())
+    if (!(item instanceof Value.ObjectValue))
       throw new TemplateRenderException(
           "`" + filter.name() + "` can only be applied to array of objects", ErrorCategory.TYPE, location);
+  var attr = requireFilterString(filter, 0, location);
+  String testName = filter.positional().size() > 1 ? requireFilterString(filter, 1, location).value() : null;
+  // Upstream destructures [attr, testName, value] from the argument list, so an absent
+  // third argument reaches the test function as JS `undefined` — not as an error.
+  Value comparison =
+      filter.positional().size() > 2 ? filter.positional().get(2) : Value.UndefinedValue.INSTANCE;
+  var result = new ArrayList<Value>();
+  for (var item : array.values()) {
+    var object = (Value.ObjectValue) item;
     var attrValue = object.values().get(attr.value());
     boolean matched = attrValue != null
         && (testName == null ? truthy(attrValue) : invokeNamedTest(testName, attrValue, comparison, location));
+    // Must append `item` itself: see "Mistral constructs that already work" — the template
+    // compares message identity, so a copy here would break `message == user_messages[-1]`.
     if (matched == select) result.add(item);
   }
   return new Value.ArrayValue(result);
@@ -126,16 +204,16 @@ private static Value filterSelectAttr(
 
 private static boolean invokeNamedTest(String name, Value value, Value comparison, SourceLocation location) {
   return switch (name) {
-    case "equalto", "eq" -> {
-      if (comparison == null)
-        throw new TemplateRenderException(
-            "`" + name + "` test requires a comparison value", ErrorCategory.ARITY, location);
-      yield JsOperations.looseEquals(value, comparison);
-    }
+    case "equalto", "eq" -> JsOperations.strictEquals(value, comparison);
     default -> throw filterType("Unknown test: " + name, location);
   };
 }
 ```
+
+`attrValue != null` is the faithful translation of upstream's `a ? testFunction(a, value) : false`
+(`runtime.ts:1298`): `a` is a runtime value *object*, so it is JS-truthy whenever the key
+exists and `undefined` only when it is missing — this is a key-presence check, not a
+truthiness check on the attribute.
 
 (`requireFilterString` is a small new helper mirroring the existing inline checks in
 `filterJoin`/`filterDefault`: `filter.positional().get(i)` must be a non-undefined-backed
@@ -149,9 +227,44 @@ dispatch (see the existing comment atop `applyFilter`), so this slice enforces "
 to a `StringValue`" instead of "is syntactically a string literal." Not observable for the
 Mistral/Qwen templates in this slice, which only ever pass literal strings.
 
-`equalto`/`eq` reuse `JsOperations.looseEquals`, the same helper the `==`/`!=` binary
-operator already uses (aligned with upstream equality semantics per the prior "Align mixed
-nil equality" work) — not a new equality implementation.
+#### `equalto`/`eq` is **strict** equality, not the `==` operator
+
+These are two different upstream operators and must not share an implementation:
+
+- `==` / `!=` → `left.value == right.value`, JS **loose** equality with coercion
+  (`runtime.ts:847-850`). This is what `JsOperations.looseEquals` already models.
+- `equalto` / `eq` → `(a, b) => a.value === b.value`, JS **strict** equality
+  (`runtime.ts:635-636`).
+
+Using `looseEquals` for `equalto` would diverge wherever coercion applies —
+`selectattr("n", "equalto", 1)` against `"1"`, or `true` against `1`, would match here and
+not upstream. Not reachable from the Mistral template (which compares string to string),
+but it would be a latent parity bug committed under a claim of correctness.
+
+The exact rule is "compare the JS payload with `===`". `JsOperations` already has the two
+halves of that; they only need composing and exposing:
+
+```java
+// JsOperations — strictValueEquals is currently private; make this wrapper package-visible.
+static boolean strictEquals(Value left, Value right) {
+  // NullValue, UndefinedValue and undefined-backed StringValue all carry the JS payload
+  // `undefined` upstream (RuntimeValue's constructor defaults `value` to undefined, and
+  // NullValue is always built as `new NullValue()` — runtime.ts:549-558), so `===` holds
+  // across all three.
+  if (nilLike(left) || nilLike(right)) return nilLike(left) && nilLike(right);
+  return strictValueEquals(left, right);
+}
+```
+
+`strictValueEquals` (`JsOperations.java:138-145`) already gives the rest exactly: numeric
+compares payloads so `IntegerValue(1)`/`FloatValue(1.0)` match as upstream does; boolean
+and string compare by value; everything else falls to `left == right` reference identity,
+which matches upstream comparing `Map`/array references, and works for `NullValue` /
+`UndefinedValue` because hfjinja models both as enum singletons. Note this is the same
+reference-identity path the `[AVAILABLE_TOOLS]` gate depends on.
+
+This is deliberately *not* `looseEquals` minus a line: it is `looseEquals` with the
+coercion branches removed, which is precisely the `==` vs `===` distinction above.
 
 ### 4. `tool.items()` method-call resolution on `ObjectValue`
 
@@ -193,15 +306,29 @@ private static Value objectItemsBuiltin(Value.ObjectValue object) {
 ```
 
 This mirrors upstream's `items(): ArrayValue` (`runtime.ts:481-485`): an `ArrayValue` of
-two-element `[key, value]` `ArrayValue` pairs. hfjinja's existing tuple-unpack `bind()`
-(`Interpreter.java:1076-1100`) already destructures `for key, val in ...` against any
-`Value.ArrayValue` element (not just `TupleValue`), so `for key, val in tool.items()`
-destructures correctly with no further change. Real value lookups still take precedence
-over the `items` fallback, matching upstream's `??` precedence.
+two-element `[key, value]` `ArrayValue` pairs. The key-coercion ternary follows the
+existing precedent at `Interpreter.java:1031-1035`, where `for k in obj` already maps the
+`Map<Object, Value>` key domain back to `StringValue` the same way. hfjinja's existing
+tuple-unpack `bind()` (`Interpreter.java:1076-1100`) destructures `for key, val in ...`
+against any `Value.ArrayValue` element (not just `TupleValue`), and the for-loop `if`
+filter binds the tuple names into `filterScope` *before* evaluating the test
+(`Interpreter.java:1046-1050`), so `for key, val in tool.items() if key != "return"`
+works with no further change. Real value lookups still take precedence over the `items`
+fallback, matching upstream's `??` precedence — upstream's object maps hold runtime-value
+instances rather than JS `null`/`undefined`, so `??` there is equivalent to key-absence.
+
+**This changes existing behaviour, in the parity-improving direction.** For any object
+without an `items` key, `obj.items` goes from `UndefinedValue` to a truthy
+`CallableValue`, so `obj.items is defined` flips `false` → `true`. That matches upstream
+(`runtime.ts:1537`), so it is a fix rather than a regression, but it is a live behaviour
+change and needs a test pinning it deliberately rather than being absorbed silently.
 
 Explicitly out of scope for this slice (no template needs them yet, so not adding them
-preempts nothing): the `| items` filter-pipe form, and the other `ObjectValue` builtins
-(`get`, `keys`, `values`, `dictsort`).
+preempts nothing): the `| items` filter-pipe form, the other `ObjectValue` builtins
+(`get`, `keys`, `values`, `dictsort`), and the same fallback on
+`Value.KeywordArgumentsValue` — upstream's `KeywordArgumentsValue extends ObjectValue`
+(`runtime.ts:500-502`) so it inherits the builtins there, whereas hfjinja's is a separate
+record and keeps its current lookup.
 
 ## Corpus and test additions
 
@@ -222,9 +349,37 @@ output — not guessed. Representative cases and their oracle-confirmed output:
 - Qwen, plain conversation with `add_generation_prompt: true`, and Qwen tool-use
   conversation: both confirmed rendering correctly today with **no interpreter changes**.
 
-These exact contexts/outputs are what get embedded in the new corpus records and the
-matching `InterpreterTest` assertions — no re-deriving expected values during
-implementation.
+#### What survived planning, and what must be rebuilt
+
+Planning persisted only the two `tokenizer_config.json` files and the two extracted
+`chat_template` texts. **The context payloads were never written down**, and the rendered
+outputs above exist only as the summaries in this section. So:
+
+- **Template text** — recoverable, via the `curl` commands under "Reproducing the fetch".
+- **Expected outputs** — re-derivable by running the oracle, and in fact `nodeCorpusVerify`
+  re-derives and checks them on every `check` (see "Verification"). Nothing is lost here.
+- **Contexts** — *not* recoverable. They are authored inputs, not fetchable from
+  Hugging Face, and they are what decides whether each fixture exercises the primitive it
+  is named for.
+
+Because the oracle will happily bless whatever contexts the implementation invents, the
+risk is not a wrong expected value — it is a fixture that passes every gate while testing
+nothing. Each Mistral record therefore has an acceptance criterion on the *shape* of its
+context, which must hold regardless of the exact wording chosen:
+
+| Record | The context must contain | Otherwise |
+| --- | --- | --- |
+| tool-use | ≥2 user messages and non-null `tools` | `message == user_messages[-1]` is trivially true and `selectattr`/`list`/identity are untested |
+| tool-use | two user messages with **identical content** | a structural-equality regression in `selectattr` would emit `[AVAILABLE_TOOLS]` twice and no test would catch it |
+| tool-use | a `tools[n].function` dict containing a `"return"` key | the `if key != "return"` loop filter is never exercised |
+| tool-use | that same dict mixing string and non-string values | the `val is string` / `val\|tojson` branch split is never exercised |
+| tool-use | `tool_call.id` and `tool_call_id` exactly 9 characters | the template raises instead of rendering |
+| tool-use | a chosen, explicit type for the `tool_results` `message.content` | decides whether `content\|string` hits the rejected `ObjectValue` path (see the `string` filter above) — pin this deliberately |
+| alternating-role error | two consecutive `user` messages, no `tool_calls` | the `ns.index % 2` check passes and no exception is raised |
+
+Embed the final contexts in the corpus records as literal JSON — once committed they are
+the durable artefact, and this table becomes a review checklist rather than a standing
+requirement.
 
 ### Corpus records (`src/test/resources/corpus/v1.jsonl`)
 
@@ -243,18 +398,60 @@ Five new records total: 3 Mistral (plain, tool-use, alternating-role error) + 2 
 (plain with `add_generation_prompt`, tool-use). `id`s prefixed `model.` to distinguish
 from the existing `self.` records (not schema-enforced, just a readability convention).
 Each record's `template` field holds the exact fetched text; each of the two models needs
-the full ~2.5-4KB template repeated across its records (the schema has no shared/`$ref`
-mechanism), matching how existing multi-record corpus entries already duplicate template
-text per record.
+the full ~2.5-4KB template repeated across its records, because the schema has no
+shared/`$ref` mechanism. Note this is genuinely new for the corpus rather than an existing
+habit — all 19 current records carry distinct templates, none duplicated, and the largest
+is 649 bytes. The duplication is accepted on its own merits (no `$ref`, and the schema
+change to add one is out of scope for this slice), not on precedent.
+
+### Error-pattern table (`tools/corpus/error-patterns-0.5.9.json`) — required
+
+**The alternating-role record fails `check` without this change.** The table currently
+holds five patterns and none maps to `EXPLICIT_RAISE`. `errorClassifier` throws
+`Unmatched upstream error for …` when no pattern matches (`corpus.mjs:105`), which
+`run-node-oracle.mjs` reports as a `FAIL` — so the record breaks the build rather than
+being skipped. `EXPLICIT_RAISE` *is* in the schema's accepted category set
+(`corpus.mjs:4-7`); it simply has no classifier entry yet.
+
+Upstream's `raise_exception` rethrows the template's message verbatim, so the pattern has
+to match Mistral's literal string:
+
+```json
+{
+  "regex": "^After the optional system message, conversation roles must alternate user/assistant/user/assistant/\\.\\.\\.$",
+  "category": "EXPLICIT_RAISE"
+}
+```
+
+This is the first fixture-specific regex in a table that is otherwise version-scoped to
+upstream's own error messages, and it will not be the last — every model template raises
+its own strings. Decide the convention now rather than at implementation time. The cheaper
+alternative, if a per-template regex per fixture is unappealing, is one anchored pattern
+covering the shape of raised messages; but that risks masking genuinely unclassified
+upstream errors, so the narrow literal is the safer default for this slice.
 
 ### `InterpreterTest.java`
 
 Per this project's established (manual, not mechanically linked) pattern, add one
 `@Test` per corpus record with the same template/context/expected-output triple, plus
-narrower unit tests for the new primitives in isolation: `selectattr`/`rejectattr` with
-and without a test name, `equalto` via `selectattr`, `list` filter identity and its
-type-error case, `string` filter across `StringValue`/`ArrayValue`/`IntegerValue`, and
-`tool.items()` iterated with `for key, val in ...`.
+narrower unit tests for the new primitives in isolation:
+
+- `selectattr`/`rejectattr` with and without a test name; `equalto` via `selectattr`.
+- **`selectattr` preserves element identity** — two objects with identical content, then
+  assert `x == selected[-1]` is true for the last only. This is the regression test for the
+  `[AVAILABLE_TOOLS]` gate.
+- **`equalto` is strict** — `selectattr("n", "equalto", 1)` must *not* match `"1"`, and
+  must not match `true`. Locks the `==` vs `===` distinction.
+- **`equalto` with no comparison value** matches only nil-like attributes (upstream passes
+  `undefined`), rather than raising.
+- `list` filter identity on `ArrayValue` **and `TupleValue`**, plus its type-error case.
+- `string` filter across `StringValue`/`ArrayValue`/`TupleValue`/`IntegerValue`/
+  `FloatValue`/`BooleanValue`, **and the `ObjectValue` type-error case** — the last one is
+  the parity assertion, so it must be present, not implied.
+- `tool.items()` iterated with `for key, val in ...`, including the `if key != "return"`
+  filtered form.
+- **`obj.items is defined` is now `true`** for an object with no `items` key — pins the
+  behaviour change noted in section 4.
 
 ## NOTICE and policy bookkeeping
 
@@ -301,24 +498,41 @@ each slice does incrementally.
 
 1. `./gradlew spotlessApply` after each Java change.
 2. `./gradlew test` — all new `InterpreterTest` cases green, no regressions.
-3. `./gradlew nodeCorpusVerify` (or the equivalent Gradle task that runs
-   `tools/corpus/run-node-oracle.mjs`) — confirms schema validity of the 5 new records
-   (hash-only-only checks don't apply here since these are text records) and, for any
-   future hash-only record, oracle parity; for these text records the real parity check is
-   the manually-synchronized `InterpreterTest` assertions per the project's established
-   pattern.
+3. `./gradlew nodeCorpusVerify` — this **is** the automated oracle parity check for the
+   five new records, not merely a schema check. The task is described as "Checks
+   text-bearing corpus cases against the pinned Node oracle" (`build.gradle:107-121`); it
+   runs each text-bearing record through `@huggingface/jinja` 0.5.9 and diffs the result
+   against `expected.text`, or classifies the thrown message against `expected.errorCategory`
+   (`run-node-oracle.mjs:38-70`). Only `templateSha256` records are skipped. It is already
+   a `check` dependency, so these records are covered by CI from the moment they land.
 4. `./gradlew build` full build green.
-5. Manually re-run the two representative Node-oracle renders captured during planning
-   against `Template.render()` in a throwaway Java scratch check (or via the new
-   `InterpreterTest` cases directly) to confirm byte-identical output.
+
+The `InterpreterTest` cases remain the check that *hfjinja* matches the same expected
+values — the division of labour is: `nodeCorpusVerify` pins expected-vs-upstream,
+`InterpreterTest` pins expected-vs-hfjinja, and the shared literal in the corpus record
+joins them. A separate throwaway Java scratch render is redundant with step 2 and is not
+part of this plan.
 
 ## Known gaps this slice leaves open
 
 - `selectattr`/`rejectattr` accept any expression that evaluates to a string where
   upstream requires a literal `StringLiteral` AST node (see above).
+- `selectattr`/`rejectattr` enforce a 1-to-3 argument cap; upstream has no arity check at
+  all — it destructures `[attr, testName, value]`, silently ignoring a 4th argument and
+  failing with a raw JS `TypeError` on zero. The cap follows the house style already
+  documented for `filterJoin` ("per-filter arity caps"), and the resulting `ARITY` error is
+  not classifiable against upstream's message, so it must not appear in a corpus record.
+- `selectattr`/`rejectattr` argument-error *precedence* differs: the array-of-objects check
+  now runs first (matching upstream), but a non-string argument still surfaces hfjinja's
+  `TYPE` error from `requireFilterString` rather than upstream's
+  ``arguments of `selectattr` must be strings``.
 - Only the `equalto`/`eq` named tests are wired into `selectattr`/`rejectattr`; other
   upstream tests (`callable`, `odd`, `even`, `mapping`, `lower`, `upper`, etc.) remain
   unimplemented until a template needs them there.
 - Only `.items()` is added as an `ObjectValue` method-call fallback; `get`/`keys`/`values`/
-  `dictsort` and the `| items` filter-pipe form are not added.
+  `dictsort`, the `| items` filter-pipe form, and the same fallback on
+  `KeywordArgumentsValue` are not added.
+- The `string` filter's `StringValue` branch passes undefined-backed strings through
+  unchanged, where `filterString` and `filterJoin` reject them. This follows upstream's
+  bare `return operand`, but it is an inconsistency within hfjinja's own filter set.
 - AST allowlist exemptions for already-implemented M3 nodes remain untouched (WP5 item 5).
