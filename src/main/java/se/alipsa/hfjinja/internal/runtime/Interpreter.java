@@ -3,6 +3,7 @@ package se.alipsa.hfjinja.internal.runtime;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -245,6 +246,10 @@ public final class Interpreter {
   private static Value filter(
       Expression.FilterExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
+    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
+    // "Known gaps this slice leaves open" — eager filter-argument evaluation): this evaluates and
+    // validates every filter argument, including spreads, before dispatch on filter.name() below,
+    // whereas upstream evaluates arguments only inside the matching dispatch branch.
     var filter = namedArguments(expression.filter(), env, budget, expression.location(), "filter");
     return switch (filter.name()) {
       case "tojson" -> filterToJson(operand, filter, expression.location());
@@ -296,13 +301,21 @@ public final class Interpreter {
   }
 
   private static Value filterToJson(Value operand, NamedArguments filter, SourceLocation location) {
+    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
+    // "Known gaps this slice leaves open" — tojson accepts zero arguments): upstream implements
+    // four real keywords (indent, ensure_ascii, sort_keys, separators) and ignores positionals.
     requireNoArguments(filter, location);
     return new Value.StringValue(JsFormat.runtimeJson(operand, location, true));
   }
 
   private static Value filterDefault(
       Value operand, NamedArguments filter, SourceLocation location) {
+    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
+    // "Known gaps this slice leaves open" — strict unknown-keyword rejection): upstream silently
+    // ignores keywords outside "boolean" instead of throwing.
     requireNoUnknownKeywords(filter, location, "boolean");
+    // Known gap (same doc, "per-filter arity caps"): upstream ignores extra positional arguments
+    // past two instead of throwing.
     if (filter.positional().size() > 2)
       throw new TemplateRenderException(
           "`default` filter accepts at most two arguments", ErrorCategory.ARITY, location);
@@ -343,7 +356,12 @@ public final class Interpreter {
   }
 
   private static Value filterJoin(Value operand, NamedArguments filter, SourceLocation location) {
+    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
+    // "Known gaps this slice leaves open" — strict unknown-keyword rejection): upstream silently
+    // ignores keywords outside "separator" instead of throwing.
     requireNoUnknownKeywords(filter, location, "separator");
+    // Known gap (same doc, "per-filter arity caps"): upstream ignores extra positional arguments
+    // past one instead of throwing.
     if (filter.positional().size() > 1)
       throw new TemplateRenderException(
           "`join` filter accepts at most one argument", ErrorCategory.ARITY, location);
@@ -390,7 +408,12 @@ public final class Interpreter {
 
   private static Value filterNumber(
       Value operand, NamedArguments filter, SourceLocation location, boolean integer) {
+    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
+    // "Known gaps this slice leaves open" — strict unknown-keyword rejection): upstream silently
+    // ignores keywords outside "default" instead of throwing.
     requireNoUnknownKeywords(filter, location, "default");
+    // Known gap (same doc, "per-filter arity caps"): upstream ignores extra positional arguments
+    // past one instead of throwing.
     if (filter.positional().size() > 1)
       throw new TemplateRenderException(
           "`" + filter.name() + "` filter accepts at most one argument",
@@ -451,18 +474,48 @@ public final class Interpreter {
       RenderBudget budget,
       SourceLocation location,
       String kind) {
+    // The bare-identifier fast path targets a parenthesis-less filter like `| join`, distinct
+    // from the CallExpression argument-evaluation loop that evaluateArguments below replaces.
     if (expression instanceof Expression.Identifier id)
       return new NamedArguments(id.value(), List.of(), Map.of());
     if (!(expression instanceof Expression.CallExpression call)
         || !(call.callee() instanceof Expression.Identifier id))
       throw filterType("Unknown " + kind + ": " + expression.getClass().getSimpleName(), location);
+    var evaluated = evaluateArguments(call.args(), env, budget);
+    return new NamedArguments(id.value(), evaluated.positional(), evaluated.keywords());
+  }
+
+  private record EvaluatedArguments(List<Value> positional, Map<String, Value> keywords) {}
+
+  /**
+   * Evaluates a call or filter argument list left-to-right, matching upstream's evaluateArguments:
+   * keyword arguments accumulate separately, array/tuple spreads expand one level into positional
+   * values, and an ordinary positional value after a keyword is rejected — but a spread after a
+   * keyword is not, since upstream's spread branch bypasses that check.
+   */
+  private static EvaluatedArguments evaluateArguments(
+      List<Expression> args, Environment env, RenderBudget budget) {
     var positional = new ArrayList<Value>();
+    // LinkedHashMap preserves source insertion order so error reporting stays deterministic; the
+    // returned map wraps this local unmodifiable rather than copying it via an order-agnostic Map
+    // factory — see this plan's Step 2 source guard in
+    // docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md. keywords never
+    // escapes this method otherwise, so wrapping it directly is safe.
     var keywords = new LinkedHashMap<String, Value>();
     boolean sawKeyword = false;
-    for (var argument : call.args()) {
+    for (var argument : args) {
       if (argument instanceof Expression.KeywordArgumentExpression keyword) {
         sawKeyword = true;
         keywords.put(keyword.key().value(), evaluateExpression(keyword.value(), env, budget));
+      } else if (argument instanceof Expression.SpreadExpression spread) {
+        var value = evaluateExpression(spread.argument(), env, budget);
+        if (value instanceof Value.ArrayValue array) positional.addAll(array.values());
+        else if (value instanceof Value.TupleValue tuple) positional.addAll(tuple.values());
+        else
+          throw new TemplateRenderException(
+              "Cannot unpack non-iterable type: " + type(value),
+              ErrorCategory.TYPE,
+              spread.location());
       } else {
         if (sawKeyword)
           throw new TemplateRenderException(
@@ -472,7 +525,9 @@ public final class Interpreter {
         positional.add(evaluateExpression(argument, env, budget));
       }
     }
-    return new NamedArguments(id.value(), List.copyOf(positional), Map.copyOf(keywords));
+    return new EvaluatedArguments(
+        List.copyOf(positional),
+        keywords.isEmpty() ? Map.of() : Collections.unmodifiableMap(keywords));
   }
 
   private static void requireNoArguments(NamedArguments arguments, SourceLocation location) {
@@ -681,30 +736,17 @@ public final class Interpreter {
   }
 
   private static Value call(Expression.CallExpression n, Environment e, RenderBudget b) {
-    var arguments = new ArrayList<Value>();
-    var keywords = new LinkedHashMap<String, Value>();
-    boolean sawKeyword = false;
-    for (var argument : n.args()) {
-      if (argument instanceof Expression.KeywordArgumentExpression keyword) {
-        sawKeyword = true;
-        keywords.put(keyword.key().value(), evaluateExpression(keyword.value(), e, b));
-      } else {
-        if (sawKeyword)
-          throw new TemplateRenderException(
-              "Positional arguments cannot follow keyword arguments",
-              ErrorCategory.SYNTAX,
-              argument.location());
-        arguments.add(evaluateExpression(argument, e, b));
-      }
-    }
-    if (!keywords.isEmpty()) arguments.add(new Value.KeywordArgumentsValue(keywords));
+    var evaluated = evaluateArguments(n.args(), e, b);
+    var arguments = new ArrayList<>(evaluated.positional());
+    if (!evaluated.keywords().isEmpty())
+      arguments.add(new Value.KeywordArgumentsValue(evaluated.keywords()));
     var callee = evaluateExpression(n.callee(), e, b);
     if (!(callee instanceof Value.CallableValue f))
       throw new TemplateRenderException(
           "Cannot call something that is not a function: got " + type(callee),
           ErrorCategory.TYPE,
           n.location());
-    return f.callable().invoke(arguments, !keywords.isEmpty(), n.location());
+    return f.callable().invoke(arguments, !evaluated.keywords().isEmpty(), n.location());
   }
 
   private static String type(Value v) {
