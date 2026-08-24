@@ -276,7 +276,7 @@ public final class Interpreter {
     // whereas upstream evaluates arguments only inside the matching dispatch branch.
     var filter = namedArguments(filterNode, env, budget, location, "filter");
     return switch (filter.name()) {
-      case "tojson" -> filterToJson(operand, filter, location);
+      case "tojson" -> filterToJson(operand, filter, location, budget);
       case "default" -> {
         if (filterNode instanceof Expression.Identifier)
           throw filterType("`default` filter must be called with parentheses", location);
@@ -306,15 +306,13 @@ public final class Interpreter {
     return new Value.BooleanValue(expression.negate() ? !result : result);
   }
 
-  private static Value filterToJson(Value operand, NamedArguments filter, SourceLocation location) {
+  private static Value filterToJson(
+      Value operand, NamedArguments filter, SourceLocation location, RenderBudget budget) {
     Value indent = filter.keywords().getOrDefault("indent", Value.NullValue.INSTANCE);
     if (!(indent instanceof Value.NullValue || indent instanceof Value.IntegerValue))
       throw new TemplateRenderException(
           "If set, indent must be a number", ErrorCategory.TYPE, location);
-    Integer indentValue = indent instanceof Value.IntegerValue number ? (int) number.value() : null;
-    if (indentValue != null && indentValue < 0)
-      throw new TemplateRenderException(
-          "Invalid count value: " + indentValue, ErrorCategory.VALUE, location);
+    Double indentValue = indent instanceof Value.IntegerValue number ? number.value() : null;
 
     Value ensureAscii =
         filter.keywords().getOrDefault("ensure_ascii", new Value.BooleanValue(false));
@@ -340,7 +338,11 @@ public final class Interpreter {
             location,
             true,
             new JsFormat.JsonOptions(
-                indentValue, ensureAsciiValue.value(), sortKeysValue.value(), separatorValues)));
+                indentValue,
+                ensureAsciiValue.value(),
+                sortKeysValue.value(),
+                separatorValues,
+                budget.maxOutputLength())));
   }
 
   private static List<String> jsonSeparators(List<Value> values, SourceLocation location) {
@@ -525,6 +527,7 @@ public final class Interpreter {
           value instanceof Value.ArrayValue
               || value instanceof Value.TupleValue
               || value instanceof Value.ObjectValue
+              || value instanceof Value.KeywordArgumentsValue
               || value instanceof Value.StringValue string && !string.undefinedBacked();
       default -> throw filterType("Unknown test: " + name, location);
     };

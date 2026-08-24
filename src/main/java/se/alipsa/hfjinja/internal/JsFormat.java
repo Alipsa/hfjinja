@@ -21,13 +21,17 @@ public final class JsFormat {
 
   /** Options accepted by the {@code tojson} filter. */
   public record JsonOptions(
-      Integer indent, boolean ensureAscii, boolean sortKeys, List<String> separators) {
+      Double indent,
+      boolean ensureAscii,
+      boolean sortKeys,
+      List<String> separators,
+      int maxOutputLength) {
     public JsonOptions {
       separators = separators == null ? null : List.copyOf(separators);
     }
 
     public static JsonOptions defaults() {
-      return new JsonOptions(null, false, false, null);
+      return new JsonOptions(null, false, false, null, Integer.MAX_VALUE);
     }
   }
 
@@ -129,7 +133,7 @@ public final class JsFormat {
                 values.get(i), location, visiting, convertUndefinedToNull, options, depth + 1);
         if (item != null) rendered.add(item);
       }
-      return jsonContainer("[", "]", rendered, options, depth, true);
+      return jsonContainer("[", "]", rendered, options, depth, true, location);
     } finally {
       visiting.remove(container);
     }
@@ -148,7 +152,8 @@ public final class JsFormat {
       var entries = new ArrayList<>(values.entrySet());
       if (options.sortKeys()) {
         var collator = Collator.getInstance(Locale.US);
-        entries.sort(Comparator.comparing(entry -> (String) entry.getKey(), collator));
+        entries.sort(
+            Comparator.comparing(entry -> jsonObjectSortKey(entry.getKey(), location), collator));
       }
       var rendered = new ArrayList<String>();
       for (var entry : entries) {
@@ -160,7 +165,7 @@ public final class JsFormat {
                 + keySeparator(options)
                 + (item == null ? "undefined" : item));
       }
-      return jsonContainer("{", "}", rendered, options, depth, false);
+      return jsonContainer("{", "}", rendered, options, depth, false, location);
     } finally {
       visiting.remove(container);
     }
@@ -172,16 +177,23 @@ public final class JsFormat {
         : quote((String) key, ensureAscii);
   }
 
+  private static String jsonObjectSortKey(Object key, SourceLocation location) {
+    if (key instanceof String string) return string;
+    if (key instanceof Value.StringValue string && string.undefinedBacked()) return string.value();
+    throw new TemplateRenderException("Object keys must be strings", ErrorCategory.TYPE, location);
+  }
+
   private static String jsonContainer(
       String open,
       String close,
       List<String> values,
       JsonOptions options,
       int depth,
-      boolean array) {
+      boolean array,
+      SourceLocation location) {
     if (options.indent() == null || options.indent() == 0)
       return open + String.join(itemSeparator(options), values) + close;
-    String indent = " ".repeat(options.indent());
+    String indent = " ".repeat(jsonIndent(options, location));
     String basePadding = "\n" + indent.repeat(depth);
     String childrenPadding = basePadding + indent;
     if (values.isEmpty() && !array) return open + basePadding + close;
@@ -190,6 +202,17 @@ public final class JsFormat {
         + String.join(itemSeparator(options) + childrenPadding, values)
         + basePadding
         + close;
+  }
+
+  private static int jsonIndent(JsonOptions options, SourceLocation location) {
+    double indent = options.indent();
+    if (indent < 0)
+      throw new TemplateRenderException(
+          "Invalid count value: " + plainString(indent), ErrorCategory.VALUE, location);
+    if (indent > options.maxOutputLength())
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ErrorCategory.RESOURCE_LIMIT, location);
+    return (int) indent;
   }
 
   private static String itemSeparator(JsonOptions options) {

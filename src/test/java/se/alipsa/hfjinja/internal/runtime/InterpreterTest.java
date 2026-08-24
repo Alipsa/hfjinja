@@ -778,12 +778,13 @@ class InterpreterTest {
   @Test
   void supportsMappingTestAndTojsonCallOptions() {
     assertEquals(
-        "false|true|true|true|true|true|true|false|true|true|false",
+        "false|true|true|true|true|true|true|false|true|true|false|true",
         Template.parse(
                 "{{ none is mapping }}|{{ {} is mapping }}|{% set empty = namespace() %}{{ empty is mapping }}|"
                     + "{% set populated = namespace(x=1) %}{{ populated is mapping }}|"
                     + "{{ [] is not mapping }}|{{ (1, 2) is not mapping }}|{{ 'x' is not mapping }}|"
-                    + "{{ {} is iterable }}|{{ [] is iterable }}|{{ 'x' is iterable }}|{{ (1, 2) is iterable }}")
+                    + "{{ {} is iterable }}|{{ [] is iterable }}|{{ 'x' is iterable }}|{{ (1, 2) is iterable }}|"
+                    + "{{ populated is sequence }}")
             .render(Map.of()));
     assertEquals(
         "{\"k\\u00e4\": \"v\\u007f\\ud83d\\ude00\"}",
@@ -806,12 +807,25 @@ class InterpreterTest {
         "{\"á\": 1, \"á\": 2}",
         Template.parse("{{ {'\u00e1': 1, 'a\u0301': 2} | tojson(sort_keys=true) }}")
             .render(Map.of()));
+    assertEquals(
+        "{\"a\": 2, undefined: 1}",
+        Template.parse("{{ {'abc'[9]: 1, 'a': 2} | tojson(sort_keys=true) }}").render(Map.of()));
+    assertEquals(
+        "\"x\"|5|null",
+        Template.parse(
+                "{{ 'x' | tojson(indent=-1) }}|{{ 5 | tojson(indent=-1) }}|{{ none | tojson(indent=-1) }}")
+            .render(Map.of()));
     var error =
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ {} | tojson(indent=-1) }}").render(Map.of()));
     assertEquals(ErrorCategory.VALUE, error.category());
     assertEquals("Invalid count value: -1", error.getMessage());
+    var hugeIndent =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1} | tojson(indent=4294967298) }}").render(Map.of()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, hugeIndent.category());
     var typeError =
         assertThrows(
             TemplateRenderException.class,
