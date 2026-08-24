@@ -1002,6 +1002,40 @@ class InterpreterTest {
   }
 
   @Test
+  void macroDepthLimitIsExactlyEnforcedAtTheConfiguredBoundary() {
+    // f(9) nests exactly 10 macro invocations (f(9), f(8), ..., f(0), each still active while
+    // the next is evaluated). This pins the boundary itself: neither `>=` in place of `>` in
+    // RenderBudget.enterMacro, nor an off-by-one in maxMacroDepth's threshold, could pass both
+    // assertions below.
+    var template =
+        Template.parse(
+            "{% macro f(n) %}{% if n <= 0 %}done{% else %}{{ f(n-1) }}{% endif %}{% endmacro %}"
+                + "{{ f(9) }}");
+    assertEquals(
+        "done", template.render(Map.of(), RenderOptions.builder().maxMacroDepth(10).build()));
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> template.render(Map.of(), RenderOptions.builder().maxMacroDepth(9).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+    assertEquals("Maximum macro call depth exceeded", error.getMessage());
+  }
+
+  @Test
+  void defaultMacroDepthLimitAllowsOrdinaryNestedRecursion() {
+    // Pins a floor on RenderOptions.DEFAULT's maxMacroDepth (500) without hardcoding the exact
+    // value: nested macro recursion is an ordinary template pattern, and a regression collapsing
+    // the effective default down to a handful of levels must fail this, even though the existing
+    // f(5000)-scale test above cannot (any limit under 5000 also fails that one).
+    assertEquals(
+        "done",
+        Template.parse(
+                "{% macro f(n) %}{% if n <= 0 %}done{% else %}{{ f(n-1) }}{% endif %}"
+                    + "{% endmacro %}{{ f(99) }}")
+            .render(Map.of()));
+  }
+
+  @Test
   void filterBlockRendersBodyThenAppliesNamedFilter() {
     assertEquals("HI", Template.parse("{% filter upper %}hi{% endfilter %}").render(Map.of()));
     assertEquals(

@@ -105,7 +105,13 @@ public final class RenderOptions {
     return maxLoopIterations;
   }
 
-  /** Returns the maximum rendered output length allowed. */
+  /**
+   * Returns the maximum cumulative rendered character count allowed, not a bound on final output
+   * size: a construct that re-renders already-charged text — for example {@code {% set %}...{%
+   * endset %}}, {@code {% filter %}...{% endfilter %}}, or {@code {% call %}...{% endcall %}} —
+   * charges that text again each time it is re-emitted, so the visible output can be smaller than
+   * this limit by a factor of nesting depth.
+   */
   public int maxOutputLength() {
     return maxOutputLength;
   }
@@ -159,6 +165,14 @@ public final class RenderOptions {
       return this;
     }
 
+    /**
+     * Overrides the maximum cumulative rendered character count allowed before rendering fails with
+     * {@link ErrorCategory#RESOURCE_LIMIT}. See {@link RenderOptions#maxOutputLength()} for why
+     * this is a bound on cumulative charges, not on final output size.
+     *
+     * @param value the new limit; must be positive
+     * @return this builder
+     */
     public Builder maxOutputLength(int value) {
       maxOutputLength = positive(value, "maxOutputLength");
       return this;

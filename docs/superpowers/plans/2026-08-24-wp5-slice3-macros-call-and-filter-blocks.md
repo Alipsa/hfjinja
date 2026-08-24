@@ -150,6 +150,17 @@ part of this slice; flag it as a candidate follow-up instead.
   `range`/`namespace`/macro callees (which never reach `HostFunctions.invoke`) are unaffected. The
   `InterpreterTest` regression named in Step 5 was updated to pin this fixed behavior instead of
   the leak.
+- **`{% filter safe %}...{% endfilter %}` throws `Unknown filter: safe` instead of rendering the
+  body unchanged.** Verified against the oracle: `{% filter safe %}x{% endfilter %}` renders `"x"`
+  upstream (`safe` is a no-op filter there, since hfjinja does no HTML auto-escaping to begin
+  with). This is the exact same pre-existing gap as the "Discovered, out-of-scope divergence" note
+  above — `applyFilter`'s dispatch `switch` in `Interpreter.java` has no `safe` case at all, so
+  `{{ x | safe }}` already threw this before this slice. It is flagged here rather than silently
+  left alone because this slice is what makes it reachable through a second syntax
+  (`{% filter %}` blocks), not because macros/call/filter-block statements caused it. Fixing the
+  shared filter dispatch table is out of scope for this slice for the same reason as the message-
+  format divergence above — do not fix it here; flag it as a candidate follow-up alongside that
+  one.
 
 ## Work plan
 
@@ -268,13 +279,16 @@ part of this slice; flag it as a candidate follow-up instead.
 
    ~~~java
    void enterMacro(SourceLocation location) {
-     if (++macroDepth > options.maxMacroDepth()) fail("Maximum macro call depth exceeded", location);
+     if (macroDepth >= options.maxMacroDepth()) fail("Maximum macro call depth exceeded", location);
+     macroDepth++;
    }
 
    void exitMacro() {
      macroDepth--;
    }
    ~~~
+
+   (This checks before incrementing, not the other way around — see the revision note below.)
 
    Wrap the macro body evaluation from Step 3.4 in `try { budget.enterMacro(location); ... }
    finally { budget.exitMacro(); }` so depth still unwinds correctly when the body throws (an
@@ -284,17 +298,33 @@ part of this slice; flag it as a candidate follow-up instead.
    `Value.CallableValue.Callable` boundary.
 
    Keep `enterMacro(location)` *inside* the `try`, not called before it in the more commonly seen
-   `enter(); try { ... } finally { exit(); }` acquire/release shape — this is deliberate, not an
-   oversight to "clean up" later. `enterMacro` increments `macroDepth` *before* checking it against
-   the limit, so when it throws on the limit-exceeded path, that increment has already happened;
-   with `enterMacro` inside the `try`, the surrounding `finally` still runs and decrements it back
-   down, leaving `macroDepth` correctly balanced even on that path. Moving `enterMacro` outside the
-   `try` would skip that `finally` on exactly the throwing call, leaking one level of depth (moot
-   in practice today, since nothing in `src/main` catches `TemplateRenderException` mid-render, so
-   an uncaught `RenderBudget` is simply discarded with the rest of that render) — but non-obvious
-   enough, and cheap enough to protect against a future change to that assumption, that it is worth
-   a one-line source comment at the call site referencing this paragraph rather than relying on this
-   plan being read again before someone "simplifies" the placement.
+   `enter(); try { ... } finally { exit(); }` acquire/release shape — this remains necessary even
+   with the check-before-increment form above: when the body itself throws some unrelated error
+   (`ARITY`/`TYPE`/etc.) partway through, `macroDepth` *was* successfully incremented on entry and
+   still needs the `finally`'s `exitMacro()` to unwind it. Moving `enterMacro` outside the `try`
+   would skip that `finally` on that path, leaking one level of depth (moot in practice today,
+   since nothing in `src/main` catches `TemplateRenderException` mid-render, so an uncaught
+   `RenderBudget` is simply discarded with the rest of that render) — but non-obvious enough, and
+   cheap enough to protect against a future change to that assumption, that it is worth a one-line
+   source comment at the call site referencing this paragraph rather than relying on this plan
+   being read again before someone "simplifies" the placement.
+
+   **Revision note (post-review):** this slice originally shipped `enterMacro` as
+   increment-then-check (`if (++macroDepth > limit) fail(...)`), which on the throwing path itself
+   left `macroDepth` incremented and relied entirely on the caller's `try`/`finally` placement
+   above to unwind it — a correctness-critical invariant enforced only by a source comment.
+   External review suggested the check-before-increment form shown above instead: on the
+   limit-exceeded path, `macroDepth` is never touched at all, so *that specific* leak becomes
+   structurally impossible rather than comment-enforced (the `try`/`finally` requirement above is
+   still real and still needed, for the unrelated-error-partway-through case). Adopted as shown.
+   The review that raised this also found this slice had shipped with **no test constraining the
+   depth limit from below**: the only pre-existing depth test (`f(5000)` failing) passes unchanged
+   for *any* `maxMacroDepth` under 5000, including a regression collapsing it to `2` — confirmed by
+   mutating `RenderBudget`'s comparison operator and the shipped default and observing the full
+   suite stay green either way. Fixed by adding two `InterpreterTest` cases: one asserting the
+   boundary itself (`maxMacroDepth(10)` accepts a 10-deep chain, `maxMacroDepth(9)` rejects the
+   same chain), and one asserting the shipped default (500) tolerates at least 100 levels of
+   ordinary nested recursion without being configured explicitly.
 
    Add `maxMacroDepth` to `RenderOptions`/`RenderOptions.Builder` alongside the existing
    `maxSteps`/`maxLoopIterations`/`maxOutputLength` (same `positive(...)` validation, same
