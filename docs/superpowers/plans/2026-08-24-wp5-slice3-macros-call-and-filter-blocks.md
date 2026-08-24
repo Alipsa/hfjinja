@@ -318,24 +318,34 @@ part of this slice; flag it as a candidate follow-up instead.
 
    (This checks before incrementing, not the other way around — see the revision note below.)
 
-   Wrap the macro body evaluation from Step 3.4 in `try { budget.enterMacro(location); ... }
-   finally { budget.exitMacro(); }` so depth still unwinds correctly when the body throws (an
-   `ARITY`/`TYPE`/etc. error partway through a deep recursive call must not leave `macroDepth`
-   permanently elevated for the rest of that render). Also call `enterMacro`/`exitMacro` around the
-   `caller()` invocation built in Step 5, since call-block bodies recurse through the same
-   `Value.CallableValue.Callable` boundary.
+   Call `budget.enterMacro(location)` *before* the `try`, then wrap the macro body evaluation from
+   Step 3.4 in `try { ... } finally { budget.exitMacro(); }`:
 
-   Keep `enterMacro(location)` *inside* the `try`, not called before it in the more commonly seen
-   `enter(); try { ... } finally { exit(); }` acquire/release shape — this remains necessary even
-   with the check-before-increment form above: when the body itself throws some unrelated error
-   (`ARITY`/`TYPE`/etc.) partway through, `macroDepth` *was* successfully incremented on entry and
-   still needs the `finally`'s `exitMacro()` to unwind it. Moving `enterMacro` outside the `try`
-   would skip that `finally` on that path, leaking one level of depth (moot in practice today,
-   since nothing in `src/main` catches `TemplateRenderException` mid-render, so an uncaught
-   `RenderBudget` is simply discarded with the rest of that render) — but non-obvious enough, and
-   cheap enough to protect against a future change to that assumption, that it is worth a one-line
-   source comment at the call site referencing this paragraph rather than relying on this plan
-   being read again before someone "simplifies" the placement.
+   ~~~java
+   budget.enterMacro(location);
+   try {
+     // ... argument binding, then evaluateBlock(node.body(), macroScope, budget) ...
+   } finally {
+     budget.exitMacro();
+   }
+   ~~~
+
+   This ordering matters and is easy to get backwards: with the check-before-increment
+   `enterMacro` above, a limit-exceeded call never touches `macroDepth` at all, so calling
+   `enterMacro` *inside* the `try` — the more commonly seen `try { enter(); ... } finally { exit();
+   }` acquire/release shape — would still run that `finally` on the throwing call and decrement a
+   `macroDepth` that was never incremented, corrupting the counter by one on every depth-limit trip
+   (this exact mistake shipped once; see the "follow-up review pass" note below). Keeping
+   `enterMacro` outside the `try` avoids that: an unsuccessful `enterMacro` never enters the `try`,
+   so its `finally` cannot run. The `try`/`finally` is still required, just for a different case
+   than the depth-limit path: when the body throws some *unrelated* error (`ARITY`/`TYPE`/etc.)
+   partway through, `enterMacro` *did* succeed and increment `macroDepth`, and the `finally`'s
+   `exitMacro()` is what unwinds that increment so it does not stay permanently elevated for the
+   rest of that render. Also call `enterMacro`/`exitMacro` this same way — before the `try`, not
+   inside it — around the `caller()` invocation built in Step 5, since call-block bodies recurse
+   through the same `Value.CallableValue.Callable` boundary. Comment the call site referencing this
+   paragraph rather than relying on this plan being read again before someone "simplifies" the
+   placement.
 
    **Revision note (post-review):** this slice originally shipped `enterMacro` as
    increment-then-check (`if (++macroDepth > limit) fail(...)`), which on the throwing path itself
@@ -367,7 +377,10 @@ part of this slice; flag it as a candidate follow-up instead.
    call sites as shipped. Fixed by hoisting `enterMacro(l)` to run *before* the `try` at both call
    sites, restoring the actual structural guarantee: an unsuccessful `enterMacro` never enters the
    `try`, so its `finally` cannot run. Re-verified with the negative-depth instrumentation active:
-   all tests pass.
+   all tests pass. (A later pass found the primary instruction above still told implementers to
+   put `enterMacro` inside the `try` — exactly the mistake this paragraph describes fixing in the
+   code — so it has since been corrected to show the final, correct ordering directly instead of
+   requiring this paragraph to be found and reconciled against it.)
 
    Add `maxMacroDepth` to `RenderOptions`/`RenderOptions.Builder` alongside the existing
    `maxSteps`/`maxLoopIterations`/`maxOutputLength` (same `positive(...)` validation, same
