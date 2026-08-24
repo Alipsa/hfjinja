@@ -110,6 +110,8 @@ class PublicApiTest {
         IllegalArgumentException.class, () -> RenderOptions.builder().maxLoopIterations(-1));
     assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxOutputLength(0));
     assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxOutputLength(-1));
+    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxMacroDepth(0));
+    assertThrows(IllegalArgumentException.class, () -> RenderOptions.builder().maxMacroDepth(-1));
   }
 
   @Test

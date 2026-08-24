@@ -14,3 +14,6 @@
 {"id":"self.loose-nil-equality","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ none == 1 }}|{{ none != 1 }}|{{ missing == 1 }}|{{ missing != 1 }}|{{ none == missing }}","context":{},"expected":{"text":"false|true|false|true|true"}}
 {"id":"self.spread-call-arguments","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ [1,2] | join(*['-']) }}","context":{},"expected":{"text":"1-2"}}
 {"id":"self.spread-invalid-receiver","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ range(*'14') }}","context":{},"expected":{"errorCategory":"TYPE"}}
+{"id":"self.macro-default-arguments","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{% macro greet(name, greeting='Hello') %}{{ greeting }}, {{ name }}!{% endmacro %}{{ greet('World') }}","context":{},"expected":{"text":"Hello, World!"}}
+{"id":"self.call-block-caller","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{% macro wrap() %}<{{ caller() }}>{% endmacro %}{% call wrap() %}inner{% endcall %}","context":{},"expected":{"text":"<inner>"}}
+{"id":"self.filter-block","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{% filter upper %}{{ 'hi' }}{% endfilter %}","context":{},"expected":{"text":"HI"}}

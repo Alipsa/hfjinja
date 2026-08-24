@@ -9,6 +9,7 @@ final class RenderBudget {
   private final RenderOptions options;
   private long steps, iterations, output;
   private long rangeElements;
+  private int macroDepth;
 
   RenderBudget(RenderOptions options) {
     this.options = options;
@@ -31,6 +32,21 @@ final class RenderBudget {
   void chargeRangeElement(SourceLocation location) {
     if (++rangeElements > options.maxLoopIterations())
       fail("Maximum loop iterations exceeded", location);
+  }
+
+  // Unlike the counters above (monotonic totals), macro depth must go up on entry and back down
+  // on exit. Checking before incrementing (rather than incrementing then checking, as the other
+  // charge*() methods do) means the throwing path never touches macroDepth at all, so a caller
+  // that fails to pair this with exitMacro() in a finally cannot leak a level — the invariant is
+  // structural, not caller-enforced. See
+  // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md, Step 4.
+  void enterMacro(SourceLocation location) {
+    if (macroDepth >= options.maxMacroDepth()) fail("Maximum macro call depth exceeded", location);
+    macroDepth++;
+  }
+
+  void exitMacro() {
+    macroDepth--;
   }
 
   private static void fail(String message, SourceLocation location) {

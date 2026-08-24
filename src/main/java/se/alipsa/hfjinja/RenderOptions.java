@@ -32,7 +32,7 @@ public final class RenderOptions {
 
   /** Render options with no clock/zone override and no host functions. */
   public static final RenderOptions DEFAULT =
-      new RenderOptions(null, null, Map.of(), 10_000_000, 1_000_000, 10_000_000);
+      new RenderOptions(null, null, Map.of(), 10_000_000, 1_000_000, 10_000_000, 500);
 
   private final Clock clock;
   private final ZoneId zoneId;
@@ -40,6 +40,7 @@ public final class RenderOptions {
   private final int maxSteps;
   private final int maxLoopIterations;
   private final int maxOutputLength;
+  private final int maxMacroDepth;
 
   private RenderOptions(
       Clock clock,
@@ -47,13 +48,15 @@ public final class RenderOptions {
       Map<String, HostFunction> hostFunctions,
       int maxSteps,
       int maxLoopIterations,
-      int maxOutputLength) {
+      int maxOutputLength,
+      int maxMacroDepth) {
     this.clock = clock;
     this.zoneId = zoneId;
     this.hostFunctions = Collections.unmodifiableMap(new LinkedHashMap<>(hostFunctions));
     this.maxSteps = maxSteps;
     this.maxLoopIterations = maxLoopIterations;
     this.maxOutputLength = maxOutputLength;
+    this.maxMacroDepth = maxMacroDepth;
   }
 
   /**
@@ -102,9 +105,30 @@ public final class RenderOptions {
     return maxLoopIterations;
   }
 
-  /** Returns the maximum rendered output length allowed. */
+  /**
+   * Returns the maximum cumulative rendered character count allowed, not a bound on final output
+   * size: a construct that re-renders already-charged text — for example {@code {% set %}...{%
+   * endset %}}, {@code {% filter %}...{% endfilter %}}, or {@code {% call %}...{% endcall %}} —
+   * charges that text again each time it is re-emitted, so the visible output can be smaller than
+   * this limit by a factor of nesting depth.
+   */
   public int maxOutputLength() {
     return maxOutputLength;
+  }
+
+  /**
+   * Returns the maximum macro/call-block invocation depth allowed. This bounds invocation count,
+   * not total interpreter recursion depth: a macro body that itself nests control-flow constructs
+   * (nested loops, conditionals, or call blocks) consumes multiple interpreter stack frames per
+   * invocation, so this limit does not by itself guarantee the native JVM stack cannot be exhausted
+   * first for a sufficiently deep-nested body. Rendering still fails with {@link
+   * ErrorCategory#RESOURCE_LIMIT} rather than an escaped {@link StackOverflowError} in that case —
+   * the interpreter catches it at the top of {@code render()} as a backstop — but that backstop
+   * does not bound how much work is done before failing the way this limit does for straight
+   * recursion.
+   */
+  public int maxMacroDepth() {
+    return maxMacroDepth;
   }
 
   /** Builder for {@link RenderOptions}. */
@@ -115,6 +139,7 @@ public final class RenderOptions {
     private int maxSteps = 10_000_000;
     private int maxLoopIterations = 1_000_000;
     private int maxOutputLength = 10_000_000;
+    private int maxMacroDepth = 500;
 
     private Builder() {}
 
@@ -150,8 +175,28 @@ public final class RenderOptions {
       return this;
     }
 
+    /**
+     * Overrides the maximum cumulative rendered character count allowed before rendering fails with
+     * {@link ErrorCategory#RESOURCE_LIMIT}. See {@link RenderOptions#maxOutputLength()} for why
+     * this is a bound on cumulative charges, not on final output size.
+     *
+     * @param value the new limit; must be positive
+     * @return this builder
+     */
     public Builder maxOutputLength(int value) {
       maxOutputLength = positive(value, "maxOutputLength");
+      return this;
+    }
+
+    /**
+     * Overrides the maximum macro/call-block invocation depth allowed before rendering fails with
+     * {@link ErrorCategory#RESOURCE_LIMIT}.
+     *
+     * @param value the new limit; must be positive
+     * @return this builder
+     */
+    public Builder maxMacroDepth(int value) {
+      maxMacroDepth = positive(value, "maxMacroDepth");
       return this;
     }
 
@@ -188,7 +233,7 @@ public final class RenderOptions {
         }
       }
       return new RenderOptions(
-          clock, zoneId, functions, maxSteps, maxLoopIterations, maxOutputLength);
+          clock, zoneId, functions, maxSteps, maxLoopIterations, maxOutputLength, maxMacroDepth);
     }
   }
 

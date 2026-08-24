@@ -8,7 +8,11 @@ import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.internal.Value;
 
-final class Environment {
+// Public so Value.CallableValue.Callable (package se.alipsa.hfjinja.internal) can name this type
+// in its invoke(...) signature — module-info.java exports only se.alipsa.hfjinja, so this is not a
+// public-API change. The constructor stays package-private: nothing outside internal.runtime can
+// construct one.
+public final class Environment {
   private final Environment parent;
   private final Map<String, Value> variables = new LinkedHashMap<>();
 
@@ -35,7 +39,8 @@ final class Environment {
     return Value.UndefinedValue.INSTANCE;
   }
 
-  private Value namespace(List<Value> args, boolean keywords, SourceLocation location) {
+  private Value namespace(
+      List<Value> args, boolean keywords, SourceLocation location, Environment environment) {
     if (args.size() > 1
         || (!args.isEmpty()
             && !(args.get(0) instanceof Value.ObjectValue)
