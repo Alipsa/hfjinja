@@ -811,6 +811,13 @@ class InterpreterTest {
         "{\"a\": 2, undefined: 1}",
         Template.parse("{{ {'abc'[9]: 1, 'a': 2} | tojson(sort_keys=true) }}").render(Map.of()));
     assertEquals(
+        "[, 1]|[1,2]|{\"a\"undefined1}",
+        Template.parse(
+                "{{ ['abc'[9], 1] | tojson }}|"
+                    + "{{ [1, 2] | tojson(separators=('abc'[9], ':')) }}|"
+                    + "{{ {'a': 1} | tojson(separators=(',', 'abc'[9])) }}")
+            .render(Map.of()));
+    assertEquals(
         "\"x\"|5|null",
         Template.parse(
                 "{{ 'x' | tojson(indent=-1) }}|{{ 5 | tojson(indent=-1) }}|{{ none | tojson(indent=-1) }}")
@@ -833,6 +840,13 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ {'a': 1} | tojson(indent=4294967298) }}").render(Map.of()));
     assertEquals(ErrorCategory.RESOURCE_LIMIT, hugeIndent.category());
+    var nestedIndent =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ {'a': {'b': 1}} | tojson(indent=10) }}")
+                    .render(Map.of(), RenderOptions.builder().maxOutputLength(20).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, nestedIndent.category());
     var typeError =
         assertThrows(
             TemplateRenderException.class,

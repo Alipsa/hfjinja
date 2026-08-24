@@ -24,16 +24,17 @@ public final class JsFormat {
       Double indent,
       boolean ensureAscii,
       boolean sortKeys,
-      List<String> separators,
+      JsonSeparators separators,
       int maxOutputLength) {
-    public JsonOptions {
-      separators = separators == null ? null : List.copyOf(separators);
-    }
-
     public static JsonOptions defaults() {
       return new JsonOptions(null, false, false, null, Integer.MAX_VALUE);
     }
   }
+
+  /**
+   * Custom item and key separators for {@code tojson}; either value may be JavaScript undefined.
+   */
+  public record JsonSeparators(String item, String key) {}
 
   /**
    * Formats a number for JSON.
@@ -131,7 +132,8 @@ public final class JsFormat {
         var item =
             runtimeJsonValue(
                 values.get(i), location, visiting, convertUndefinedToNull, options, depth + 1);
-        if (item != null) rendered.add(item);
+        // Array.join preserves an undefined element as an empty slot, rather than removing it.
+        rendered.add(item == null ? "" : item);
       }
       return jsonContainer("[", "]", rendered, options, depth, true, location);
     } finally {
@@ -196,15 +198,43 @@ public final class JsFormat {
       SourceLocation location) {
     if (!hasPrettyIndent(options))
       return open + String.join(itemSeparator(options), values) + close;
-    String indent = " ".repeat(jsonIndent(options, location));
+    int indentWidth = jsonIndent(options, location);
+    String itemSeparator = itemSeparator(options);
+    long basePaddingLength = 1L + (long) indentWidth * depth;
+    long childrenPaddingLength = basePaddingLength + indentWidth;
+    long renderedLength = 2L + childrenPaddingLength + basePaddingLength;
+    if (values.isEmpty() && !array) renderedLength = 2L + basePaddingLength;
+    else {
+      for (var value : values)
+        renderedLength = checkedAdd(renderedLength, value.length(), location);
+      renderedLength =
+          checkedAdd(
+              renderedLength,
+              (long) Math.max(0, values.size() - 1)
+                  * (itemSeparator.length() + childrenPaddingLength),
+              location);
+    }
+    if (renderedLength > options.maxOutputLength())
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ErrorCategory.RESOURCE_LIMIT, location);
+    String indent = " ".repeat(indentWidth);
     String basePadding = "\n" + indent.repeat(depth);
     String childrenPadding = basePadding + indent;
     if (values.isEmpty() && !array) return open + basePadding + close;
     return open
         + childrenPadding
-        + String.join(itemSeparator(options) + childrenPadding, values)
+        + String.join(itemSeparator + childrenPadding, values)
         + basePadding
         + close;
+  }
+
+  private static long checkedAdd(long left, long right, SourceLocation location) {
+    try {
+      return Math.addExact(left, right);
+    } catch (ArithmeticException ex) {
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ex, ErrorCategory.RESOURCE_LIMIT, location);
+    }
   }
 
   private static int jsonIndent(JsonOptions options, SourceLocation location) {
@@ -223,12 +253,16 @@ public final class JsFormat {
   }
 
   private static String itemSeparator(JsonOptions options) {
-    if (options.separators() != null) return options.separators().get(0);
+    if (options.separators() != null) {
+      if (options.separators().item() == null) return hasPrettyIndent(options) ? "undefined" : ",";
+      return options.separators().item();
+    }
     return hasPrettyIndent(options) ? "," : ", ";
   }
 
   private static String keySeparator(JsonOptions options) {
-    return options.separators() == null ? ": " : options.separators().get(1);
+    if (options.separators() == null) return ": ";
+    return options.separators().key() == null ? "undefined" : options.separators().key();
   }
 
   private static void enterJson(

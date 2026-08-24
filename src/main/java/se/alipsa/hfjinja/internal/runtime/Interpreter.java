@@ -324,7 +324,7 @@ public final class Interpreter {
       throw new TemplateRenderException(
           "If set, sort_keys must be a boolean", ErrorCategory.TYPE, location);
     Value separators = filter.keywords().getOrDefault("separators", Value.NullValue.INSTANCE);
-    List<String> separatorValues = null;
+    JsFormat.JsonSeparators separatorValues = null;
     if (separators instanceof Value.ArrayValue array)
       separatorValues = jsonSeparators(array.values(), location);
     else if (separators instanceof Value.TupleValue tuple)
@@ -342,18 +342,19 @@ public final class Interpreter {
                 ensureAsciiValue.value(),
                 sortKeysValue.value(),
                 separatorValues,
-                budget.maxOutputLength())));
+                budget.remainingOutputLength())));
   }
 
-  private static List<String> jsonSeparators(List<Value> values, SourceLocation location) {
+  private static JsFormat.JsonSeparators jsonSeparators(
+      List<Value> values, SourceLocation location) {
     if (values.size() != 2
         || !(values.get(0) instanceof Value.StringValue first)
-        || first.undefinedBacked()
-        || !(values.get(1) instanceof Value.StringValue second)
-        || second.undefinedBacked())
+        || !(values.get(1) instanceof Value.StringValue second))
       throw new TemplateRenderException(
           "separators must be a tuple of two strings", ErrorCategory.TYPE, location);
-    return List.of(first.value(), second.value());
+    return new JsFormat.JsonSeparators(
+        first.undefinedBacked() ? null : first.value(),
+        second.undefinedBacked() ? null : second.value());
   }
 
   private static Value filterDefault(

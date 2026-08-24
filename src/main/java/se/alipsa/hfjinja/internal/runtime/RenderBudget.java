@@ -34,8 +34,8 @@ final class RenderBudget {
       fail("Maximum loop iterations exceeded", location);
   }
 
-  int maxOutputLength() {
-    return options.maxOutputLength();
+  int remainingOutputLength() {
+    return (int) Math.max(0, options.maxOutputLength() - output);
   }
 
   // Unlike the counters above (monotonic totals), macro depth must go up on entry and back down
