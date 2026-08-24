@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -1208,6 +1209,53 @@ class InterpreterTest {
                     java.util.List.of(
                         Map.of("role", "user", "content", "Hello!"),
                         Map.of("role", "assistant", "content", "Hi!")))));
+    var function =
+        orderedMap(
+            "name",
+            "get_weather",
+            "description",
+            "Get weather",
+            "parameters",
+            orderedMap(
+                "type",
+                "object",
+                "properties",
+                orderedMap("city", orderedMap("type", "string")),
+                "required",
+                java.util.List.of("city")),
+            "return",
+            orderedMap("type", "string"));
+    assertEquals(
+        "<s>[INST] What is the weather?[/INST][TOOL_CALLS] [{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Paris\"}, \"id\": \"abcdefghi\"}]</s>[TOOL_RESULTS] {\"content\": sunny, \"call_id\": \"abcdefghi\"}[/TOOL_RESULTS] It is sunny.</s>[AVAILABLE_TOOLS] [{\"type\": \"function\", \"function\": {\"name\": \"get_weather\", \"description\": \"Get weather\", \"parameters\": {\"type\": \"object\", \"properties\": {\"city\": {\"type\": \"string\"}}, \"required\": [\"city\"]}}}][/AVAILABLE_TOOLS][INST] What is the weather?[/INST]",
+        Template.parse(mistral)
+            .render(
+                Map.of(
+                    "bos_token",
+                    "<s>",
+                    "eos_token",
+                    "</s>",
+                    "tools",
+                    java.util.List.of(orderedMap("type", "function", "function", function)),
+                    "messages",
+                    java.util.List.of(
+                        orderedMap("role", "user", "content", "What is the weather?"),
+                        orderedMap(
+                            "role",
+                            "assistant",
+                            "tool_calls",
+                            java.util.List.of(
+                                orderedMap(
+                                    "id",
+                                    "abcdefghi",
+                                    "function",
+                                    orderedMap(
+                                        "name",
+                                        "get_weather",
+                                        "arguments",
+                                        orderedMap("city", "Paris"))))),
+                        orderedMap("role", "tool", "content", "sunny", "tool_call_id", "abcdefghi"),
+                        orderedMap("role", "assistant", "content", "It is sunny."),
+                        orderedMap("role", "user", "content", "What is the weather?")))));
     var qwen =
         new String(
             getClass()
@@ -1223,5 +1271,11 @@ class InterpreterTest {
                     true,
                     "messages",
                     java.util.List.of(Map.of("role", "user", "content", "Hello!")))));
+  }
+
+  private static Map<String, Object> orderedMap(Object... entries) {
+    var result = new LinkedHashMap<String, Object>();
+    for (int i = 0; i < entries.length; i += 2) result.put((String) entries[i], entries[i + 1]);
+    return result;
   }
 }
