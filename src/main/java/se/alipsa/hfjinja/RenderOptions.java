@@ -32,7 +32,7 @@ public final class RenderOptions {
 
   /** Render options with no clock/zone override and no host functions. */
   public static final RenderOptions DEFAULT =
-      new RenderOptions(null, null, Map.of(), 10_000_000, 1_000_000, 10_000_000);
+      new RenderOptions(null, null, Map.of(), 10_000_000, 1_000_000, 10_000_000, 500);
 
   private final Clock clock;
   private final ZoneId zoneId;
@@ -40,6 +40,7 @@ public final class RenderOptions {
   private final int maxSteps;
   private final int maxLoopIterations;
   private final int maxOutputLength;
+  private final int maxMacroDepth;
 
   private RenderOptions(
       Clock clock,
@@ -47,13 +48,15 @@ public final class RenderOptions {
       Map<String, HostFunction> hostFunctions,
       int maxSteps,
       int maxLoopIterations,
-      int maxOutputLength) {
+      int maxOutputLength,
+      int maxMacroDepth) {
     this.clock = clock;
     this.zoneId = zoneId;
     this.hostFunctions = Collections.unmodifiableMap(new LinkedHashMap<>(hostFunctions));
     this.maxSteps = maxSteps;
     this.maxLoopIterations = maxLoopIterations;
     this.maxOutputLength = maxOutputLength;
+    this.maxMacroDepth = maxMacroDepth;
   }
 
   /**
@@ -107,6 +110,11 @@ public final class RenderOptions {
     return maxOutputLength;
   }
 
+  /** Returns the maximum macro/call-block invocation depth allowed. */
+  public int maxMacroDepth() {
+    return maxMacroDepth;
+  }
+
   /** Builder for {@link RenderOptions}. */
   public static final class Builder {
     private Clock clock;
@@ -115,6 +123,7 @@ public final class RenderOptions {
     private int maxSteps = 10_000_000;
     private int maxLoopIterations = 1_000_000;
     private int maxOutputLength = 10_000_000;
+    private int maxMacroDepth = 500;
 
     private Builder() {}
 
@@ -156,6 +165,18 @@ public final class RenderOptions {
     }
 
     /**
+     * Overrides the maximum macro/call-block invocation depth allowed before rendering fails with
+     * {@link ErrorCategory#RESOURCE_LIMIT}.
+     *
+     * @param value the new limit; must be positive
+     * @return this builder
+     */
+    public Builder maxMacroDepth(int value) {
+      maxMacroDepth = positive(value, "maxMacroDepth");
+      return this;
+    }
+
+    /**
      * Registers a function under a template-visible name.
      *
      * @param name the template-visible name; must be a valid template identifier
@@ -188,7 +209,7 @@ public final class RenderOptions {
         }
       }
       return new RenderOptions(
-          clock, zoneId, functions, maxSteps, maxLoopIterations, maxOutputLength);
+          clock, zoneId, functions, maxSteps, maxLoopIterations, maxOutputLength, maxMacroDepth);
     }
   }
 

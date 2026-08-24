@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import se.alipsa.hfjinja.SourceLocation;
+import se.alipsa.hfjinja.internal.runtime.Environment;
 
 /**
  * Internal, closed template value model. This public type is intentionally in an internal package:
@@ -107,7 +108,14 @@ public sealed interface Value
 
     @FunctionalInterface
     public interface Callable {
-      Value invoke(List<Value> arguments, boolean hasKeywordArguments, SourceLocation location);
+      // environment is the call-site environment (upstream: FunctionValue's second `scope`
+      // argument), not the environment where the callee was defined. Builtins ignore it; macros
+      // and `caller()` use it as the parent of their own new scope.
+      Value invoke(
+          List<Value> arguments,
+          boolean hasKeywordArguments,
+          SourceLocation location,
+          Environment environment);
     }
   }
 }

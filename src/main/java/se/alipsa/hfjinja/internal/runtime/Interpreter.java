@@ -67,14 +67,14 @@ public final class Interpreter {
     env.set("False", new Value.BooleanValue(false));
     env.set("True", new Value.BooleanValue(true));
     env.set("None", Value.NullValue.INSTANCE);
-    env.set("range", new Value.CallableValue((a, k, x) -> range(a, k, x, budget)));
-    env.set("raise_exception", new Value.CallableValue(Interpreter::raise));
-    env.set("strftime_now", new Value.CallableValue((a, k, x) -> strftime(a, k, x, o)));
+    env.set("range", new Value.CallableValue((a, k, x, s) -> range(a, k, x, budget)));
+    env.set("raise_exception", new Value.CallableValue((a, k, x, s) -> raise(a, k, x)));
+    env.set("strftime_now", new Value.CallableValue((a, k, x, s) -> strftime(a, k, x, o)));
     for (var e : o.hostFunctions().entrySet())
       env.set(
           e.getKey(),
           new Value.CallableValue(
-              (a, k, x) -> HostFunctions.invoke(e.getKey(), e.getValue(), a, k, x)));
+              (a, k, x, s) -> HostFunctions.invoke(e.getKey(), e.getValue(), a, k, x)));
   }
 
   static ExecResult evaluateBlock(List<Statement> body, Environment env, RenderBudget budget) {
@@ -97,9 +97,9 @@ public final class Interpreter {
       case Statement.Continue ignored -> ExecResult.Continue.INSTANCE;
       case Statement.SetStatement s -> evaluateSet(s, env, budget);
       case Statement.Comment ignored -> new ExecResult.Normal("");
-      case Statement.Macro m -> unsupported("Macro", m.location());
-      case Statement.FilterStatement f -> unsupported("FilterStatement", f.location());
-      case Statement.CallStatement c -> unsupported("CallStatement", c.location());
+      case Statement.Macro m -> evaluateMacro(m, env, budget);
+      case Statement.FilterStatement f -> evaluateFilterStatement(f, env, budget);
+      case Statement.CallStatement c -> evaluateCallStatement(c, env, budget);
       case Expression e -> {
         var v = evaluateExpression(e, env, budget);
         String t =
@@ -110,11 +110,6 @@ public final class Interpreter {
         yield new ExecResult.Normal(t);
       }
     };
-  }
-
-  private static ExecResult unsupported(String name, SourceLocation l) {
-    throw new TemplateRenderException(
-        name + " is not yet supported", ErrorCategory.UNDEFINED_OR_ACCESS, l);
   }
 
   static Value evaluateExpression(Expression n, Environment env, RenderBudget budget) {
@@ -246,32 +241,37 @@ public final class Interpreter {
   private static Value filter(
       Expression.FilterExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
+    return applyFilter(operand, expression.filter(), env, budget, expression.location());
+  }
+
+  private static Value applyFilter(
+      Value operand,
+      Expression filterNode,
+      Environment env,
+      RenderBudget budget,
+      SourceLocation location) {
     // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
     // "Known gaps this slice leaves open" — eager filter-argument evaluation): this evaluates and
     // validates every filter argument, including spreads, before dispatch on filter.name() below,
     // whereas upstream evaluates arguments only inside the matching dispatch branch.
-    var filter = namedArguments(expression.filter(), env, budget, expression.location(), "filter");
+    var filter = namedArguments(filterNode, env, budget, location, "filter");
     return switch (filter.name()) {
-      case "tojson" -> filterToJson(operand, filter, expression.location());
+      case "tojson" -> filterToJson(operand, filter, location);
       case "default" -> {
-        if (expression.filter() instanceof Expression.Identifier)
-          throw filterType(
-              "`default` filter must be called with parentheses", expression.location());
-        yield filterDefault(operand, filter, expression.location());
+        if (filterNode instanceof Expression.Identifier)
+          throw filterType("`default` filter must be called with parentheses", location);
+        yield filterDefault(operand, filter, location);
       }
-      case "length" -> filterLength(operand, filter, expression.location());
+      case "length" -> filterLength(operand, filter, location);
       case "lower" ->
-          filterString(
-              operand, filter, expression.location(), value -> value.toLowerCase(Locale.ROOT));
+          filterString(operand, filter, location, value -> value.toLowerCase(Locale.ROOT));
       case "upper" ->
-          filterString(
-              operand, filter, expression.location(), value -> value.toUpperCase(Locale.ROOT));
-      case "trim" ->
-          filterString(operand, filter, expression.location(), JsOperations::trimEcmaWhitespace);
-      case "join" -> filterJoin(operand, filter, expression.location());
-      case "int" -> filterNumber(operand, filter, expression.location(), true);
-      case "float" -> filterNumber(operand, filter, expression.location(), false);
-      default -> throw filterType("Unknown filter: " + filter.name(), expression.location());
+          filterString(operand, filter, location, value -> value.toUpperCase(Locale.ROOT));
+      case "trim" -> filterString(operand, filter, location, JsOperations::trimEcmaWhitespace);
+      case "join" -> filterJoin(operand, filter, location);
+      case "int" -> filterNumber(operand, filter, location, true);
+      case "float" -> filterNumber(operand, filter, location, false);
+      default -> throw filterType("Unknown filter: " + filter.name(), location);
     };
   }
 
@@ -746,11 +746,159 @@ public final class Interpreter {
           "Cannot call something that is not a function: got " + type(callee),
           ErrorCategory.TYPE,
           n.location());
-    return f.callable().invoke(arguments, !evaluated.keywords().isEmpty(), n.location());
+    return f.callable().invoke(arguments, !evaluated.keywords().isEmpty(), n.location(), e);
   }
 
   private static String type(Value v) {
     return v instanceof Value.CallableValue ? "FunctionValue" : v.getClass().getSimpleName();
+  }
+
+  private static ExecResult evaluateMacro(Statement.Macro n, Environment e, RenderBudget b) {
+    e.setVariable(
+        n.name().value(),
+        new Value.CallableValue(
+            (arguments, hasKeywords, l, scope) -> {
+              // scope is the call-site environment (Step 2), not the macro's own defining
+              // environment `e`
+              // captured in this closure — this is what makes upstream's late-binding default
+              // arguments
+              // and call-block scope visibility work.
+              var macroScope = new Environment(scope);
+              var positional = new ArrayList<>(arguments);
+              Value.KeywordArgumentsValue kwargs = null;
+              if (!positional.isEmpty()
+                  && positional.get(positional.size() - 1)
+                      instanceof Value.KeywordArgumentsValue k) {
+                kwargs = k;
+                positional.remove(positional.size() - 1);
+              }
+              for (int i = 0; i < n.args().size(); i++) {
+                var nodeArg = n.args().get(i);
+                Value passed = i < positional.size() ? positional.get(i) : null;
+                if (nodeArg instanceof Expression.Identifier id) {
+                  if (passed == null)
+                    throw new TemplateRenderException(
+                        "Missing positional argument: " + id.value(), ErrorCategory.ARITY, l);
+                  macroScope.setVariable(id.value(), passed);
+                } else if (nodeArg instanceof Expression.KeywordArgumentExpression kwarg) {
+                  Value fromKwargs =
+                      kwargs == null ? null : kwargs.values().get(kwarg.key().value());
+                  Value value =
+                      passed != null
+                          ? passed
+                          : fromKwargs != null
+                              ? fromKwargs
+                              : evaluateExpression(kwarg.value(), macroScope, b);
+                  macroScope.setVariable(kwarg.key().value(), value);
+                } else {
+                  throw new TemplateRenderException(
+                      "Unknown argument type: " + nodeArg.getClass().getSimpleName(),
+                      ErrorCategory.SYNTAX,
+                      nodeArg.location());
+                }
+              }
+              try {
+                b.enterMacro(l);
+                var result = evaluateBlock(n.body(), macroScope, b);
+                if (!(result instanceof ExecResult.Normal normal))
+                  // Known gap (see
+                  // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md,
+                  // "Known gaps this slice leaves open"): upstream bleeds a bare break/continue
+                  // through
+                  // this call boundary into the caller's enclosing loop; we reject it here instead.
+                  throw new TemplateRenderException(
+                      "break or continue outside a for loop", ErrorCategory.SYNTAX, l);
+                return new Value.StringValue(normal.output());
+              } finally {
+                b.exitMacro();
+              }
+            }));
+    return new ExecResult.Normal("");
+  }
+
+  private static ExecResult evaluateCallStatement(
+      Statement.CallStatement n, Environment e, RenderBudget b) {
+    var caller =
+        new Value.CallableValue(
+            (callerArgs, hasKeywords, l, callerScope) -> {
+              // callerScope is wherever caller() gets called from inside the macro body — this is
+              // what lets the call-block body see macro-local state set before caller() runs.
+              var callBlockEnv = new Environment(callerScope);
+              if (n.callerArgs() != null) {
+                for (int i = 0; i < n.callerArgs().size(); i++) {
+                  var param = n.callerArgs().get(i);
+                  if (!(param instanceof Expression.Identifier id))
+                    throw new TemplateRenderException(
+                        "Caller parameter must be an identifier, got "
+                            + param.getClass().getSimpleName(),
+                        ErrorCategory.SYNTAX,
+                        param.location());
+                  Value value =
+                      i < callerArgs.size() ? callerArgs.get(i) : Value.UndefinedValue.INSTANCE;
+                  callBlockEnv.setVariable(id.value(), value);
+                }
+              }
+              try {
+                b.enterMacro(l);
+                var result = evaluateBlock(n.body(), callBlockEnv, b);
+                if (!(result instanceof ExecResult.Normal normal))
+                  // Known gap (see
+                  // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md,
+                  // "Known gaps this slice leaves open"): upstream bleeds a bare break/continue
+                  // through this call boundary into the caller's enclosing loop; we reject it here
+                  // instead.
+                  throw new TemplateRenderException(
+                      "break or continue outside a for loop", ErrorCategory.SYNTAX, l);
+                return new Value.StringValue(normal.output());
+              } finally {
+                b.exitMacro();
+              }
+            });
+
+    var evaluated = evaluateArguments(n.call().args(), e, b);
+    var arguments = new ArrayList<>(evaluated.positional());
+    // Known gap (see docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md,
+    // "Known gaps this slice leaves open" — host function extra argument): unlike call(), the
+    // keyword-arguments bag is pushed unconditionally, even when empty, matching upstream's own
+    // evaluateCallStatement/evaluateCallExpression asymmetry (needed for range()/namespace()/macro
+    // callees to match the oracle). This also means a host function invoked via {% call %} always
+    // observes one extra trailing empty-map argument; do not special-case stripping it here.
+    arguments.add(new Value.KeywordArgumentsValue(evaluated.keywords()));
+    var callee = evaluateExpression(n.call().callee(), e, b);
+    if (!(callee instanceof Value.CallableValue f))
+      throw new TemplateRenderException(
+          "Cannot call something that is not a function: got " + type(callee),
+          ErrorCategory.TYPE,
+          n.call().location());
+    var newEnv = new Environment(e);
+    newEnv.setVariable("caller", caller);
+    var result =
+        f.callable()
+            .invoke(arguments, !evaluated.keywords().isEmpty(), n.call().location(), newEnv);
+    var text =
+        result instanceof Value.NullValue || result instanceof Value.UndefinedValue
+            ? ""
+            : renderText(result, n.location());
+    b.chargeOutput(text.length(), n.location());
+    return new ExecResult.Normal(text);
+  }
+
+  private static ExecResult evaluateFilterStatement(
+      Statement.FilterStatement n, Environment e, RenderBudget b) {
+    var rendered = evaluateBlock(n.body(), e, b);
+    // Propagating a non-Normal result outward (rather than erroring, unlike the macro/call-block
+    // paths above) is deliberate: FilterStatement never crosses the Value.CallableValue.Callable
+    // boundary, so this composes correctly exactly as evaluateSet's block-capture already does —
+    // confirmed against the oracle that a bare break here bleeds into the caller's enclosing loop.
+    if (!(rendered instanceof ExecResult.Normal normal)) return rendered;
+    var filtered =
+        applyFilter(new Value.StringValue(normal.output()), n.filter(), e, b, n.location());
+    var text =
+        filtered instanceof Value.NullValue || filtered instanceof Value.UndefinedValue
+            ? ""
+            : renderText(filtered, n.location());
+    b.chargeOutput(text.length(), n.location());
+    return new ExecResult.Normal(text);
   }
 
   private static ExecResult evaluateSet(Statement.SetStatement n, Environment e, RenderBudget b) {

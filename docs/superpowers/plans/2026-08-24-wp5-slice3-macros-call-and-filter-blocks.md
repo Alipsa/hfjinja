@@ -338,8 +338,18 @@ part of this slice; flag it as a candidate follow-up instead.
    `evaluateBlock` again, plus argument evaluation) is substantially deeper per level than that
    probe — so measure the *actual* safe depth once this step compiles (a temporary,
    deeper-and-deeper `{% macro %}` recursion test run under the default JVM stack, without
-   `-Xss`), then set the shipped default to a conservative fraction of the observed crash point
-   (a starting proposal, to be confirmed empirically rather than trusted blindly: 2,000).
+   `-Xss`), then set the shipped default to a conservative fraction of the observed crash point.
+   **Measured, not guessed:** with `maxMacroDepth` set high enough to disable the guard, this
+   interpreter's own recursive-macro call chain overflows the default JVM stack between `n=850`
+   and `n=940` (flaky in that band across runs, confirming genuine stack-usage variance, not a
+   fixed cutoff) — an order of magnitude below the 44,700-frame trivial-recursion probe, as
+   expected given how many real frames one Jinja-level macro call costs. The starting proposal of
+   `2,000` this paragraph originally floated is provably unsafe: the guard would never fire before
+   the native stack does. The shipped default is **500** — comfortably under half of the observed
+   crash zone, verified by rerunning the same recursive-macro template with the real
+   `RenderBudget.enterMacro` guard active at `n=500, 501, 900, 5000, 50000`: every one fails
+   cleanly with `RESOURCE_LIMIT`/`"Maximum macro call depth exceeded"`, never a
+   `StackOverflowError`.
 
 5. Implement `Statement.CallStatement`.
 

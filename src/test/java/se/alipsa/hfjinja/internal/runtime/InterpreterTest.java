@@ -774,4 +774,244 @@ class InterpreterTest {
     assertEquals(ErrorCategory.ARITY, error.category());
     assertEquals("`tojson` filter accepts no arguments", error.getMessage());
   }
+
+  @Test
+  void macroBindsPositionalAndKeywordArgumentsWithDefaults() {
+    assertEquals(
+        "5-1",
+        Template.parse("{% macro f(a,b=1) %}{{ a }}-{{ b }}{% endmacro %}{{ f(5) }}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void macroMissingPositionalArgumentIsArity() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{% macro f(a) %}{{ a }}{% endmacro %}{{ f() }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, error.category());
+    assertEquals("Missing positional argument: a", error.getMessage());
+  }
+
+  @Test
+  void macroIgnoresExtraPositionalArgumentsAndUnknownKeywords() {
+    assertEquals(
+        "1",
+        Template.parse("{% macro f(a) %}{{ a }}{% endmacro %}{{ f(1,2,3) }}").render(Map.of()));
+    assertEquals(
+        "1",
+        Template.parse("{% macro f(a=1) %}{{ a }}{% endmacro %}{{ f(z=9) }}").render(Map.of()));
+  }
+
+  @Test
+  void macroPositionalArgumentWinsOverKeyword() {
+    assertEquals(
+        "5",
+        Template.parse("{% macro f(a=1) %}{{ a }}{% endmacro %}{{ f(5, a=9) }}").render(Map.of()));
+  }
+
+  @Test
+  void macroDefaultArgumentsEvaluateAtCallTimeInCallerScope() {
+    assertEquals(
+        "Hi shadowed",
+        Template.parse(
+                "{% set x='outer' %}{% macro g(name=x) %}Hi {{ name }}{% endmacro %}"
+                    + "{% set x='shadowed' %}{{ g() }}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void macroLaterDefaultArgumentSeesEarlierBoundParameter() {
+    assertEquals(
+        "1-1",
+        Template.parse("{% macro f(a,b=a) %}{{ a }}-{{ b }}{% endmacro %}{{ f(1) }}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void macroSpreadParameterIsSyntaxError() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{% macro f(*x) %}{{ x }}{% endmacro %}{{ f(1,2) }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("Unknown argument type: SpreadExpression", error.getMessage());
+  }
+
+  @Test
+  void macroBareBreak_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{% macro f() %}{% break %}{% endmacro %}{{ f() }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("break or continue outside a for loop", error.getMessage());
+  }
+
+  @Test
+  void macroRedeclarationDoesNotThrow() {
+    assertEquals(
+        "2",
+        Template.parse("{% macro f() %}1{% endmacro %}{% macro f() %}2{% endmacro %}{{ f() }}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void callBlockInvokesCallerAndBindsCallerArguments() {
+    assertEquals(
+        "[body]",
+        Template.parse(
+                "{% macro f() %}[{{ caller() }}]{% endmacro %}{% call f() %}body{% endcall %}")
+            .render(Map.of()));
+    assertEquals(
+        "[1-2]",
+        Template.parse(
+                "{% macro f() %}[{{ caller(1,2) }}]{% endmacro %}"
+                    + "{% call(a,b) f() %}{{ a }}-{{ b }}{% endcall %}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void callBlockBodySeesMacroLocalStateSetBeforeCallerRuns() {
+    assertEquals(
+        "[x=5]",
+        Template.parse(
+                "{% macro f() %}{% set x=5 %}[{{ caller() }}]{% endmacro %}"
+                    + "{% call f() %}x={{ x }}{% endcall %}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void callBlockNonIdentifierCallerParameterIsSyntaxError() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse(
+                        "{% macro f() %}{{ caller(1) }}{% endmacro %}"
+                            + "{% call(a.b) f() %}{{ a }}{% endcall %}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals(
+        "Caller parameter must be an identifier, got MemberExpression", error.getMessage());
+  }
+
+  @Test
+  void callerOutsideCallBlockIsUnboundIdentifier() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class, () -> Template.parse("{{ caller() }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals(
+        "Cannot call something that is not a function: got UndefinedValue", error.getMessage());
+  }
+
+  @Test
+  void callBlockBareBreak_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse(
+                        "{% macro f() %}[{{ caller() }}]{% endmacro %}"
+                            + "{% call f() %}{% break %}{% endcall %}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("break or continue outside a for loop", error.getMessage());
+  }
+
+  @Test
+  void callBlockPushesKeywordArgumentsBagUnconditionallyForNonMacroCallees() {
+    assertEquals("[]", Template.parse("{% call range(3) %}x{% endcall %}").render(Map.of()));
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% call namespace() %}x{% endcall %}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+  }
+
+  @Test
+  void callBlockHostFunctionObservesExtraTrailingEmptyMapArgument() {
+    var seen = new java.util.ArrayList<java.util.List<Object>>();
+    var options =
+        se.alipsa.hfjinja.RenderOptions.builder()
+            .hostFunction(
+                "record",
+                arguments -> {
+                  seen.add(arguments);
+                  return "";
+                })
+            .build();
+    Template.parse("{% call record(1) %}x{% endcall %}").render(Map.of(), options);
+    assertEquals(1, seen.size());
+    assertEquals(java.util.List.of(1L, Map.of()), seen.get(0));
+  }
+
+  @Test
+  void deepMacroRecursionFailsWithResourceLimitNotStackOverflow_isKnownDivergenceFromUpstream() {
+    // Empirically, on this toolchain, an unguarded macro recursion overflows the native JVM stack
+    // around n=850-900 (flaky in that band; see
+    // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md, Step 4, for
+    // how the shipped default of 500 was chosen with margin below that). Upstream has no
+    // equivalent guard and instead produces a toolchain-dependent, nonsensical error (or worse, a
+    // wrong answer) at its own unguarded stack limit — see this plan's Known Gaps section.
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse(
+                        "{% macro f(n) %}{% if n <= 0 %}done{% else %}{{ f(n-1) }}{% endif %}"
+                            + "{% endmacro %}{{ f(5000) }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+    assertEquals("Maximum macro call depth exceeded", error.getMessage());
+  }
+
+  @Test
+  void nonRecursiveSequentialMacroCallsDoNotAccumulateDepth() {
+    var builder = new StringBuilder("{% macro f() %}x{% endmacro %}");
+    builder.append("{{ f() }}".repeat(600));
+    assertEquals("x".repeat(600), Template.parse(builder.toString()).render(Map.of()));
+  }
+
+  @Test
+  void filterBlockRendersBodyThenAppliesNamedFilter() {
+    assertEquals("HI", Template.parse("{% filter upper %}hi{% endfilter %}").render(Map.of()));
+    assertEquals(
+        "1-2",
+        Template.parse(
+                "{% filter join('-') %}{% for i in [1,2] %}{{ i }}{% endfor %}{% endfilter %}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void filterBlockPropagatesBreakToEnclosingLoop() {
+    assertEquals(
+        "",
+        Template.parse(
+                "{% for i in [1,2,3] %}{{ i }}{% filter upper %}{% break %}{% endfilter %}{% endfor %}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void macroCannotBeUsedAsAFilter() {
+    // Upstream reports "Unknown StringValue filter: f" here — the pre-existing, documented,
+    // out-of-scope divergence in this plan's "Discovered, out-of-scope divergence" note (Java's
+    // unknown-filter message omits the operand type). The property this test actually pins is that
+    // filters are resolved from a fixed table, never from the variable/macro namespace: `f` is not
+    // found as a filter even though it is a perfectly callable macro.
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{% macro f(x) %}{{ x|upper }}{% endmacro %}{{ 'hi' | f }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals("Unknown filter: f", error.getMessage());
+  }
 }
