@@ -191,7 +191,7 @@ public final class JsFormat {
       int depth,
       boolean array,
       SourceLocation location) {
-    if (options.indent() == null || options.indent() == 0)
+    if (!hasPrettyIndent(options))
       return open + String.join(itemSeparator(options), values) + close;
     String indent = " ".repeat(jsonIndent(options, location));
     String basePadding = "\n" + indent.repeat(depth);
@@ -215,9 +215,13 @@ public final class JsFormat {
     return (int) indent;
   }
 
+  private static boolean hasPrettyIndent(JsonOptions options) {
+    return options.indent() != null && options.indent() != 0 && !Double.isNaN(options.indent());
+  }
+
   private static String itemSeparator(JsonOptions options) {
     if (options.separators() != null) return options.separators().get(0);
-    return options.indent() != null && options.indent() != 0 ? "," : ", ";
+    return hasPrettyIndent(options) ? "," : ", ";
   }
 
   private static String keySeparator(JsonOptions options) {

@@ -815,6 +815,13 @@ class InterpreterTest {
         Template.parse(
                 "{{ 'x' | tojson(indent=-1) }}|{{ 5 | tojson(indent=-1) }}|{{ none | tojson(indent=-1) }}")
             .render(Map.of()));
+    assertEquals(
+        "{\"a\": 1, \"b\": 2}|[1, 2]|{\"a\": [1]}",
+        Template.parse(
+                "{{ {'a': 1, 'b': 2} | tojson(indent=0 % 0) }}|"
+                    + "{{ [1, 2] | tojson(indent=0 % 0) }}|"
+                    + "{{ {'a': [1]} | tojson(indent=0 % 0) }}")
+            .render(Map.of()));
     var error =
         assertThrows(
             TemplateRenderException.class,
