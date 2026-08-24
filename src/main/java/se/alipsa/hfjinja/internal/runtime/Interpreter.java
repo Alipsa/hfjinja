@@ -307,11 +307,51 @@ public final class Interpreter {
   }
 
   private static Value filterToJson(Value operand, NamedArguments filter, SourceLocation location) {
-    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
-    // "Known gaps this slice leaves open" — tojson accepts zero arguments): upstream implements
-    // four real keywords (indent, ensure_ascii, sort_keys, separators) and ignores positionals.
-    requireNoArguments(filter, location);
-    return new Value.StringValue(JsFormat.runtimeJson(operand, location, true));
+    Value indent = filter.keywords().getOrDefault("indent", Value.NullValue.INSTANCE);
+    if (!(indent instanceof Value.NullValue || indent instanceof Value.IntegerValue))
+      throw new TemplateRenderException(
+          "If set, indent must be a number", ErrorCategory.TYPE, location);
+    Integer indentValue = indent instanceof Value.IntegerValue number ? (int) number.value() : null;
+    if (indentValue != null && indentValue < 0)
+      throw new TemplateRenderException(
+          "Invalid count value: " + indentValue, ErrorCategory.VALUE, location);
+
+    Value ensureAscii =
+        filter.keywords().getOrDefault("ensure_ascii", new Value.BooleanValue(false));
+    if (!(ensureAscii instanceof Value.BooleanValue ensureAsciiValue))
+      throw new TemplateRenderException(
+          "If set, ensure_ascii must be a boolean", ErrorCategory.TYPE, location);
+    Value sortKeys = filter.keywords().getOrDefault("sort_keys", new Value.BooleanValue(false));
+    if (!(sortKeys instanceof Value.BooleanValue sortKeysValue))
+      throw new TemplateRenderException(
+          "If set, sort_keys must be a boolean", ErrorCategory.TYPE, location);
+    Value separators = filter.keywords().getOrDefault("separators", Value.NullValue.INSTANCE);
+    List<String> separatorValues = null;
+    if (separators instanceof Value.ArrayValue array)
+      separatorValues = jsonSeparators(array.values(), location);
+    else if (separators instanceof Value.TupleValue tuple)
+      separatorValues = jsonSeparators(tuple.values(), location);
+    else if (!(separators instanceof Value.NullValue))
+      throw new TemplateRenderException(
+          "If set, separators must be a tuple of two strings", ErrorCategory.TYPE, location);
+    return new Value.StringValue(
+        JsFormat.runtimeJson(
+            operand,
+            location,
+            true,
+            new JsFormat.JsonOptions(
+                indentValue, ensureAsciiValue.value(), sortKeysValue.value(), separatorValues)));
+  }
+
+  private static List<String> jsonSeparators(List<Value> values, SourceLocation location) {
+    if (values.size() != 2
+        || !(values.get(0) instanceof Value.StringValue first)
+        || first.undefinedBacked()
+        || !(values.get(1) instanceof Value.StringValue second)
+        || second.undefinedBacked())
+      throw new TemplateRenderException(
+          "separators must be a tuple of two strings", ErrorCategory.TYPE, location);
+    return List.of(first.value(), second.value());
   }
 
   private static Value filterDefault(
@@ -476,6 +516,8 @@ public final class Interpreter {
       case "boolean" -> value instanceof Value.BooleanValue;
       case "number" -> JsOperations.numeric(value);
       case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "mapping" ->
+          value instanceof Value.ObjectValue || value instanceof Value.KeywordArgumentsValue;
       case "iterable" ->
           value instanceof Value.ArrayValue
               || value instanceof Value.StringValue string && !string.undefinedBacked();

@@ -169,9 +169,11 @@ on successful output and by category on Node-comparable errors.
 2. Implement date/format runtime helpers required by upstream, including C/POSIX names and injected
    `Clock`/`ZoneId`; do not port unreachable `format.ts` unless a mapped runtime path requires it.
 3. Enable Mistral and tool-use model goldens, including macro-heavy templates. Slice 4 adds
-   the pre-approved Mistral-7B-Instruct-v0.3 and Qwen2.5-32B-Instruct goldens, but neither
-   template uses `{% macro %}`; this item remains in progress until a separately reviewed,
-   source-recorded and attributed macro-heavy model fixture is retained.
+   the pre-approved Mistral-7B-Instruct-v0.3 and Qwen2.5-32B-Instruct goldens; Slice 5 adds the
+   separately reviewed, source-recorded, attributed Step3 macro-heavy fixture. The retained
+   templates are resource-backed goldens, not `v1.jsonl` records: importing them as corpus cases
+   remains a follow-up that first requires a schema change because text records currently reject
+   model provenance fields.
 4. Run fuzz/property suites with harness timeouts; preserve every oracle mismatch as a regression.
 5. Remove every remaining AST allowlist exemption.
 
