@@ -58,9 +58,13 @@ public final class Interpreter {
       // exhaust the native JVM stack well below maxMacroDepth invocations. This catch is the
       // backstop that keeps that case inside this project's documented contract (render() only
       // throws TemplateRenderException) instead of letting a bare Error escape to a caller
-      // sandboxing untrusted templates.
+      // sandboxing untrusted templates. Chaining the original StackOverflowError as the cause
+      // matters here specifically: this catch cannot distinguish "template recursed too deep"
+      // from a genuine interpreter bug (e.g. an AST cycle) that also exhausts the stack, so the
+      // original stack trace must survive for diagnosis rather than being discarded.
       throw new TemplateRenderException(
           "Maximum interpreter recursion depth exceeded",
+          overflow,
           ErrorCategory.RESOURCE_LIMIT,
           program.location());
     }

@@ -986,6 +986,13 @@ class InterpreterTest {
     // this deep (100000 levels) exhausts the native stack long before hitting maxMacroDepth's
     // default of 500 invocations — verified empirically to throw a raw StackOverflowError before
     // Interpreter.render's top-level catch was added. That catch is the backstop pinned here.
+    //
+    // maxMacroDepth is deliberately raised out of contention (to 1_000_000, far above what any
+    // JVM stack tolerates for this body shape): at the default of 500, whichever of the two
+    // guards fires first depends on the running thread's stack size, which is environment-
+    // dependent, not a property of this code. Verified deterministic across -Xss512k..64m with
+    // maxMacroDepth this high; macroDepthLimitIsExactlyEnforcedAtTheConfiguredBoundary is what
+    // pins the counter itself.
     var error =
         assertThrows(
             TemplateRenderException.class,
@@ -994,7 +1001,7 @@ class InterpreterTest {
                         "{% macro f(n) %}{% if n <= 0 %}done{% else %}"
                             + "{% for i in [1] %}{% for j in [1] %}{{ f(n-1) }}{% endfor %}{% endfor %}"
                             + "{% endif %}{% endmacro %}{{ f(100000) }}")
-                    .render(Map.of()));
+                    .render(Map.of(), RenderOptions.builder().maxMacroDepth(1_000_000).build()));
     assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
     assertEquals("Maximum interpreter recursion depth exceeded", error.getMessage());
   }

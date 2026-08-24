@@ -144,15 +144,23 @@ part of this slice; flag it as a candidate follow-up instead.
   recursion depth with a flat (unnested) body correctly hits `RESOURCE_LIMIT` first. Fixed by
   adding a `StackOverflowError` catch around the top-level `evaluateBlock` call in
   `Interpreter.render`, converting it to `TemplateRenderException("Maximum interpreter recursion
-  depth exceeded", RESOURCE_LIMIT, ...)` — a backstop that closes the documented-contract gap
-  (`render()` throwing a bare `Error` instead of `TemplateRenderException`, which matters for
-  callers sandboxing untrusted templates) for *any* future construct that adds interpreter stack
-  frames, not just the two shapes found during review. `maxMacroDepth` is kept as the primary,
-  cheap, precise guard for the common straight-recursion case; the catch is deliberately a
-  backstop, not a replacement — it does not bound how much work happens before failing the way a
-  depth counter does. `RenderOptions.maxMacroDepth()`'s javadoc was corrected to state this
-  precisely instead of implying invocation-count alone is sufficient. Pinned by
-  `InterpreterTest.macroRecursionNestedInsideControlFlowFailsWithResourceLimitNotStackOverflow`.
+  depth exceeded", overflow, RESOURCE_LIMIT, ...)` (chaining the original `StackOverflowError` as
+  the cause — this catch cannot distinguish "template recursed too deep" from a genuine
+  interpreter bug that also exhausts the stack, e.g. an AST cycle, so the original trace must
+  survive for diagnosis) — a backstop that closes the documented-contract gap (`render()` throwing
+  a bare `Error` instead of `TemplateRenderException`, which matters for callers sandboxing
+  untrusted templates) for *any* future construct that adds interpreter stack frames, not just the
+  two shapes found during review. `maxMacroDepth` is kept as the primary, cheap, precise guard for
+  the common straight-recursion case; the catch is deliberately a backstop, not a replacement — it
+  does not bound how much work happens before failing the way a depth counter does.
+  `RenderOptions.maxMacroDepth()`'s javadoc was corrected to state this precisely instead of
+  implying invocation-count alone is sufficient. Pinned by
+  `InterpreterTest.macroRecursionNestedInsideControlFlowFailsWithResourceLimitNotStackOverflow` —
+  with `maxMacroDepth` deliberately set far out of contention (`1_000_000`) in that test, since at
+  the shipped default of `500` the counter and the backstop race and whichever fires first depends
+  on the running thread's JVM stack size (verified: the same template's failure message flips
+  between the two guards somewhere between `-Xss1024k` and `-Xss2048k`) — an environment property,
+  not a property of the code, and not something a test should assert on.
 - ~~A host function invoked via `{% call %}` silently receives an extra trailing empty-map
   argument.~~ **Resolved during review, before merge.** This slice originally recorded a decision
   not to special-case stripping the bag before the `HostFunctions` bridge, reasoning that doing so
