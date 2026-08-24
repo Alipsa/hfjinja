@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -607,5 +609,163 @@ class InterpreterTest {
     assertEquals("{undefined: 1}", Template.parse("{{ {'abc'[5]: 1} }}").render(Map.of()));
     assertEquals(
         "1", Template.parse("{% set o = {'abc'[5]: 1} %}{{ o['abc'[5]] }}").render(Map.of()));
+  }
+
+  @Test
+  void spreadExpandsArraysAndTuplesAsPositionalCallArguments() {
+    assertEquals("[1, 2, 3]", Template.parse("{{ range(*[1,4]) }}").render(Map.of()));
+    assertEquals("[1, 2, 3]", Template.parse("{{ range(*(1,4)) }}").render(Map.of()));
+  }
+
+  @Test
+  void spreadExpandsFilterArguments() {
+    assertEquals("1-2", Template.parse("{{ [1,2] | join(*['-']) }}").render(Map.of()));
+  }
+
+  @Test
+  void spreadExpandsExactlyOneLevel() {
+    assertEquals("[]", Template.parse("{{ range(*[[1,4]]) }}").render(Map.of()));
+  }
+
+  @Test
+  void spreadArgumentsPreserveUpstreamOrderingSemantics() {
+    assertEquals("[1]", Template.parse("{{ range(*[1,4], 9) }}").render(Map.of()));
+    assertEquals("[1]", Template.parse("{{ range(*[1,4], *[9]) }}").render(Map.of()));
+    assertEquals("[]", Template.parse("{{ range(1, stop=4, *[2]) }}").render(Map.of()));
+  }
+
+  @Test
+  void spreadAfterFilterKeywordBypassesPositionalAfterKeywordRejection() {
+    assertEquals(
+        "1+2", Template.parse("{{ [1,2] | join(separator='-', *['+']) }}").render(Map.of()));
+  }
+
+  @Test
+  void filterArgumentsStillRejectOrdinaryPositionalAfterKeyword() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 1 | int(a=1, 2) }}").render(Map.of()));
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("Positional arguments cannot follow keyword arguments", error.getMessage());
+  }
+
+  @Test
+  void spreadArgumentEvaluationPrecedesCalleeValidation() {
+    var validCallee =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ range(*[raise_exception('boom')]) }}").render(Map.of()));
+    assertEquals(ErrorCategory.EXPLICIT_RAISE, validCallee.category());
+    var invalidCallee =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ nofn(*[raise_exception('boom')]) }}").render(Map.of()));
+    assertEquals(ErrorCategory.EXPLICIT_RAISE, invalidCallee.category());
+  }
+
+  @Test
+  void spreadRejectsNonArrayNonTupleReceiversWithLocatedTypeError() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ range(*'14') }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals("Cannot unpack non-iterable type: StringValue", error.getMessage());
+    assertEquals(new SourceLocation(9, 1, 10), error.location().orElseThrow());
+
+    assertEquals(
+        "Cannot unpack non-iterable type: ObjectValue",
+        raisedMessage("{{ range(*{'a':1}) }}", Map.of()));
+    assertEquals(
+        "Cannot unpack non-iterable type: NullValue",
+        raisedMessage("{{ range(*none) }}", Map.of()));
+    assertEquals(
+        "Cannot unpack non-iterable type: UndefinedValue",
+        raisedMessage("{{ range(*missing) }}", Map.of()));
+  }
+
+  @Test
+  void unknownFilterKeywordReportsFirstKeyInSourceOrder() {
+    assertEquals(
+        "Unknown `int` filter argument: a",
+        raisedMessage("{{ 1 | int(a=1, b=2, c=3) }}", Map.of()));
+  }
+
+  @Test
+  void interpreterNeverUsesInsertionOrderUnsafeMapCopy() throws Exception {
+    var source =
+        Files.readString(
+            Path.of("src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java"));
+    assertFalse(source.contains("Map.copyOf"));
+  }
+
+  @Test
+  void filterDispatchOrder_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 5 | join(*none) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals("Cannot unpack non-iterable type: NullValue", error.getMessage());
+  }
+
+  @Test
+  void joinArityCap_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [1,2] | join(*['-','+']) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, error.category());
+    assertEquals("`join` filter accepts at most one argument", error.getMessage());
+  }
+
+  @Test
+  void defaultArityCap_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ missing | default(*['a', true, 'c']) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, error.category());
+    assertEquals("`default` filter accepts at most two arguments", error.getMessage());
+  }
+
+  @Test
+  void intArityCap_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'x' | int(*[1,2,3]) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, error.category());
+    assertEquals("`int` filter accepts at most one argument", error.getMessage());
+  }
+
+  @Test
+  void floatArityCap_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'x' | float(*[1,2,3]) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, error.category());
+    assertEquals("`float` filter accepts at most one argument", error.getMessage());
+  }
+
+  @Test
+  void unknownFilterKeyword_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 1 | int(a=1, b=2, c=3) }}").render(Map.of()));
+    assertEquals(ErrorCategory.VALUE, error.category());
+  }
+
+  @Test
+  void tojsonArguments_isKnownDivergenceFromUpstream() {
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [1,2] | tojson(*[9]) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, error.category());
+    assertEquals("`tojson` filter accepts no arguments", error.getMessage());
   }
 }
