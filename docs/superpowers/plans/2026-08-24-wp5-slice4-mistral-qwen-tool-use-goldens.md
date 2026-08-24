@@ -7,8 +7,9 @@ blocks, keyword/spread args, slices, `raise_exception`) shipped across slices 1-
 (date/format runtime helpers) was already fully implemented — `Interpreter.strftime()`
 matches upstream's `strftime` byte-for-byte. This slice makes progress on item 3: **enable Mistral
 and tool-use model goldens, including macro-heavy templates** — i.e. render real,
-license-cleared model `chat_template` text end-to-end and lock it into the regression
-corpus, rather than only synthetic self-authored templates.
+license-cleared model `chat_template` text end-to-end. This PR delivers the interpreter
+support, retained resources, and Java renders; adding the model cases to the Node regression
+corpus is explicitly deferred follow-up work, rather than a claim of completion here.
 
 `req/model-fixture-policy.md` pre-approves retaining literal template text (not just a
 hash) for two repository/revision pairs under Apache-2.0:
@@ -363,7 +364,12 @@ preempts nothing): the `| items` filter-pipe form, the other `ObjectValue` built
 (`runtime.ts:500-502`) so it inherits the builtins there, whereas hfjinja's is a separate
 record and keeps its current lookup.
 
-## Corpus and test additions
+## Corpus and test additions (follow-up, not delivered by this PR)
+
+The five `v1.jsonl` records, their oracle-derived expected outputs, the corpus-resource
+byte-for-byte guard, and the fixture-specific error-pattern entry below are required to
+complete model-corpus coverage. They are intentionally not part of this PR; its Java
+resource renders provide fixture-integrity and Mistral tool-use-path coverage in the interim.
 
 ### Verification already performed
 
@@ -444,7 +450,7 @@ reviewable canonical fetched byte sequence. Java does not need to parse corpus J
 this: the existing test classpath is JUnit-only, while the corpus check can compare native
 JSON strings cheaply.
 
-### Error-pattern table (`tools/corpus/error-patterns-0.5.9.json`) — required
+### Error-pattern table (`tools/corpus/error-patterns-0.5.9.json`) — required follow-up
 
 **The alternating-role record fails `check` without this change.** The table currently
 holds five patterns and none maps to `EXPLICIT_RAISE`. `errorClassifier` throws
