@@ -960,12 +960,20 @@ class InterpreterTest {
 
   @Test
   void deepMacroRecursionFailsWithResourceLimitNotStackOverflow_isKnownDivergenceFromUpstream() {
-    // Empirically, on this toolchain, an unguarded macro recursion overflows the native JVM stack
-    // around n=850-900 (flaky in that band; see
-    // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md, Step 4, for
-    // how the shipped default of 500 was chosen with margin below that). Upstream has no
-    // equivalent guard and instead produces a toolchain-dependent, nonsensical error (or worse, a
-    // wrong answer) at its own unguarded stack limit — see this plan's Known Gaps section.
+    // Which of the two guards fires first — RenderBudget's macroDepth counter or
+    // Interpreter.render's StackOverflowError backstop — is inherently environment-dependent, and
+    // this exact template proves it: verified locally between -Xss1024k (backstop fires,
+    // "Maximum interpreter recursion depth exceeded") and -Xss2048k (macroDepth guard fires,
+    // "Maximum macro call depth exceeded"), with no other AST nesting involved beyond the single
+    // {% if %} per level the recursion needs to terminate. This is exactly what broke CI after the
+    // backstop was added: this project's own dev machine happens to give test threads a stack
+    // comfortably above that boundary, GitHub Actions' runners apparently do not, and an earlier
+    // version of this test asserted the specific message, which is not a portable property of the
+    // code. Upstream has no equivalent guard at all and instead produces a toolchain-dependent,
+    // nonsensical error (or worse, a wrong answer) at its own unguarded stack limit — see this
+    // plan's Known Gaps section. What both of Java's guards agree on, and what upstream cannot
+    // match, is ErrorCategory.RESOURCE_LIMIT from a documented TemplateRenderException rather than
+    // a raw escaped Error — that is the property this test pins.
     var error =
         assertThrows(
             TemplateRenderException.class,
@@ -975,7 +983,6 @@ class InterpreterTest {
                             + "{% endmacro %}{{ f(5000) }}")
                     .render(Map.of()));
     assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
-    assertEquals("Maximum macro call depth exceeded", error.getMessage());
   }
 
   @Test

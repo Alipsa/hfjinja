@@ -419,6 +419,30 @@ part of this slice; flag it as a candidate follow-up instead.
    cleanly with `RESOURCE_LIMIT`/`"Maximum macro call depth exceeded"`, never a
    `StackOverflowError`.
 
+   **Correction (discovered by CI, after merge review but before merge): "comfortably under half
+   of the observed crash zone" was only ever measured on one developer's local machine, and that
+   number does not travel.** CI failed on exactly the template this measurement was based on
+   (`f(5000)` with a single `{% if %}` per level) with a raw `StackOverflowError` — not because the
+   `StackOverflowError` backstop (added in a later review round, see below) was missing logic, but
+   because on GitHub Actions' runner, the JVM thread executing the test has a smaller effective
+   stack than on the machine `n=850-940` was bisected against, so `500` invocations of *this exact,
+   minimally-nested body* was already enough to exhaust it — the macroDepth guard never got a
+   chance to fire. Reproduced locally by forcing a comparably small stack: the same template flips
+   between the macroDepth guard firing (`-Xss2048k` and above) and the `StackOverflowError`
+   backstop firing (`-Xss1024k` and below) on this developer's own machine, with no nested control
+   flow involved at all — just a smaller thread stack. This is the same class of problem as the
+   nested-control-flow finding two revisions below, now shown to also apply to the flattest
+   possible recursive body: **JVM stack consumed per macro invocation is not a portable constant,
+   so no fixed `maxMacroDepth` value can be verified "safely below the crash threshold" in general
+   — only on the specific machine it was measured on.** This does not make the shipped default
+   unsafe in the sense that matters: the `StackOverflowError` backstop guarantees `RESOURCE_LIMIT`
+   either way, on any stack size, so the actual contract (`render()` never lets a bare `Error`
+   escape) holds regardless of which guard wins the race. What the "500, chosen with margin" claim
+   above overstated is that the macroDepth guard specifically is what fires for this template on
+   every environment — it is not, and no *InterpreterTest* should assert on which of the two guards
+   wins, since that assertion pins an environment property, not a code property. The test this
+   paragraph is measuring (Step 7) was corrected to assert only `ErrorCategory.RESOURCE_LIMIT`.
+
 5. Implement `Statement.CallStatement`.
 
    Add `evaluateCallStatement(Statement.CallStatement node, Environment env, RenderBudget budget)`,
