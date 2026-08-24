@@ -764,41 +764,47 @@ public final class Interpreter {
               // arguments
               // and call-block scope visibility work.
               var macroScope = new Environment(scope);
-              var positional = new ArrayList<>(arguments);
-              Value.KeywordArgumentsValue kwargs = null;
-              if (!positional.isEmpty()
-                  && positional.get(positional.size() - 1)
-                      instanceof Value.KeywordArgumentsValue k) {
-                kwargs = k;
-                positional.remove(positional.size() - 1);
-              }
-              for (int i = 0; i < n.args().size(); i++) {
-                var nodeArg = n.args().get(i);
-                Value passed = i < positional.size() ? positional.get(i) : null;
-                if (nodeArg instanceof Expression.Identifier id) {
-                  if (passed == null)
-                    throw new TemplateRenderException(
-                        "Missing positional argument: " + id.value(), ErrorCategory.ARITY, l);
-                  macroScope.setVariable(id.value(), passed);
-                } else if (nodeArg instanceof Expression.KeywordArgumentExpression kwarg) {
-                  Value fromKwargs =
-                      kwargs == null ? null : kwargs.values().get(kwarg.key().value());
-                  Value value =
-                      passed != null
-                          ? passed
-                          : fromKwargs != null
-                              ? fromKwargs
-                              : evaluateExpression(kwarg.value(), macroScope, b);
-                  macroScope.setVariable(kwarg.key().value(), value);
-                } else {
-                  throw new TemplateRenderException(
-                      "Unknown argument type: " + nodeArg.getClass().getSimpleName(),
-                      ErrorCategory.SYNTAX,
-                      nodeArg.location());
-                }
-              }
+              // enterMacro must guard the binding loop below, not just the body: a default
+              // argument expression can itself call this macro (e.g. `{% macro m(a=m()) %}`),
+              // and evaluateExpression(kwarg.value(), ...) recurses back into this same lambda
+              // before evaluateBlock(n.body(), ...) is ever reached. Entering here — before
+              // binding — closes that gap; see
+              // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md.
               try {
                 b.enterMacro(l);
+                var positional = new ArrayList<>(arguments);
+                Value.KeywordArgumentsValue kwargs = null;
+                if (!positional.isEmpty()
+                    && positional.get(positional.size() - 1)
+                        instanceof Value.KeywordArgumentsValue k) {
+                  kwargs = k;
+                  positional.remove(positional.size() - 1);
+                }
+                for (int i = 0; i < n.args().size(); i++) {
+                  var nodeArg = n.args().get(i);
+                  Value passed = i < positional.size() ? positional.get(i) : null;
+                  if (nodeArg instanceof Expression.Identifier id) {
+                    if (passed == null)
+                      throw new TemplateRenderException(
+                          "Missing positional argument: " + id.value(), ErrorCategory.ARITY, l);
+                    macroScope.setVariable(id.value(), passed);
+                  } else if (nodeArg instanceof Expression.KeywordArgumentExpression kwarg) {
+                    Value fromKwargs =
+                        kwargs == null ? null : kwargs.values().get(kwarg.key().value());
+                    Value value =
+                        passed != null
+                            ? passed
+                            : fromKwargs != null
+                                ? fromKwargs
+                                : evaluateExpression(kwarg.value(), macroScope, b);
+                    macroScope.setVariable(kwarg.key().value(), value);
+                  } else {
+                    throw new TemplateRenderException(
+                        "Unknown argument type: " + nodeArg.getClass().getSimpleName(),
+                        ErrorCategory.SYNTAX,
+                        nodeArg.location());
+                  }
+                }
                 var result = evaluateBlock(n.body(), macroScope, b);
                 if (!(result instanceof ExecResult.Normal normal))
                   // Known gap (see
@@ -857,12 +863,11 @@ public final class Interpreter {
 
     var evaluated = evaluateArguments(n.call().args(), e, b);
     var arguments = new ArrayList<>(evaluated.positional());
-    // Known gap (see docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md,
-    // "Known gaps this slice leaves open" — host function extra argument): unlike call(), the
-    // keyword-arguments bag is pushed unconditionally, even when empty, matching upstream's own
-    // evaluateCallStatement/evaluateCallExpression asymmetry (needed for range()/namespace()/macro
-    // callees to match the oracle). This also means a host function invoked via {% call %} always
-    // observes one extra trailing empty-map argument; do not special-case stripping it here.
+    // Unlike call(), the keyword-arguments bag is pushed unconditionally, even when empty,
+    // matching upstream's own evaluateCallStatement/evaluateCallExpression asymmetry (needed for
+    // range()/namespace()/macro callees to match the oracle). This means every non-host callee
+    // invoked via {% call %} sees a trailing empty-map argument; HostFunctions.invoke strips it
+    // before it reaches user-registered host functions, since they have no such upstream contract.
     arguments.add(new Value.KeywordArgumentsValue(evaluated.keywords()));
     var callee = evaluateExpression(n.call().callee(), e, b);
     if (!(callee instanceof Value.CallableValue f))
@@ -879,6 +884,13 @@ public final class Interpreter {
         result instanceof Value.NullValue || result instanceof Value.UndefinedValue
             ? ""
             : renderText(result, n.location());
+    // The call-block body's own text was already charged once inside evaluateBlock above (each
+    // inner Expression statement charges as it renders); this charges the callee's returned text
+    // again. maxOutputLength is therefore a bound on cumulative rendered characters, not on final
+    // output size, for any construct that re-renders already-charged text — evaluateSet's
+    // {% set x %}...{% endset %} block-capture already has this same property (charged once
+    // inside the block, again wherever `x` is later interpolated). Not a regression introduced
+    // here; consistent with pre-existing behavior.
     b.chargeOutput(text.length(), n.location());
     return new ExecResult.Normal(text);
   }
@@ -892,11 +904,14 @@ public final class Interpreter {
     // confirmed against the oracle that a bare break here bleeds into the caller's enclosing loop.
     if (!(rendered instanceof ExecResult.Normal normal)) return rendered;
     var filtered =
-        applyFilter(new Value.StringValue(normal.output()), n.filter(), e, b, n.location());
+        applyFilter(
+            new Value.StringValue(normal.output()), n.filter(), e, b, n.filter().location());
     var text =
         filtered instanceof Value.NullValue || filtered instanceof Value.UndefinedValue
             ? ""
             : renderText(filtered, n.location());
+    // Re-charges the body's already-charged text after filtering; see the matching comment in
+    // evaluateCallStatement above.
     b.chargeOutput(text.length(), n.location());
     return new ExecResult.Normal(text);
   }

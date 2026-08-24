@@ -133,28 +133,23 @@ part of this slice; flag it as a candidate follow-up instead.
   error at a toolchain-dependent depth) rather than matching it. No corpus record: the two sides
   fail for unrelated reasons at unrelated, non-reproducible depths, so there is no shared oracle
   behavior to pin.
-- **A host function invoked via `{% call %}` silently receives an extra trailing empty-map
-  argument.** This is the other half of Step 5's unconditional-kwargs-push decision, and — unlike
-  everything else in this section — the oracle has no opinion on it at all: host functions are a
-  Java-only concept upstream doesn't have. Once the bag is pushed unconditionally (required to
-  match upstream for `range`/`namespace`/macro callees, per Step 5), `{% call myHostFn(1) %}x{%
-  endcall %}` puts `Value.KeywordArgumentsValue(Map.of())` after `1` in the argument list. Because
-  Step 5 derives `hasKeywordArguments` from whether the caller *actually* supplied keywords (false
-  here), `HostFunctions.invoke`'s kwargs-rejection guard (`HostFunctions.java:34`) never fires —
-  but `Values.toHost` still runs over the full positional list and its `KeywordArgumentsValue`
-  branch (`Values.java:174-198`) converts the trailing bag into an unmodifiable, empty
-  `Map<String, Object>` rather than rejecting it. So the user's registered lambda actually receives
-  `[1, {}]`, not `[1]`. A host function that validates its own argument count — an ordinary,
-  expected shape — fails, and the failure surfaces as `HOST_FUNCTION` from inside the user's own
-  lambda, with nothing in the error naming `{% call %}` as the cause. **Recorded decision: do not
-  special-case stripping the bag before the `HostFunctions` bridge.** Special-casing one callee
-  kind (host functions) to normalize away a byproduct of a decision this plan just made to
-  correctly match upstream for every *other* callee kind would reintroduce exactly the
-  callee-kind-specific asymmetry Step 5 worked to avoid, for a shape (`{% call
-  registeredHostFunction() %}`) unlikely to appear in real chat templates. Document this at the
-  `Values.toHost`/`KeywordArgumentsValue` conversion site with a comment referencing this bullet,
-  and pin the observed argument list — not just non-failure — with the `InterpreterTest` regression
-  named in Step 5. No corpus record: host functions do not exist in the pinned oracle.
+- ~~A host function invoked via `{% call %}` silently receives an extra trailing empty-map
+  argument.~~ **Resolved during review, before merge.** This slice originally recorded a decision
+  not to special-case stripping the bag before the `HostFunctions` bridge, reasoning that doing so
+  would reintroduce the callee-kind-specific asymmetry Step 5 worked to avoid. An external review
+  pushed back: `HostFunction` is hfjinja's own public API with zero oracle constraint (host
+  functions are a Java-only concept upstream doesn't have at all), so leaking an interpreter-
+  internal calling-convention byproduct into that surface is an API-quality regression, not a
+  parity trade-off — and stripping the bag *only* inside `HostFunctions.invoke` cannot affect
+  `range`/`namespace`/macro parity, since none of those callees are reached through
+  `HostFunctions.invoke`. Verified empirically (`{% call record(1) %}` and `{% call record() %}`
+  against a registered host function) before and after the change, then fixed:
+  `HostFunctions.invoke` now strips a trailing empty `KeywordArgumentsValue` before argument
+  conversion, so a host function invoked via `{% call %}` sees exactly the arguments the template
+  wrote — `{% call myHostFn(1) %}x{% endcall %}` now delivers `[1]`, not `[1, {}]` — while
+  `range`/`namespace`/macro callees (which never reach `HostFunctions.invoke`) are unaffected. The
+  `InterpreterTest` regression named in Step 5 was updated to pin this fixed behavior instead of
+  the leak.
 
 ## Work plan
 
@@ -506,15 +501,17 @@ part of this slice; flag it as a candidate follow-up instead.
   (matching upstream's asymmetry with ordinary calls), demonstrated by a non-macro callee
   (`range`/`namespace`) producing the same result as the oracle; `hasKeywordArguments` is still
   derived from whether the caller actually supplied keywords, so a host function invoked via
-  `{% call %}` with no keyword arguments doesn't fail on that check alone — but it does observe an
-  extra trailing empty-map argument it would not see from an ordinary call, and that exact argument
-  list, not mere success, is the property Step 5's regression pins (see the Known Gap below). Both
-  `{% call %}` and `{% filter %}` charge their emitted text through `RenderBudget`, mirroring the
-  `Expression`-statement arm.
-- The three documented divergences (break/continue not bleeding through a macro/call-block
+  `{% call %}` with no keyword arguments doesn't fail on that check alone. `HostFunctions.invoke`
+  strips a trailing empty bag before argument conversion (fixed during review — see the resolved
+  Known Gap below), so a host function sees exactly the arguments the template wrote; that exact
+  argument list, not mere success, is the property Step 5's regression pins. Both `{% call %}` and
+  `{% filter %}` charge their emitted text through `RenderBudget`, mirroring the `Expression`-
+  statement arm — including, for both, a second charge for the block's rendered result on top of
+  the body's own charge, consistent with `evaluateSet`'s pre-existing block-capture behavior.
+- The two remaining documented divergences (break/continue not bleeding through a macro/call-block
   boundary; a new `RESOURCE_LIMIT` macro-depth guard where upstream silently corrupts on deep
-  recursion; a host function invoked via `{% call %}` observing an extra trailing empty-map
-  argument) are each pinned by a named `InterpreterTest` case — the host-function one asserting the
-  exact observed argument list, not just non-failure — and none are present in the corpus.
+  recursion) are each pinned by a named `InterpreterTest` case, and none are present in the corpus.
+  The host-function trailing-empty-map behavior described above was a genuine bug, not a
+  divergence to document, and is fixed and pinned rather than accepted.
 - `Macro`, `FilterStatement`, and `CallStatement` no longer reach `unsupported(...)`; all offline
   verification passes.

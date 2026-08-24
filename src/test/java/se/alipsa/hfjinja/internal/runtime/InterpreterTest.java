@@ -936,7 +936,11 @@ class InterpreterTest {
   }
 
   @Test
-  void callBlockHostFunctionObservesExtraTrailingEmptyMapArgument() {
+  void callBlockHostFunctionDoesNotObserveExtraTrailingEmptyMapArgument() {
+    // The unconditional keyword-arguments-bag push in evaluateCallStatement (needed to match the
+    // oracle for range()/namespace()/macro callees) would otherwise leak into host functions as
+    // an extra trailing empty map; HostFunctions.invoke strips it since host functions have no
+    // such upstream contract and no template-visible way to construct one on their own.
     var seen = new java.util.ArrayList<java.util.List<Object>>();
     var options =
         se.alipsa.hfjinja.RenderOptions.builder()
@@ -948,8 +952,10 @@ class InterpreterTest {
                 })
             .build();
     Template.parse("{% call record(1) %}x{% endcall %}").render(Map.of(), options);
-    assertEquals(1, seen.size());
-    assertEquals(java.util.List.of(1L, Map.of()), seen.get(0));
+    Template.parse("{% call record() %}x{% endcall %}").render(Map.of(), options);
+    assertEquals(2, seen.size());
+    assertEquals(java.util.List.of(1L), seen.get(0));
+    assertEquals(java.util.List.of(), seen.get(1));
   }
 
   @Test
@@ -967,6 +973,22 @@ class InterpreterTest {
                 Template.parse(
                         "{% macro f(n) %}{% if n <= 0 %}done{% else %}{{ f(n-1) }}{% endif %}"
                             + "{% endmacro %}{{ f(5000) }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+    assertEquals("Maximum macro call depth exceeded", error.getMessage());
+  }
+
+  @Test
+  void macroRecursionThroughDefaultArgumentExpressionIsGuarded() {
+    // A default-argument expression is evaluated before the macro's body — enterMacro must guard
+    // the whole binding loop, not just evaluateBlock(n.body(), ...), or recursion hidden inside a
+    // default argument bypasses maxMacroDepth entirely and overflows the native JVM stack instead
+    // of failing with a clean RESOURCE_LIMIT error.
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{% macro m(a=m()) %}x{{ a }}{% endmacro %}{{ m() }}")
                     .render(Map.of()));
     assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
     assertEquals("Maximum macro call depth exceeded", error.getMessage());
@@ -996,6 +1018,37 @@ class InterpreterTest {
         Template.parse(
                 "{% for i in [1,2,3] %}{{ i }}{% filter upper %}{% break %}{% endfilter %}{% endfor %}")
             .render(Map.of()));
+  }
+
+  @Test
+  void filterBlockChargesOutputForBodyAndFilteredResultSeparately() {
+    // maxOutputLength bounds cumulative rendered characters, not final output size: the 6-char
+    // body is charged once inside evaluateBlock, then the 6-char filtered result is charged
+    // again, so a limit of 10 is exceeded even though the visible output is only 6 characters.
+    // Matches evaluateSet's pre-existing {% set x %}...{% endset %} block-capture behavior — not
+    // a regression introduced by filter/call blocks.
+    var options = se.alipsa.hfjinja.RenderOptions.builder().maxOutputLength(10).build();
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{% filter upper %}abcdef{% endfilter %}")
+                    .render(Map.of(), options));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+  }
+
+  @Test
+  void callBlockChargesOutputForBodyAndCalleeResultSeparately() {
+    var options = se.alipsa.hfjinja.RenderOptions.builder().maxOutputLength(10).build();
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse(
+                        "{% macro wrap() %}<{{ caller() }}>{% endmacro %}"
+                            + "{% call wrap() %}abcdef{% endcall %}")
+                    .render(Map.of(), options));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
   }
 
   @Test

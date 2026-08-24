@@ -36,6 +36,18 @@ public final class HostFunctions {
           "Host function '" + name + "' does not accept keyword arguments", null, location);
     }
 
+    // {% call %} unconditionally appends an empty keyword-arguments bag to every callee's
+    // argument list, including non-macro callees, to match upstream's own call-statement-vs-
+    // call-expression asymmetry (see Interpreter.evaluateCallStatement). Host functions have no
+    // such upstream contract and no template-visible way to construct a trailing empty
+    // KeywordArgumentsValue on their own, so strip it here rather than leak an interpreter-
+    // internal calling convention across the public HostFunction boundary.
+    if (!positionalArguments.isEmpty()
+        && positionalArguments.get(positionalArguments.size() - 1)
+            instanceof Value.KeywordArgumentsValue kwargs
+        && kwargs.values().isEmpty()) {
+      positionalArguments = positionalArguments.subList(0, positionalArguments.size() - 1);
+    }
     var convertedValues = new IdentityHashMap<Value, Object>();
     var sourceValues = new IdentityHashMap<Object, Value>();
     var arguments =

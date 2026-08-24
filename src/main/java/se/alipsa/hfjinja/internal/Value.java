@@ -108,9 +108,15 @@ public sealed interface Value
 
     @FunctionalInterface
     public interface Callable {
-      // environment is the call-site environment (upstream: FunctionValue's second `scope`
-      // argument), not the environment where the callee was defined. Builtins ignore it; macros
-      // and `caller()` use it as the parent of their own new scope.
+      /**
+       * @param arguments the positional arguments, possibly with a trailing {@link
+       *     KeywordArgumentsValue} bag
+       * @param hasKeywordArguments whether the caller actually supplied keyword arguments
+       * @param location the call-site source location, for diagnostics
+       * @param environment the call-site environment (upstream: {@code FunctionValue}'s second
+       *     {@code scope} argument), not the environment where the callee was defined. Builtins
+       *     ignore it; macros and {@code caller()} use it as the parent of their own new scope.
+       */
       Value invoke(
           List<Value> arguments,
           boolean hasKeywordArguments,
