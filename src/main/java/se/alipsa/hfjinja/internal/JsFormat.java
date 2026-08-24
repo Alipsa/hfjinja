@@ -179,6 +179,9 @@ public final class JsFormat {
 
   private static String jsonObjectSortKey(Object key, SourceLocation location) {
     if (key instanceof String string) return string;
+    // Known upstream divergence: with three or more keys including undefined, V8's sort callback
+    // dereferences undefined and throws. Keep this total ordering rather than reproducing that
+    // engine accident; it also keeps all entries representable by the Java object model.
     if (key instanceof Value.StringValue string && string.undefinedBacked()) return string.value();
     throw new TemplateRenderException("Object keys must be strings", ErrorCategory.TYPE, location);
   }

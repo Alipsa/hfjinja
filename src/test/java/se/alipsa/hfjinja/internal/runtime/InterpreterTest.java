@@ -771,7 +771,7 @@ class InterpreterTest {
   }
 
   @Test
-  void tojsonArguments_isKnownDivergenceFromUpstream() {
+  void tojsonIgnoresPositionalArguments() {
     assertEquals("[1, 2]", Template.parse("{{ [1,2] | tojson(*[9]) }}").render(Map.of()));
   }
 
