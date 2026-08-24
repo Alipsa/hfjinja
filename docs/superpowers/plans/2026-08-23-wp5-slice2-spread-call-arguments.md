@@ -77,12 +77,13 @@ that filter's own cap allows; see "Known gaps this slice leaves open" below.
   the arity-cap gap above, and Step 2's keyword-determinism regression below relies on this
   divergent rejection existing — so it must be named here, not left implicit. Use the same
   treatment: a comment at `requireNoUnknownKeywords`'s call sites referencing this section, and an
-  `InterpreterTest` case named `unknownFilterKeyword_isKnownDivergenceFromUpstream`. This shares its
-  template with Step 2's keyword-determinism regression — both drive
-  {{ 1 | int(a=1, b=2, c=3) }} — but they are intentionally two separate assertions on that one
-  input (VALUE category here vs. which key is reported there), not the same test under two names;
-  do not merge them, and do not write a third copy. No corpus record; closing this gap is separate
-  follow-up work.
+  `InterpreterTest` case named `unknownFilterKeyword_isKnownDivergenceFromUpstream` that drives
+  {{ 1 | int(a=1, b=2, c=3) }} and asserts the VALUE category. Step 2's keyword-determinism
+  regression below relies on this same divergent-rejection gap to exist at all, but exercises it
+  through a different template ({{ 1 | int(z=1, a=2, m=3) }}, asserting which key is reported) so
+  that its key choice can do the work described there; they are intentionally two separate
+  assertions of this one gap, not the same test under two names — do not merge them, and do not
+  write a third copy. No corpus record; closing this gap is separate follow-up work.
 - **tojson accepts zero arguments; upstream implements four.** `filterToJson` calls
   `requireNoArguments` (Interpreter.java:299), which throws `ARITY` on any positional or keyword
   argument at all, while upstream's tojson implements four real keywords (indent, ensure_ascii,
@@ -157,21 +158,29 @@ that filter's own cap allows; see "Known gaps this slice leaves open" below.
    integration test in this slice: Java's current filter keyword validation rejects that shape
    before last-value-wins behavior is observable.
 
-   Also add a regression documenting unknown-keyword reporting order: call a filter with two or
-   three unknown keywords, e.g. {{ 1 | int(a=1, b=2, c=3) }}, and assert the reported key is always
-   "a" — the first one in source order. This documents the intended LinkedHashMap-backed behavior
-   from Step 3, but treat it as a documentation aid, not a reliable regression guard: an
+   Also add a regression documenting unknown-keyword reporting order: call a filter with three
+   unknown keywords and assert the reported key is the first one in source order. Use
+   {{ 1 | int(z=1, a=2, m=3) }}, asserting the reported key is "z" — not {{ 1 | int(a=1, b=2, c=3) }}
+   asserting "a". The key choice matters: verified that under java.util.HashMap, [a,b,c] happens to
+   iterate as [a,b,c] (matching insertion order by coincidence for that specific set of short
+   strings), so an implementation that regressed to a plain HashMap would still pass that
+   assertion; [z,a,m] verified to iterate as [a,z,m] under HashMap, reporting "a" instead of the
+   source-order "z", so this template catches a HashMap regression directly rather than relying on
+   luck or on the separate guard below. This documents the intended LinkedHashMap-backed behavior
+   from Step 3, but treat it as a documentation aid, not a complete regression guard on its own: an
    implementation that used Map.copyOf instead would report a different key across JVM runs, but
    only intermittently (observed [a,c,b], [a,c,b], [b,a,c], [a,b,c], [c,b,a] across five runs of a
-   three-key Map.copyOf — the first key repeated in 2 of 5), so this single-run assertion would pass
-   against a broken implementation roughly a third of the time. Pair it with a deterministic guard:
-   add it as its own @Test method in InterpreterTest — not a separate test class — matching the
-   file-reading pattern in AstInventoryTest, asserting Interpreter.java contains no `Map.copyOf`
-   substring at all. It appears exactly once today, at the line 475 call this step replaces, so a
-   plain substring-absence check is simpler than and at least as strong as matching the exact
-   replacement statement text, with zero false positives now or after the refactor, and it catches
-   the regression on every run rather than by luck. Keeping it in InterpreterTest matters for
-   iteration: Step 5's targeted run filters to
+   three-key Map.copyOf — the first key repeated in 2 of 5), so a single-run assertion would pass
+   against a Map.copyOf regression roughly a third of the time regardless of key choice — that
+   failure mode is cross-run hash-seed randomization, not bucket order within one run, so no choice
+   of keys fixes it. Pair it with a deterministic guard: add it as its own @Test method in
+   InterpreterTest — not a separate test class — matching the file-reading pattern in
+   AstInventoryTest, asserting Interpreter.java contains no `Map.copyOf` substring at all. It
+   appears exactly once today, at the line 475 call this step replaces, so a plain
+   substring-absence check is simpler than and at least as strong as matching the exact replacement
+   statement text, with zero false positives now or after the refactor, and it catches the
+   Map.copyOf regression on every run rather than by luck. Keeping it in InterpreterTest matters
+   for iteration: Step 5's targeted run filters to
    'se.alipsa.hfjinja.internal.runtime.InterpreterTest', so a guard placed in a separate class would
    pass that command silently without ever running, even though the full `check` in Step 5 would
    still catch it. This substring check means any inline comment near the replacement must not
