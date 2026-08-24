@@ -1,5 +1,19 @@
 # Repository guidance
 
+## Build toolchain
+
+- The Gradle build requires **JDK 21** (`build.gradle` toolchain). Spotless bundles
+  `google-java-format` 1.28.0, which refuses to run on JVM 25+, so a newer default JDK fails at
+  `spotlessJava` with a `Cannot fingerprint input property 'stepsInternalEquality'` error rather
+  than a readable version message.
+- The Node oracle requires the **exact** version in `upstream/upstream-lock.json` (`nodeVersion`),
+  which `.nvmrc` already tracks. Run `nvm use` in the repo root; a mismatch fails
+  `:nodeOracleVersion`, which blocks `corpusCoverage`, `upstreamVerify`, and `check`.
+- Both failures look like build breakage rather than environment drift. Before concluding a change
+  is at fault, confirm `java -version` is 21 and `node --version` matches the lock.
+- Run `./gradlew spotlessApply` after editing Java sources, before `check` — `google-java-format`
+  reflows Javadoc differently than hand-written wrapping.
+
 ## Generated documentation
 
 - When generating Javadoc manually, write it only under `build/` or a temporary directory; never
