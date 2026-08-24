@@ -110,14 +110,14 @@ that filter's own cap allows; see "Known gaps this slice leaves open" below.
    | --- | --- |
    | range(*[1,4]) | [1, 2, 3] |
    | range(*(1,4)) | tuples expand as arrays |
-   | [1,2] | join(*['-']) | 1-2; filters share argument evaluation |
+   | [1,2] \| join(*['-']) | 1-2; filters share argument evaluation |
    | range(1, stop=4, *[2]) | [] |
    | range(*[raise_exception('boom')]) and nofn(*[raise_exception('boom')]) | spread evaluation precedes callee lookup/type validation |
    | range(*'14'), range(*{'a':1}), range(*none), and range(*missing) | Cannot unpack non-iterable type: ValueType |
    | range(*[[1,4]]) | []; expansion is exactly one level |
    | range(*[1,4], 9) | [1]; ordinary positional values after a spread remain positional |
    | range(*[1,4], *[9]) | [1]; multiple spreads append in source order |
-   | [1,2] | join(separator='-', *['+']) | 1+2; spread after a keyword bypasses the ordinary-after-keyword check |
+   | [1,2] \| join(separator='-', *['+']) | 1+2; spread after a keyword bypasses the ordinary-after-keyword check |
 
    Use separator, not sep, as the keyword name: requireNoUnknownKeywords(filter, location,
    "separator") (Interpreter.java:346) is join's only allowed keyword, so sep='-' throws VALUE
@@ -190,10 +190,11 @@ that filter's own cap allows; see "Known gaps this slice leaves open" below.
 
    Replace the duplicate loops in Interpreter.call and namedArguments with one helper returning
    immutable positional values and insertion-ordered keywords. The helper must return positional
-   values with List.copyOf and keywords with
-   Collections.unmodifiableMap(new LinkedHashMap<>(keywords)); never use Map.copyOf, whose
-   iteration order is not the source insertion order. Evaluate each source argument exactly once
-   in source order:
+   values with List.copyOf. For keywords, build them into a method-local LinkedHashMap and wrap
+   that map directly with Collections.unmodifiableMap when non-empty (Map.of() when empty) — no
+   second copy is needed, since the local map never escapes the helper by any other path. Never
+   use Map.copyOf, whose iteration order is not the source insertion order. Evaluate each source
+   argument exactly once in source order:
 
    - KeywordArgumentExpression: evaluate its value and overwrite an earlier duplicate key.
    - SpreadExpression: evaluate argument(), accept ArrayValue and TupleValue, and append its
