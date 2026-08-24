@@ -674,26 +674,32 @@ class InterpreterTest {
     assertEquals("Cannot unpack non-iterable type: StringValue", error.getMessage());
     assertEquals(new SourceLocation(9, 1, 10), error.location().orElseThrow());
 
-    assertEquals(
-        "Cannot unpack non-iterable type: ObjectValue",
-        raisedMessage("{{ range(*{'a':1}) }}", Map.of()));
-    assertEquals(
-        "Cannot unpack non-iterable type: NullValue",
-        raisedMessage("{{ range(*none) }}", Map.of()));
-    assertEquals(
-        "Cannot unpack non-iterable type: UndefinedValue",
-        raisedMessage("{{ range(*missing) }}", Map.of()));
+    assertSpreadReceiverTypeError("{{ range(*{'a':1}) }}", "ObjectValue");
+    assertSpreadReceiverTypeError("{{ range(*none) }}", "NullValue");
+    assertSpreadReceiverTypeError("{{ range(*missing) }}", "UndefinedValue");
+  }
+
+  private static void assertSpreadReceiverTypeError(String source, String valueType) {
+    var error =
+        assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals("Cannot unpack non-iterable type: " + valueType, error.getMessage());
   }
 
   @Test
   void unknownFilterKeywordReportsFirstKeyInSourceOrder() {
+    // z, a, m is deliberately not alphabetical: under java.util.HashMap these three short string
+    // keys iterate as [a, z, m], reporting "a" first instead of the source-order "z" — so this
+    // assertion fails if the implementation regresses from an insertion-ordered map to a HashMap.
+    // (a, b, c would not catch that regression: HashMap happens to iterate that set in the same
+    // order it was inserted.)
     assertEquals(
-        "Unknown `int` filter argument: a",
-        raisedMessage("{{ 1 | int(a=1, b=2, c=3) }}", Map.of()));
+        "Unknown `int` filter argument: z",
+        raisedMessage("{{ 1 | int(z=1, a=2, m=3) }}", Map.of()));
   }
 
   @Test
-  void interpreterNeverUsesInsertionOrderUnsafeMapCopy() throws Exception {
+  void interpreterSourceContainsNoMapCopyOfSubstring() throws Exception {
     var source =
         Files.readString(
             Path.of("src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java"));

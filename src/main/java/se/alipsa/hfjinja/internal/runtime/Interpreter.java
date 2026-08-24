@@ -497,9 +497,10 @@ public final class Interpreter {
       List<Expression> args, Environment env, RenderBudget budget) {
     var positional = new ArrayList<Value>();
     // LinkedHashMap preserves source insertion order so error reporting stays deterministic; the
-    // returned map is wrapped unmodifiable rather than copied via a order-agnostic Map factory —
-    // see this plan's Step 2 source guard in
-    // docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md.
+    // returned map wraps this local unmodifiable rather than copying it via an order-agnostic Map
+    // factory — see this plan's Step 2 source guard in
+    // docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md. keywords never
+    // escapes this method otherwise, so wrapping it directly is safe.
     var keywords = new LinkedHashMap<String, Value>();
     boolean sawKeyword = false;
     for (var argument : args) {
@@ -525,7 +526,8 @@ public final class Interpreter {
       }
     }
     return new EvaluatedArguments(
-        List.copyOf(positional), Collections.unmodifiableMap(new LinkedHashMap<>(keywords)));
+        List.copyOf(positional),
+        keywords.isEmpty() ? Map.of() : Collections.unmodifiableMap(keywords));
   }
 
   private static void requireNoArguments(NamedArguments arguments, SourceLocation location) {
