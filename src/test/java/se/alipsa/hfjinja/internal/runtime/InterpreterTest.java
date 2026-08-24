@@ -5,11 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -356,6 +358,12 @@ class InterpreterTest {
     assertEquals(
         "EMPTY",
         Template.parse("{% for x in [1, 2] if false %}{{ x }}{% else %}EMPTY{% endfor %}")
+            .render(Map.of()));
+    assertEquals(
+        "1|3",
+        Template.parse(
+                "{% set xs = [{'x': ''}, {'x': false}, {'x': []}, {'x': 'a'}] %}"
+                    + "{{ xs|selectattr('x')|length }}|{{ xs|rejectattr('x')|length }}")
             .render(Map.of()));
   }
 
@@ -1135,5 +1143,139 @@ class InterpreterTest {
                     .render(Map.of()));
     assertEquals(ErrorCategory.TYPE, error.category());
     assertEquals("Unknown filter: f", error.getMessage());
+  }
+
+  @Test
+  void supportsMistralSelectattrFiltersAndSharedTests() {
+    assertEquals(
+        "a|b|",
+        Template.parse(
+                "{% set xs = [{'x': 'a'}, {'x': 1}, {'x': 'b'}] %}"
+                    + "{% for x in xs|selectattr('x', 'string') %}{{ x.x }}|{% endfor %}")
+            .render(Map.of()));
+    assertEquals(
+        "2",
+        Template.parse("{% set xs = ({'x': 'a'}, {'x': 'b'}) %}{{ xs|selectattr('x')|length }}")
+            .render(Map.of()));
+    assertEquals(
+        "true",
+        Template.parse(
+                "{{ [{'n': '1'}, {'n': 1}, {'n': true}]|selectattr('n', 'equalto', 1)|length == 1 }}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void supportsMistralListStringAndObjectItems() {
+    assertEquals(
+        "[1, 2]|true",
+        Template.parse("{{ [1, 2]|list }}|{{ (1, 2)|list is sequence }}").render(Map.of()));
+    assertEquals(
+        "a=1,b=2,",
+        Template.parse(
+                "{% for key, value in {'a': 1, 'b': 2}.items() %}{{ key }}={{ value }},{% endfor %}")
+            .render(Map.of()));
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1}|string }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    var tupleError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ (1, 2)|string }}").render(Map.of()));
+    assertEquals("Cannot convert to JSON: TupleValue", tupleError.getMessage());
+    assertEquals(
+        "true", Template.parse("{% set o = {'a': 1} %}{{ o.items == o.items }}").render(Map.of()));
+  }
+
+  @Test
+  void rendersRetainedModelTemplateResources() throws Exception {
+    var mistral =
+        new String(
+            getClass()
+                .getResourceAsStream("/model-templates/mistral-7b-instruct-v0.3.jinja")
+                .readAllBytes(),
+            StandardCharsets.UTF_8);
+    assertEquals(
+        "<s>[INST] Hello![/INST] Hi!</s>",
+        Template.parse(mistral)
+            .render(
+                Map.of(
+                    "bos_token",
+                    "<s>",
+                    "eos_token",
+                    "</s>",
+                    "messages",
+                    java.util.List.of(
+                        Map.of("role", "user", "content", "Hello!"),
+                        Map.of("role", "assistant", "content", "Hi!")))));
+    var function =
+        orderedMap(
+            "name",
+            "get_weather",
+            "description",
+            "Get weather",
+            "parameters",
+            orderedMap(
+                "type",
+                "object",
+                "properties",
+                orderedMap("city", orderedMap("type", "string")),
+                "required",
+                java.util.List.of("city")),
+            "return",
+            orderedMap("type", "string"));
+    assertEquals(
+        "<s>[INST] What is the weather?[/INST][TOOL_CALLS] [{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Paris\"}, \"id\": \"abcdefghi\"}]</s>[TOOL_RESULTS] {\"content\": sunny, \"call_id\": \"abcdefghi\"}[/TOOL_RESULTS] It is sunny.</s>[AVAILABLE_TOOLS] [{\"type\": \"function\", \"function\": {\"name\": \"get_weather\", \"description\": \"Get weather\", \"parameters\": {\"type\": \"object\", \"properties\": {\"city\": {\"type\": \"string\"}}, \"required\": [\"city\"]}}}][/AVAILABLE_TOOLS][INST] What is the weather?[/INST]",
+        Template.parse(mistral)
+            .render(
+                Map.of(
+                    "bos_token",
+                    "<s>",
+                    "eos_token",
+                    "</s>",
+                    "tools",
+                    java.util.List.of(orderedMap("type", "function", "function", function)),
+                    "messages",
+                    java.util.List.of(
+                        orderedMap("role", "user", "content", "What is the weather?"),
+                        orderedMap(
+                            "role",
+                            "assistant",
+                            "tool_calls",
+                            java.util.List.of(
+                                orderedMap(
+                                    "id",
+                                    "abcdefghi",
+                                    "function",
+                                    orderedMap(
+                                        "name",
+                                        "get_weather",
+                                        "arguments",
+                                        orderedMap("city", "Paris"))))),
+                        orderedMap("role", "tool", "content", "sunny", "tool_call_id", "abcdefghi"),
+                        orderedMap("role", "assistant", "content", "It is sunny."),
+                        orderedMap("role", "user", "content", "What is the weather?")))));
+    var qwen =
+        new String(
+            getClass()
+                .getResourceAsStream("/model-templates/qwen2.5-32b-instruct.jinja")
+                .readAllBytes(),
+            StandardCharsets.UTF_8);
+    assertEquals(
+        "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nHello!<|im_end|>\n<|im_start|>assistant\n",
+        Template.parse(qwen)
+            .render(
+                Map.of(
+                    "add_generation_prompt",
+                    true,
+                    "messages",
+                    java.util.List.of(Map.of("role", "user", "content", "Hello!")))));
+  }
+
+  private static Map<String, Object> orderedMap(Object... entries) {
+    var result = new LinkedHashMap<String, Object>();
+    for (int i = 0; i < entries.length; i += 2) result.put((String) entries[i], entries[i + 1]);
+    return result;
   }
 }

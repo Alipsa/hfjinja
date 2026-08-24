@@ -289,6 +289,10 @@ public final class Interpreter {
           filterString(operand, filter, location, value -> value.toUpperCase(Locale.ROOT));
       case "trim" -> filterString(operand, filter, location, JsOperations::trimEcmaWhitespace);
       case "join" -> filterJoin(operand, filter, location);
+      case "list" -> filterList(operand, filter, location);
+      case "string" -> filterToString(operand, filter, location);
+      case "selectattr" -> filterSelectAttr(operand, filter, location, true);
+      case "rejectattr" -> filterSelectAttr(operand, filter, location, false);
       case "int" -> filterNumber(operand, filter, location, true);
       case "float" -> filterNumber(operand, filter, location, false);
       default -> throw filterType("Unknown filter: " + filter.name(), location);
@@ -298,25 +302,7 @@ public final class Interpreter {
   private static Value test(
       Expression.TestExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
-    boolean result =
-        switch (expression.test().value()) {
-          case "defined" -> !undefinedLike(operand);
-          case "undefined" -> undefinedLike(operand);
-          case "none" -> operand instanceof Value.NullValue;
-          case "boolean" -> operand instanceof Value.BooleanValue;
-          case "number" -> JsOperations.numeric(operand);
-          case "string" -> operand instanceof Value.StringValue string && !string.undefinedBacked();
-          case "iterable" ->
-              operand instanceof Value.ArrayValue
-                  || operand instanceof Value.StringValue string && !string.undefinedBacked();
-          case "sequence" ->
-              operand instanceof Value.ArrayValue
-                  || operand instanceof Value.TupleValue
-                  || operand instanceof Value.ObjectValue
-                  || operand instanceof Value.StringValue string && !string.undefinedBacked();
-          default ->
-              throw filterType("Unknown test: " + expression.test().value(), expression.location());
-        };
+    boolean result = namedTest(expression.test().value(), operand, null, expression.location());
     return new Value.BooleanValue(expression.negate() ? !result : result);
   }
 
@@ -407,6 +393,99 @@ public final class Interpreter {
         values.stream()
             .map(v -> joinText(v, location))
             .collect(java.util.stream.Collectors.joining(string.value())));
+  }
+
+  private static Value filterList(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    if (operand instanceof Value.ArrayValue array) return array;
+    if (operand instanceof Value.TupleValue tuple) return tuple;
+    throw filterReceiver("list", operand, location);
+  }
+
+  private static Value filterToString(
+      Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    if (operand instanceof Value.StringValue string) return string;
+    if (operand instanceof Value.ArrayValue
+        || operand instanceof Value.TupleValue
+        || operand instanceof Value.IntegerValue
+        || operand instanceof Value.FloatValue
+        || operand instanceof Value.BooleanValue)
+      return new Value.StringValue(renderText(operand, location));
+    throw filterReceiver("string", operand, location);
+  }
+
+  private static Value filterSelectAttr(
+      Value operand, NamedArguments filter, SourceLocation location, boolean select) {
+    if (!filter.keywords().isEmpty())
+      throw new TemplateRenderException(
+          "`" + filter.name() + "` filter does not accept keyword arguments",
+          ErrorCategory.ARITY,
+          location);
+    if (filter.positional().isEmpty() || filter.positional().size() > 3)
+      throw new TemplateRenderException(
+          "`" + filter.name() + "` filter requires 1 to 3 arguments",
+          ErrorCategory.ARITY,
+          location);
+    List<Value> values;
+    if (operand instanceof Value.ArrayValue array) values = array.values();
+    else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
+    else throw filterReceiver(filter.name(), operand, location);
+    for (var item : values)
+      if (!(item instanceof Value.ObjectValue))
+        throw new TemplateRenderException(
+            "`" + filter.name() + "` can only be applied to array of objects",
+            ErrorCategory.TYPE,
+            location);
+    var attr = requireFilterString(filter, 0, location);
+    String testName =
+        filter.positional().size() > 1 ? requireFilterString(filter, 1, location).value() : null;
+    Value comparison = filter.positional().size() > 2 ? filter.positional().get(2) : null;
+    var result = new ArrayList<Value>();
+    for (var item : values) {
+      var attrValue = ((Value.ObjectValue) item).values().get(attr.value());
+      boolean matched =
+          attrValue != null
+              && (testName == null
+                  ? truthy(attrValue)
+                  : namedTest(testName, attrValue, comparison, location));
+      if (matched == select) result.add(item);
+    }
+    return new Value.ArrayValue(result);
+  }
+
+  private static Value.StringValue requireFilterString(
+      NamedArguments filter, int index, SourceLocation location) {
+    var value = filter.positional().get(index);
+    if (value instanceof Value.StringValue string && !string.undefinedBacked()) return string;
+    throw new TemplateRenderException(
+        "`" + filter.name() + "` arguments must be strings", ErrorCategory.TYPE, location);
+  }
+
+  private static boolean namedTest(
+      String name, Value value, Value comparison, SourceLocation location) {
+    return switch (name) {
+      case "equalto", "eq" -> {
+        if (comparison == null)
+          throw filterType("`" + name + "` test requires a comparison value", location);
+        yield JsOperations.strictEquals(value, comparison);
+      }
+      case "defined" -> !undefinedLike(value);
+      case "undefined" -> undefinedLike(value);
+      case "none" -> value instanceof Value.NullValue;
+      case "boolean" -> value instanceof Value.BooleanValue;
+      case "number" -> JsOperations.numeric(value);
+      case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "iterable" ->
+          value instanceof Value.ArrayValue
+              || value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "sequence" ->
+          value instanceof Value.ArrayValue
+              || value instanceof Value.TupleValue
+              || value instanceof Value.ObjectValue
+              || value instanceof Value.StringValue string && !string.undefinedBacked();
+      default -> throw filterType("Unknown test: " + name, location);
+    };
   }
 
   private static String joinText(Value value, SourceLocation location) {
@@ -661,7 +740,10 @@ public final class Interpreter {
     if (target instanceof Value.ObjectValue x) {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
-      return x.values().getOrDefault(objectKey(s), Value.UndefinedValue.INSTANCE);
+      var key = objectKey(s);
+      if (x.values().containsKey(key)) return x.values().get(key);
+      if (!s.undefinedBacked() && "items".equals(s.value())) return objectItemsBuiltin(x);
+      return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
       if (!(p instanceof Value.StringValue s))
@@ -685,6 +767,25 @@ public final class Interpreter {
     if (!(p instanceof Value.StringValue))
       throw access("Cannot access property with non-string: got " + type(p), n.location());
     return Value.UndefinedValue.INSTANCE;
+  }
+
+  private static Value objectItemsBuiltin(Value.ObjectValue object) {
+    if (object.itemsBuiltin() != null) return object.itemsBuiltin();
+    var builtin =
+        new Value.CallableValue(
+            (arguments, hasKeywords, location, environment) -> {
+              var pairs = new ArrayList<Value>();
+              for (var entry : object.values().entrySet()) {
+                var key =
+                    entry.getKey() instanceof Value.StringValue string
+                        ? string
+                        : new Value.StringValue((String) entry.getKey());
+                pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
+              }
+              return new Value.ArrayValue(pairs);
+            });
+    object.setItemsBuiltin(builtin);
+    return builtin;
   }
 
   private static Value slice(

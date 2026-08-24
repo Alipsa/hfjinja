@@ -69,6 +69,7 @@ public sealed interface Value
   /** Mutable by design for template member assignment; never use as a hash-based key. */
   final class ObjectValue implements Value {
     private final Map<Object, Value> values;
+    private CallableValue itemsBuiltin;
 
     public ObjectValue(Map<?, Value> values) {
       this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
@@ -76,6 +77,14 @@ public sealed interface Value
 
     public Map<Object, Value> values() {
       return values;
+    }
+
+    public CallableValue itemsBuiltin() {
+      return itemsBuiltin;
+    }
+
+    public void setItemsBuiltin(CallableValue itemsBuiltin) {
+      this.itemsBuiltin = itemsBuiltin;
     }
 
     @Override

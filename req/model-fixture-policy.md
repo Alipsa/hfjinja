@@ -16,12 +16,12 @@ exact model repository, immutable revision, template path, and applicable licens
 
 ## Current fixture set
 
-No model chat-template text or model-derived output is committed. The model-bearing upstream README
-and e2e fixture are intentionally not vendored because their template text and outputs are not
-covered by this policy. The first Llama case may retain only the hash-only metadata, self-authored
-test context, and an error category where applicable. The first retained Qwen or Mistral case must
-add its source record and license notice in the same change; copied templates and generated output
-are not implicitly covered by the upstream MIT notice.
+The retained Mistral-7B-Instruct-v0.3 and Qwen2.5-32B-Instruct template resources are the first
+approved Qwen/Mistral cases. Their pinned source records, Apache-2.0 notices, and model-card
+attribution are recorded in NOTICE in this same change; copied templates and generated output are
+not implicitly covered by the upstream MIT notice. The model-bearing upstream README and e2e fixture
+remain intentionally unvendored. The first Llama case may retain only hash-only metadata,
+self-authored test context, and an error category where applicable.
 
 ## Sources reviewed
 
@@ -29,7 +29,11 @@ Reviewed 2026-08-19:
 
 - [Qwen/Qwen2.5-32B-Instruct license at `afb2829`](https://huggingface.co/Qwen/Qwen2.5-32B-Instruct/blob/afb2829595f63efa3548e9d6b13aa66e61aa0f38/LICENSE)
   — Apache-2.0.
+- [Qwen/Qwen2.5-32B-Instruct model card at `afb2829`](https://huggingface.co/Qwen/Qwen2.5-32B-Instruct/blob/afb2829595f63efa3548e9d6b13aa66e61aa0f38/README.md)
+  — attribution source.
 - [mistralai/Mistral-7B-Instruct-v0.3 at `c170c70`](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/tree/c170c708c41dac9275d15a8fff4eca08d52bab71)
   — directly confirmed as a Git commit; its `README.md` metadata declares Apache-2.0.
+- [mistralai/Mistral-7B-Instruct-v0.3 model card at `c170c70`](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/blob/c170c708c41dac9275d15a8fff4eca08d52bab71/README.md)
+  — attribution source.
 - [Meta Llama 3.1 Community License](https://www.llama.com/llama3_1/license/)
   — used only to establish the review-required default; no Llama material is retained.
