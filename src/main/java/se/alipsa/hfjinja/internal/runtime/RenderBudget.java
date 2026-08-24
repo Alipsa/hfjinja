@@ -34,6 +34,10 @@ final class RenderBudget {
       fail("Maximum loop iterations exceeded", location);
   }
 
+  int remainingOutputLength() {
+    return (int) Math.max(0, options.maxOutputLength() - output);
+  }
+
   // Unlike the counters above (monotonic totals), macro depth must go up on entry and back down
   // on exit. Checking before incrementing (rather than incrementing then checking, as the other
   // charge*() methods do) means the throwing path never touches macroDepth at all, so a caller

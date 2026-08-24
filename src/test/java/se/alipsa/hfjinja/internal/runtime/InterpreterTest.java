@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -261,11 +262,7 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ 'x' | trim(1) }}").render(Map.of()));
     assertEquals(ErrorCategory.ARITY, arity.category());
-    var toJsonArgument =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ {} | tojson(indent=2) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, toJsonArgument.category());
+    assertEquals("{\n}", Template.parse("{{ {} | tojson(indent=2) }}").render(Map.of()));
     var defaultFlag =
         assertThrows(
             TemplateRenderException.class,
@@ -774,13 +771,87 @@ class InterpreterTest {
   }
 
   @Test
-  void tojsonArguments_isKnownDivergenceFromUpstream() {
+  void tojsonIgnoresPositionalArguments() {
+    assertEquals("[1, 2]", Template.parse("{{ [1,2] | tojson(*[9]) }}").render(Map.of()));
+  }
+
+  @Test
+  void supportsMappingTestAndTojsonCallOptions() {
+    assertEquals(
+        "false|true|true|true|true|true|true|false|true|true|false|true",
+        Template.parse(
+                "{{ none is mapping }}|{{ {} is mapping }}|{% set empty = namespace() %}{{ empty is mapping }}|"
+                    + "{% set populated = namespace(x=1) %}{{ populated is mapping }}|"
+                    + "{{ [] is not mapping }}|{{ (1, 2) is not mapping }}|{{ 'x' is not mapping }}|"
+                    + "{{ {} is iterable }}|{{ [] is iterable }}|{{ 'x' is iterable }}|{{ (1, 2) is iterable }}|"
+                    + "{{ populated is sequence }}")
+            .render(Map.of()));
+    assertEquals(
+        "{\"k\\u00e4\": \"v\\u007f\\ud83d\\ude00\"}",
+        Template.parse("{{ {'k\u00e4': 'v\u007f😀'} | tojson(ensure_ascii=True) }}")
+            .render(Map.of()));
+    assertEquals(
+        "{\"a\": 1}", Template.parse("{{ {'a': 1} | tojson(indent=0) }}").render(Map.of()));
+    assertEquals(
+        "{\n  \"a\": [\n    \n  ],\n  \"b\": {\n  }\n}",
+        Template.parse("{{ {'a': [], 'b': {}} | tojson(indent=2) }}").render(Map.of()));
+    assertEquals(
+        "{\n  \"a\"=1;\n  \"b\"=2\n}",
+        Template.parse("{{ {'a': 1, 'b': 2} | tojson(indent=2, separators=(';', '=')) }}")
+            .render(Map.of()));
+    assertEquals(
+        "{\"_\": 5, \"a\": 3, \"ä\": 2, \"B\": 4, \"z\": 1}",
+        Template.parse("{{ {'z': 1, 'ä': 2, 'a': 3, 'B': 4, '_': 5} | tojson(sort_keys=true) }}")
+            .render(Map.of()));
+    assertEquals(
+        "{\"á\": 1, \"á\": 2}",
+        Template.parse("{{ {'\u00e1': 1, 'a\u0301': 2} | tojson(sort_keys=true) }}")
+            .render(Map.of()));
+    assertEquals(
+        "{\"a\": 2, undefined: 1}",
+        Template.parse("{{ {'abc'[9]: 1, 'a': 2} | tojson(sort_keys=true) }}").render(Map.of()));
+    assertEquals(
+        "[, 1]|[1,2]|{\"a\"undefined1}",
+        Template.parse(
+                "{{ ['abc'[9], 1] | tojson }}|"
+                    + "{{ [1, 2] | tojson(separators=('abc'[9], ':')) }}|"
+                    + "{{ {'a': 1} | tojson(separators=(',', 'abc'[9])) }}")
+            .render(Map.of()));
+    assertEquals(
+        "\"x\"|5|null",
+        Template.parse(
+                "{{ 'x' | tojson(indent=-1) }}|{{ 5 | tojson(indent=-1) }}|{{ none | tojson(indent=-1) }}")
+            .render(Map.of()));
+    assertEquals(
+        "{\"a\": 1, \"b\": 2}|[1, 2]|{\"a\": [1]}",
+        Template.parse(
+                "{{ {'a': 1, 'b': 2} | tojson(indent=0 % 0) }}|"
+                    + "{{ [1, 2] | tojson(indent=0 % 0) }}|"
+                    + "{{ {'a': [1]} | tojson(indent=0 % 0) }}")
+            .render(Map.of()));
     var error =
         assertThrows(
             TemplateRenderException.class,
-            () -> Template.parse("{{ [1,2] | tojson(*[9]) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, error.category());
-    assertEquals("`tojson` filter accepts no arguments", error.getMessage());
+            () -> Template.parse("{{ {} | tojson(indent=-1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.VALUE, error.category());
+    assertEquals("Invalid count value: -1", error.getMessage());
+    var hugeIndent =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1} | tojson(indent=4294967298) }}").render(Map.of()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, hugeIndent.category());
+    var nestedIndent =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ {'a': {'b': 1}} | tojson(indent=10) }}")
+                    .render(Map.of(), RenderOptions.builder().maxOutputLength(20).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, nestedIndent.category());
+    var typeError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {} | tojson(ensure_ascii=1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, typeError.category());
   }
 
   @Test
@@ -1190,12 +1261,7 @@ class InterpreterTest {
 
   @Test
   void rendersRetainedModelTemplateResources() throws Exception {
-    var mistral =
-        new String(
-            getClass()
-                .getResourceAsStream("/model-templates/mistral-7b-instruct-v0.3.jinja")
-                .readAllBytes(),
-            StandardCharsets.UTF_8);
+    var mistral = resource("mistral-7b-instruct-v0.3.jinja");
     assertEquals(
         "<s>[INST] Hello![/INST] Hi!</s>",
         Template.parse(mistral)
@@ -1256,12 +1322,7 @@ class InterpreterTest {
                         orderedMap("role", "tool", "content", "sunny", "tool_call_id", "abcdefghi"),
                         orderedMap("role", "assistant", "content", "It is sunny."),
                         orderedMap("role", "user", "content", "What is the weather?")))));
-    var qwen =
-        new String(
-            getClass()
-                .getResourceAsStream("/model-templates/qwen2.5-32b-instruct.jinja")
-                .readAllBytes(),
-            StandardCharsets.UTF_8);
+    var qwen = resource("qwen2.5-32b-instruct.jinja");
     assertEquals(
         "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nHello!<|im_end|>\n<|im_start|>assistant\n",
         Template.parse(qwen)
@@ -1271,6 +1332,76 @@ class InterpreterTest {
                     true,
                     "messages",
                     java.util.List.of(Map.of("role", "user", "content", "Hello!")))));
+  }
+
+  @Test
+  void rendersStep3MacroHeavyTemplate() throws Exception {
+    var tool =
+        orderedMap(
+            "type",
+            "function",
+            "function",
+            orderedMap(
+                "name",
+                "get_weather",
+                "description",
+                "Météo",
+                "parameters",
+                orderedMap(
+                    "type",
+                    "object",
+                    "properties",
+                    orderedMap("city", orderedMap("type", "string")),
+                    "required",
+                    java.util.List.of("city"))));
+    var context =
+        orderedMap(
+            "bos_token",
+            "<s>",
+            "tools",
+            java.util.List.of(tool),
+            "messages",
+            java.util.List.of(
+                orderedMap("role", "system", "content", "You are helpful."),
+                orderedMap("role", "tool_description", "content", "Use tools."),
+                orderedMap(
+                    "role",
+                    "user",
+                    "content",
+                    java.util.List.of(
+                        orderedMap("type", "text", "text", "What is the weather?"),
+                        orderedMap("type", "image"))),
+                orderedMap(
+                    "role",
+                    "assistant",
+                    "content",
+                    "Checking",
+                    "tool_calls",
+                    java.util.List.of(
+                        orderedMap(
+                            "type",
+                            "function",
+                            "function",
+                            orderedMap(
+                                "name",
+                                "get_weather",
+                                "arguments",
+                                orderedMap("city", "Paris", "unit", "C"))))),
+                orderedMap(
+                    "role",
+                    "tool_response",
+                    "content",
+                    java.util.List.of(orderedMap("text", "sunny")))));
+    assertEquals(
+        resource("step3-tooluse.expected.txt"),
+        Template.parse(resource("step3.jinja")).render(context));
+  }
+
+  private String resource(String name) throws Exception {
+    try (InputStream input = getClass().getResourceAsStream("/model-templates/" + name)) {
+      if (input == null) throw new AssertionError("Missing model template resource: " + name);
+      return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+    }
   }
 
   private static Map<String, Object> orderedMap(Object... entries) {

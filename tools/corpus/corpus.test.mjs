@@ -132,6 +132,36 @@ test('uses fixed English collation when locale-sensitive sorting is rendered', a
   assert.match(result.stdout, /PASS default-collation/);
 });
 
+test('pins the Step3 macro-heavy resource and tool-use golden against the Node oracle', async () => {
+  const template = await readFile('src/test/resources/model-templates/step3.jinja', 'utf8');
+  const expected = await readFile('src/test/resources/model-templates/step3-tooluse.expected.txt', 'utf8');
+  assert.equal(template.length, 2847);
+  assert.equal(sha256Utf8(template), 'fc7bfeffd0dcee65d97834d2f0d60fb81c5db9f3e2567d038e3437f2bbdd54ca');
+  const tool = {
+    type: 'function', function: {
+      name: 'get_weather', description: 'Météo', parameters: {
+        type: 'object', properties: {city: {type: 'string'}}, required: ['city'],
+      },
+    },
+  };
+  const result = await runOracle([{
+    id: 'step3-macro-heavy-tooluse', source: 'self-authored context; retained model resource',
+    template, context: {
+      bos_token: '<s>', tools: [tool], messages: [
+        {role: 'system', content: 'You are helpful.'},
+        {role: 'tool_description', content: 'Use tools.'},
+        {role: 'user', content: [{type: 'text', text: 'What is the weather?'}, {type: 'image'}]},
+        {role: 'assistant', content: 'Checking', tool_calls: [{
+          type: 'function', function: {name: 'get_weather', arguments: {city: 'Paris', unit: 'C'}},
+        }]},
+        {role: 'tool_response', content: [{text: 'sunny'}]},
+      ],
+    }, expected: {text: expected},
+  }]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /PASS step3-macro-heavy-tooluse/);
+});
+
 async function runOracle(records, environment = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-'));
   const corpus = join(directory, 'corpus.jsonl');

@@ -3,8 +3,12 @@ package se.alipsa.hfjinja.internal;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.text.Collator;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.SourceLocation;
@@ -14,6 +18,23 @@ import se.alipsa.hfjinja.TemplateRenderException;
 @SuppressWarnings("doclint:missing")
 public final class JsFormat {
   private JsFormat() {}
+
+  /** Options accepted by the {@code tojson} filter. */
+  public record JsonOptions(
+      Double indent,
+      boolean ensureAscii,
+      boolean sortKeys,
+      JsonSeparators separators,
+      int maxOutputLength) {
+    public static JsonOptions defaults() {
+      return new JsonOptions(null, false, false, null, Integer.MAX_VALUE);
+    }
+  }
+
+  /**
+   * Custom item and key separators for {@code tojson}; either value may be JavaScript undefined.
+   */
+  public record JsonSeparators(String item, String key) {}
 
   /**
    * Formats a number for JSON.
@@ -53,8 +74,15 @@ public final class JsFormat {
   /** Renders a runtime value using the project's JSON-compatible value representation. */
   public static String runtimeJson(
       Value value, SourceLocation location, boolean convertUndefinedToNull) {
+    return runtimeJson(value, location, convertUndefinedToNull, JsonOptions.defaults());
+  }
+
+  /** Renders a runtime value using the project's JSON-compatible value representation. */
+  public static String runtimeJson(
+      Value value, SourceLocation location, boolean convertUndefinedToNull, JsonOptions options) {
     var rendered =
-        runtimeJsonValue(value, location, new IdentityHashMap<>(), convertUndefinedToNull);
+        runtimeJsonValue(
+            value, location, new IdentityHashMap<>(), convertUndefinedToNull, options, 0);
     return rendered == null ? "undefined" : rendered;
   }
 
@@ -62,18 +90,21 @@ public final class JsFormat {
       Value value,
       SourceLocation location,
       IdentityHashMap<Value, Boolean> visiting,
-      boolean convertUndefinedToNull) {
+      boolean convertUndefinedToNull,
+      JsonOptions options,
+      int depth) {
     return switch (value) {
       case Value.NullValue ignored -> "null";
       case Value.UndefinedValue ignored -> convertUndefinedToNull ? "null" : "undefined";
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> jsonString(x.value());
       case Value.FloatValue x -> jsonString(x.value());
-      case Value.StringValue x -> x.undefinedBacked() ? null : quote(x.value());
+      case Value.StringValue x ->
+          x.undefinedBacked() ? null : quote(x.value(), options.ensureAscii());
       case Value.ArrayValue x ->
-          jsonArray(x.values(), location, visiting, x, convertUndefinedToNull);
+          jsonArray(x.values(), location, visiting, x, convertUndefinedToNull, options, depth);
       case Value.ObjectValue x ->
-          jsonObject(x.values(), location, visiting, x, convertUndefinedToNull);
+          jsonObject(x.values(), location, visiting, x, convertUndefinedToNull, options, depth);
       case Value.TupleValue ignored -> jsonUnsupported("TupleValue", location);
       case Value.KeywordArgumentsValue ignored ->
           jsonUnsupported("KeywordArgumentsValue", location);
@@ -91,16 +122,20 @@ public final class JsFormat {
       SourceLocation location,
       IdentityHashMap<Value, Boolean> visiting,
       Value container,
-      boolean convertUndefinedToNull) {
+      boolean convertUndefinedToNull,
+      JsonOptions options,
+      int depth) {
     enterJson(container, visiting, location);
     try {
-      var result = new StringBuilder("[");
+      var rendered = new ArrayList<String>();
       for (int i = 0; i < values.size(); i++) {
-        if (i > 0) result.append(", ");
-        var rendered = runtimeJsonValue(values.get(i), location, visiting, convertUndefinedToNull);
-        if (rendered != null) result.append(rendered);
+        var item =
+            runtimeJsonValue(
+                values.get(i), location, visiting, convertUndefinedToNull, options, depth + 1);
+        // Array.join preserves an undefined element as an empty slot, rather than removing it.
+        rendered.add(item == null ? "" : item);
       }
-      return result.append(']').toString();
+      return jsonContainer("[", "]", rendered, options, depth, true, location);
     } finally {
       visiting.remove(container);
     }
@@ -111,29 +146,123 @@ public final class JsFormat {
       SourceLocation location,
       IdentityHashMap<Value, Boolean> visiting,
       Value container,
-      boolean convertUndefinedToNull) {
+      boolean convertUndefinedToNull,
+      JsonOptions options,
+      int depth) {
     enterJson(container, visiting, location);
     try {
-      var result = new StringBuilder("{");
-      boolean first = true;
-      for (var entry : values.entrySet()) {
-        if (!first) result.append(", ");
-        first = false;
-        result.append(jsonObjectKey(entry.getKey())).append(": ");
-        var rendered =
-            runtimeJsonValue(entry.getValue(), location, visiting, convertUndefinedToNull);
-        result.append(rendered == null ? "undefined" : rendered);
+      var entries = new ArrayList<>(values.entrySet());
+      if (options.sortKeys()) {
+        var collator = Collator.getInstance(Locale.US);
+        entries.sort(
+            Comparator.comparing(entry -> jsonObjectSortKey(entry.getKey(), location), collator));
       }
-      return result.append('}').toString();
+      var rendered = new ArrayList<String>();
+      for (var entry : entries) {
+        var item =
+            runtimeJsonValue(
+                entry.getValue(), location, visiting, convertUndefinedToNull, options, depth + 1);
+        rendered.add(
+            jsonObjectKey(entry.getKey(), options.ensureAscii())
+                + keySeparator(options)
+                + (item == null ? "undefined" : item));
+      }
+      return jsonContainer("{", "}", rendered, options, depth, false, location);
     } finally {
       visiting.remove(container);
     }
   }
 
-  private static String jsonObjectKey(Object key) {
+  private static String jsonObjectKey(Object key, boolean ensureAscii) {
     return key instanceof Value.StringValue string && string.undefinedBacked()
         ? "undefined"
-        : quote((String) key);
+        : quote((String) key, ensureAscii);
+  }
+
+  private static String jsonObjectSortKey(Object key, SourceLocation location) {
+    if (key instanceof String string) return string;
+    // Known upstream divergence: with three or more keys including undefined, V8's sort callback
+    // dereferences undefined and throws. Keep this total ordering rather than reproducing that
+    // engine accident; it also keeps all entries representable by the Java object model.
+    if (key instanceof Value.StringValue string && string.undefinedBacked()) return string.value();
+    throw new TemplateRenderException("Object keys must be strings", ErrorCategory.TYPE, location);
+  }
+
+  private static String jsonContainer(
+      String open,
+      String close,
+      List<String> values,
+      JsonOptions options,
+      int depth,
+      boolean array,
+      SourceLocation location) {
+    if (!hasPrettyIndent(options))
+      return open + String.join(itemSeparator(options), values) + close;
+    int indentWidth = jsonIndent(options, location);
+    String itemSeparator = itemSeparator(options);
+    long basePaddingLength = 1L + (long) indentWidth * depth;
+    long childrenPaddingLength = basePaddingLength + indentWidth;
+    long renderedLength = 2L + childrenPaddingLength + basePaddingLength;
+    if (values.isEmpty() && !array) renderedLength = 2L + basePaddingLength;
+    else {
+      for (var value : values)
+        renderedLength = checkedAdd(renderedLength, value.length(), location);
+      renderedLength =
+          checkedAdd(
+              renderedLength,
+              (long) Math.max(0, values.size() - 1)
+                  * (itemSeparator.length() + childrenPaddingLength),
+              location);
+    }
+    if (renderedLength > options.maxOutputLength())
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ErrorCategory.RESOURCE_LIMIT, location);
+    String indent = " ".repeat(indentWidth);
+    String basePadding = "\n" + indent.repeat(depth);
+    String childrenPadding = basePadding + indent;
+    if (values.isEmpty() && !array) return open + basePadding + close;
+    return open
+        + childrenPadding
+        + String.join(itemSeparator + childrenPadding, values)
+        + basePadding
+        + close;
+  }
+
+  private static long checkedAdd(long left, long right, SourceLocation location) {
+    try {
+      return Math.addExact(left, right);
+    } catch (ArithmeticException ex) {
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ex, ErrorCategory.RESOURCE_LIMIT, location);
+    }
+  }
+
+  private static int jsonIndent(JsonOptions options, SourceLocation location) {
+    double indent = options.indent();
+    if (indent < 0)
+      throw new TemplateRenderException(
+          "Invalid count value: " + plainString(indent), ErrorCategory.VALUE, location);
+    if (indent > options.maxOutputLength())
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ErrorCategory.RESOURCE_LIMIT, location);
+    return (int) indent;
+  }
+
+  private static boolean hasPrettyIndent(JsonOptions options) {
+    return options.indent() != null && options.indent() != 0 && !Double.isNaN(options.indent());
+  }
+
+  private static String itemSeparator(JsonOptions options) {
+    if (options.separators() != null) {
+      if (options.separators().item() == null) return hasPrettyIndent(options) ? "undefined" : ",";
+      return options.separators().item();
+    }
+    return hasPrettyIndent(options) ? "," : ", ";
+  }
+
+  private static String keySeparator(JsonOptions options) {
+    if (options.separators() == null) return ": ";
+    return options.separators().key() == null ? "undefined" : options.separators().key();
   }
 
   private static void enterJson(
@@ -150,6 +279,10 @@ public final class JsFormat {
    * @return the JSON string literal
    */
   public static String quote(String value) {
+    return quote(value, false);
+  }
+
+  private static String quote(String value, boolean ensureAscii) {
     var b = new StringBuilder("\"");
     for (int i = 0; i < value.length(); i++) {
       char c = value.charAt(i);
@@ -172,7 +305,15 @@ public final class JsFormat {
         }
       }
     }
-    return b.append('"').toString();
+    var quoted = b.append('"').toString();
+    if (!ensureAscii) return quoted;
+    var ascii = new StringBuilder(quoted.length());
+    for (int i = 0; i < quoted.length(); i++) {
+      char c = quoted.charAt(i);
+      if (c >= 0x7f) ascii.append(String.format("\\u%04x", (int) c));
+      else ascii.append(c);
+    }
+    return ascii.toString();
   }
 
   static String shortest(double value) {
