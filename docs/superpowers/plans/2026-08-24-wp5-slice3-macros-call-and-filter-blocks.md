@@ -133,6 +133,26 @@ part of this slice; flag it as a candidate follow-up instead.
   error at a toolchain-dependent depth) rather than matching it. No corpus record: the two sides
   fail for unrelated reasons at unrelated, non-reproducible depths, so there is no shared oracle
   behavior to pin.
+
+  **Correction (post-review, before merge): the macro-call-depth counter alone does not deliver
+  the "well before the JVM's native stack would overflow" guarantee above.** External review
+  found that `maxMacroDepth` bounds macro/call-block *invocation count*, but JVM stack consumed
+  per invocation scales with how much control-flow AST is nested *inside* the recursing macro's
+  own body — a template-controlled quantity the counter cannot see. Verified empirically: a
+  recursive macro body with two nested `{% for %}` loops around the recursive call (or five nested
+  `{% if %}`s) throws a raw `StackOverflowError` at the shipped default of `500`, while the same
+  recursion depth with a flat (unnested) body correctly hits `RESOURCE_LIMIT` first. Fixed by
+  adding a `StackOverflowError` catch around the top-level `evaluateBlock` call in
+  `Interpreter.render`, converting it to `TemplateRenderException("Maximum interpreter recursion
+  depth exceeded", RESOURCE_LIMIT, ...)` — a backstop that closes the documented-contract gap
+  (`render()` throwing a bare `Error` instead of `TemplateRenderException`, which matters for
+  callers sandboxing untrusted templates) for *any* future construct that adds interpreter stack
+  frames, not just the two shapes found during review. `maxMacroDepth` is kept as the primary,
+  cheap, precise guard for the common straight-recursion case; the catch is deliberately a
+  backstop, not a replacement — it does not bound how much work happens before failing the way a
+  depth counter does. `RenderOptions.maxMacroDepth()`'s javadoc was corrected to state this
+  precisely instead of implying invocation-count alone is sufficient. Pinned by
+  `InterpreterTest.macroRecursionNestedInsideControlFlowFailsWithResourceLimitNotStackOverflow`.
 - ~~A host function invoked via `{% call %}` silently receives an extra trailing empty-map
   argument.~~ **Resolved during review, before merge.** This slice originally recorded a decision
   not to special-case stripping the bag before the `HostFunctions` bridge, reasoning that doing so
@@ -325,6 +345,21 @@ part of this slice; flag it as a candidate follow-up instead.
    boundary itself (`maxMacroDepth(10)` accepts a 10-deep chain, `maxMacroDepth(9)` rejects the
    same chain), and one asserting the shipped default (500) tolerates at least 100 levels of
    ordinary nested recursion without being configured explicitly.
+
+   A follow-up review pass on the check-before-increment change above found the two call sites
+   (Step 3.4 here and the `caller()` invocation in Step 5) hadn't been updated to match: both still
+   called `enterMacro` *inside* the `try` whose `finally` calls `exitMacro`, which was correct for
+   the old increment-then-check form but is now backwards — since a limit-exceeded `enterMacro` no
+   longer increments `macroDepth` at all, that `finally` still firing means `exitMacro` decrements
+   a call that was never counted, corrupting `macroDepth` by one on every depth-limit trip
+   (confirmed by instrumenting `exitMacro` to reject a negative depth: it fired on 3 existing
+   tests). No current observable impact — `RenderBudget` is per-render and nothing catches
+   `TemplateRenderException` mid-render to reuse the corrupted counter — but the source comment
+   claiming the pairing invariant is "structural, not caller-enforced" was simply wrong given the
+   call sites as shipped. Fixed by hoisting `enterMacro(l)` to run *before* the `try` at both call
+   sites, restoring the actual structural guarantee: an unsuccessful `enterMacro` never enters the
+   `try`, so its `finally` cannot run. Re-verified with the negative-depth instrumentation active:
+   all tests pass.
 
    Add `maxMacroDepth` to `RenderOptions`/`RenderOptions.Builder` alongside the existing
    `maxSteps`/`maxLoopIterations`/`maxOutputLength` (same `positive(...)` validation, same

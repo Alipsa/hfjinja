@@ -979,6 +979,27 @@ class InterpreterTest {
   }
 
   @Test
+  void macroRecursionNestedInsideControlFlowFailsWithResourceLimitNotStackOverflow() {
+    // maxMacroDepth bounds macro/call-block *invocation* count, not total interpreter recursion
+    // depth. Nesting extra control-flow frames inside a recursive macro body (here, two nested
+    // {% for %} loops per level) multiplies the JVM stack consumed per invocation, so a recursion
+    // this deep (100000 levels) exhausts the native stack long before hitting maxMacroDepth's
+    // default of 500 invocations — verified empirically to throw a raw StackOverflowError before
+    // Interpreter.render's top-level catch was added. That catch is the backstop pinned here.
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse(
+                        "{% macro f(n) %}{% if n <= 0 %}done{% else %}"
+                            + "{% for i in [1] %}{% for j in [1] %}{{ f(n-1) }}{% endfor %}{% endfor %}"
+                            + "{% endif %}{% endmacro %}{{ f(100000) }}")
+                    .render(Map.of()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
+    assertEquals("Maximum interpreter recursion depth exceeded", error.getMessage());
+  }
+
+  @Test
   void macroRecursionThroughDefaultArgumentExpressionIsGuarded() {
     // A default-argument expression is evaluated before the macro's body — enterMacro must guard
     // the whole binding loop, not just evaluateBlock(n.body(), ...), or recursion hidden inside a

@@ -47,7 +47,23 @@ public final class Interpreter {
     } catch (IllegalStateException ex) {
       throw new TemplateRenderException(ex.getMessage(), ErrorCategory.VALUE, program.location());
     }
-    var result = evaluateBlock(program.body(), env, budget);
+    ExecResult result;
+    try {
+      result = evaluateBlock(program.body(), env, budget);
+    } catch (StackOverflowError overflow) {
+      // RenderBudget.maxMacroDepth bounds macro/call-block *invocation* count, not total
+      // interpreter recursion depth: a recursive macro whose body itself nests control-flow
+      // constructs (nested {% for %}/{% if %}/{% call %}) consumes several interpreter stack
+      // frames per invocation, so a deliberately or accidentally deep-nested body can still
+      // exhaust the native JVM stack well below maxMacroDepth invocations. This catch is the
+      // backstop that keeps that case inside this project's documented contract (render() only
+      // throws TemplateRenderException) instead of letting a bare Error escape to a caller
+      // sandboxing untrusted templates.
+      throw new TemplateRenderException(
+          "Maximum interpreter recursion depth exceeded",
+          ErrorCategory.RESOURCE_LIMIT,
+          program.location());
+    }
     if (!(result instanceof ExecResult.Normal normal))
       throw new TemplateRenderException(
           "break or continue outside a for loop", ErrorCategory.SYNTAX, program.location());
@@ -770,8 +786,14 @@ public final class Interpreter {
               // before evaluateBlock(n.body(), ...) is ever reached. Entering here — before
               // binding — closes that gap; see
               // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md.
+              //
+              // enterMacro is called BEFORE the try, not inside it: enterMacro is
+              // check-before-increment, so on the limit-exceeded path it never touches
+              // macroDepth — there is nothing for the finally below to undo. Calling it inside
+              // the try would make that finally run exitMacro() on a call that never
+              // incremented, decrementing macroDepth without a matching increment.
+              b.enterMacro(l);
               try {
-                b.enterMacro(l);
                 var positional = new ArrayList<>(arguments);
                 Value.KeywordArgumentsValue kwargs = null;
                 if (!positional.isEmpty()
@@ -844,8 +866,12 @@ public final class Interpreter {
                   callBlockEnv.setVariable(id.value(), value);
                 }
               }
+              // enterMacro is called BEFORE the try, not inside it — see the matching comment in
+              // evaluateMacro above: it is check-before-increment, so a limit-exceeded throw
+              // never touches macroDepth, and calling it inside the try would make the finally
+              // below decrement a call that never incremented.
+              b.enterMacro(l);
               try {
-                b.enterMacro(l);
                 var result = evaluateBlock(n.body(), callBlockEnv, b);
                 if (!(result instanceof ExecResult.Normal normal))
                   // Known gap (see

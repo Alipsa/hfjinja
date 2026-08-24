@@ -116,7 +116,17 @@ public final class RenderOptions {
     return maxOutputLength;
   }
 
-  /** Returns the maximum macro/call-block invocation depth allowed. */
+  /**
+   * Returns the maximum macro/call-block invocation depth allowed. This bounds invocation count,
+   * not total interpreter recursion depth: a macro body that itself nests control-flow constructs
+   * (nested loops, conditionals, or call blocks) consumes multiple interpreter stack frames per
+   * invocation, so this limit does not by itself guarantee the native JVM stack cannot be exhausted
+   * first for a sufficiently deep-nested body. Rendering still fails with {@link
+   * ErrorCategory#RESOURCE_LIMIT} rather than an escaped {@link StackOverflowError} in that case —
+   * the interpreter catches it at the top of {@code render()} as a backstop — but that backstop
+   * does not bound how much work is done before failing the way this limit does for straight
+   * recursion.
+   */
   public int maxMacroDepth() {
     return maxMacroDepth;
   }
