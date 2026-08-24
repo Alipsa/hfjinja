@@ -770,18 +770,22 @@ public final class Interpreter {
   }
 
   private static Value objectItemsBuiltin(Value.ObjectValue object) {
-    return new Value.CallableValue(
-        (arguments, hasKeywords, location, environment) -> {
-          var pairs = new ArrayList<Value>();
-          for (var entry : object.values().entrySet()) {
-            var key =
-                entry.getKey() instanceof Value.StringValue string
-                    ? string
-                    : new Value.StringValue((String) entry.getKey());
-            pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
-          }
-          return new Value.ArrayValue(pairs);
-        });
+    if (object.itemsBuiltin() != null) return object.itemsBuiltin();
+    var builtin =
+        new Value.CallableValue(
+            (arguments, hasKeywords, location, environment) -> {
+              var pairs = new ArrayList<Value>();
+              for (var entry : object.values().entrySet()) {
+                var key =
+                    entry.getKey() instanceof Value.StringValue string
+                        ? string
+                        : new Value.StringValue((String) entry.getKey());
+                pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
+              }
+              return new Value.ArrayValue(pairs);
+            });
+    object.setItemsBuiltin(builtin);
+    return builtin;
   }
 
   private static Value slice(

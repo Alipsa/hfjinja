@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -1182,5 +1183,45 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ (1, 2)|string }}").render(Map.of()));
     assertEquals("Cannot convert to JSON: TupleValue", tupleError.getMessage());
+    assertEquals(
+        "true", Template.parse("{% set o = {'a': 1} %}{{ o.items == o.items }}").render(Map.of()));
+  }
+
+  @Test
+  void rendersRetainedModelTemplateResources() throws Exception {
+    var mistral =
+        new String(
+            getClass()
+                .getResourceAsStream("/model-templates/mistral-7b-instruct-v0.3.jinja")
+                .readAllBytes(),
+            StandardCharsets.UTF_8);
+    assertEquals(
+        "<s>[INST] Hello![/INST] Hi!</s>",
+        Template.parse(mistral)
+            .render(
+                Map.of(
+                    "bos_token",
+                    "<s>",
+                    "eos_token",
+                    "</s>",
+                    "messages",
+                    java.util.List.of(
+                        Map.of("role", "user", "content", "Hello!"),
+                        Map.of("role", "assistant", "content", "Hi!")))));
+    var qwen =
+        new String(
+            getClass()
+                .getResourceAsStream("/model-templates/qwen2.5-32b-instruct.jinja")
+                .readAllBytes(),
+            StandardCharsets.UTF_8);
+    assertEquals(
+        "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nHello!<|im_end|>\n<|im_start|>assistant\n",
+        Template.parse(qwen)
+            .render(
+                Map.of(
+                    "add_generation_prompt",
+                    true,
+                    "messages",
+                    java.util.List.of(Map.of("role", "user", "content", "Hello!")))));
   }
 }
