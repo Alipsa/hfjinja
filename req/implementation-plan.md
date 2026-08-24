@@ -168,7 +168,10 @@ on successful output and by category on Node-comparable errors.
    `raise_exception`.
 2. Implement date/format runtime helpers required by upstream, including C/POSIX names and injected
    `Clock`/`ZoneId`; do not port unreachable `format.ts` unless a mapped runtime path requires it.
-3. Enable Mistral and tool-use model goldens, including macro-heavy templates.
+3. Enable Mistral and tool-use model goldens, including macro-heavy templates. Slice 4 adds
+   the pre-approved Mistral-7B-Instruct-v0.3 and Qwen2.5-32B-Instruct goldens, but neither
+   template uses `{% macro %}`; this item remains in progress until a separately reviewed,
+   source-recorded and attributed macro-heavy model fixture is retained.
 4. Run fuzz/property suites with harness timeouts; preserve every oracle mismatch as a regression.
 5. Remove every remaining AST allowlist exemption.
 

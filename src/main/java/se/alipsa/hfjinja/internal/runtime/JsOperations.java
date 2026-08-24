@@ -107,6 +107,11 @@ final class JsOperations {
     return strictValueEquals(left, right);
   }
 
+  static boolean strictEquals(Value left, Value right) {
+    if (nilLike(left) || nilLike(right)) return nilLike(left) && nilLike(right);
+    return strictValueEquals(left, right);
+  }
+
   static boolean rawTruthy(Value value) {
     return switch (value) {
       case Value.NullValue ignored -> false;

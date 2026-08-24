@@ -5,7 +5,7 @@
 `req/implementation-plan.md`'s WP5 has 5 numbered items. Item 1 (macros, call/filter
 blocks, keyword/spread args, slices, `raise_exception`) shipped across slices 1-3. Item 2
 (date/format runtime helpers) was already fully implemented — `Interpreter.strftime()`
-matches upstream's `strftime` byte-for-byte. This slice tackles item 3: **enable Mistral
+matches upstream's `strftime` byte-for-byte. This slice makes progress on item 3: **enable Mistral
 and tool-use model goldens, including macro-heavy templates** — i.e. render real,
 license-cleared model `chat_template` text end-to-end and lock it into the regression
 corpus, rather than only synthetic self-authored templates.
@@ -28,6 +28,12 @@ is already implemented. **Mistral needs four new primitives**: the
 they depend on), the `list` and `string` filters, and method-call resolution for
 `tool.items()` on an `ObjectValue`. The user chose to bundle both models into this one
 slice, since Qwen only adds fixture-wiring work, not interpreter risk.
+Neither approved template contains `{% macro %}`, so this slice does **not** close WP5
+item 3's "including macro-heavy templates" clause. Completing it requires a separately
+reviewed fixture-policy row for a pinned model/revision with a macro-heavy template (and
+its source record, license notice, and model-card attribution); no such pair is
+pre-approved today. `req/implementation-plan.md` must therefore continue to show item 3
+as in progress after this slice.
 
 ### Mistral constructs that already work (verified, no code needed)
 
@@ -176,10 +182,15 @@ private static Value filterSelectAttr(
   if (filter.positional().isEmpty() || filter.positional().size() > 3)
     throw new TemplateRenderException(
         "`" + filter.name() + "` filter requires 1 to 3 arguments", ErrorCategory.ARITY, location);
-  if (!(operand instanceof Value.ArrayValue array)) throw filterReceiver(filter.name(), operand, location);
-  // Upstream checks array-of-objects up front, before evaluating any argument
-  // (runtime.ts:1275-1277), so keep this ahead of the argument checks below.
-  for (var item : array.values())
+  // Filter arguments have already been evaluated by hfjinja before this method is called.
+  // After the keyword/arity checks above, reject a non-array receiver before inspecting
+  // the attribute/test arguments, matching upstream's receiver branch.
+  List<Value> values;
+  if (operand instanceof Value.ArrayValue array) values = array.values();
+  else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
+  else throw filterReceiver(filter.name(), operand, location);
+  // Upstream validates that every element is an object before reading the arguments.
+  for (var item : values)
     if (!(item instanceof Value.ObjectValue))
       throw new TemplateRenderException(
           "`" + filter.name() + "` can only be applied to array of objects", ErrorCategory.TYPE, location);
@@ -190,11 +201,11 @@ private static Value filterSelectAttr(
   Value comparison =
       filter.positional().size() > 2 ? filter.positional().get(2) : Value.UndefinedValue.INSTANCE;
   var result = new ArrayList<Value>();
-  for (var item : array.values()) {
+  for (var item : values) {
     var object = (Value.ObjectValue) item;
     var attrValue = object.values().get(attr.value());
     boolean matched = attrValue != null
-        && (testName == null ? truthy(attrValue) : invokeNamedTest(testName, attrValue, comparison, location));
+        && (testName == null ? truthy(attrValue) : namedTest(testName, attrValue, comparison, location));
     // Must append `item` itself: see "Mistral constructs that already work" — the template
     // compares message identity, so a copy here would break `message == user_messages[-1]`.
     if (matched == select) result.add(item);
@@ -202,13 +213,35 @@ private static Value filterSelectAttr(
   return new Value.ArrayValue(result);
 }
 
-private static boolean invokeNamedTest(String name, Value value, Value comparison, SourceLocation location) {
+private static boolean namedTest(
+    String name, Value value, Value comparison, SourceLocation location) {
   return switch (name) {
     case "equalto", "eq" -> JsOperations.strictEquals(value, comparison);
+    case "defined" -> !undefinedLike(value);
+    case "undefined" -> undefinedLike(value);
+    case "none" -> value instanceof Value.NullValue;
+    case "boolean" -> value instanceof Value.BooleanValue;
+    case "number" -> JsOperations.numeric(value);
+    case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
+    case "iterable" ->
+        value instanceof Value.ArrayValue
+            || value instanceof Value.StringValue string && !string.undefinedBacked();
+    case "sequence" ->
+        value instanceof Value.ArrayValue
+            || value instanceof Value.TupleValue
+            || value instanceof Value.ObjectValue
+            || value instanceof Value.StringValue string && !string.undefinedBacked();
     default -> throw filterType("Unknown test: " + name, location);
   };
 }
 ```
+
+This is one shared registry, not a second `selectattr`-only list: refactor
+`Interpreter.test()` to call `namedTest(name, value, comparison, location)` too. Its
+existing `defined`/`undefined`/`none`/`boolean`/`number`/`string`/`iterable`/`sequence`
+cases move unchanged into that dispatcher; `equalto` and `eq` are the only names that use
+the optional second operand. Thus `x is string` and `selectattr("x", "string")` have the
+same test semantics and future additions have one home.
 
 `attrValue != null` is the faithful translation of upstream's `a ? testFunction(a, value) : false`
 (`runtime.ts:1298`): `a` is a runtime value *object*, so it is JS-truthy whenever the key
@@ -274,7 +307,7 @@ Upstream's `ObjectValue` carries a `builtins` map (`get`, `items`, `keys`, `valu
 hfjinja's `Value.ObjectValue` has no such mechanism. The Mistral template only calls
 `.items()` (`{%- for key, val in tool.items() if key != "return" %}`), so this slice adds
 only that one fallback, directly in `member()`'s existing `ObjectValue` branch
-(`Interpreter.java:661-665`), rather than building a general builtins registry for methods
+(`Interpreter.java:660-665`), rather than building a general builtins registry for methods
 nothing yet needs:
 
 ```java
@@ -351,11 +384,14 @@ output — not guessed. Representative cases and their oracle-confirmed output:
 
 #### What survived planning, and what must be rebuilt
 
-Planning persisted only the two `tokenizer_config.json` files and the two extracted
-`chat_template` texts. **The context payloads were never written down**, and the rendered
-outputs above exist only as the summaries in this section. So:
+The planning scratchpad and extracted artefacts are no longer available. **The context
+payloads were never written down**, and the rendered outputs above exist only as the
+summaries in this section. The implementation session must therefore re-fetch both
+templates from Hugging Face and re-derive expected outputs with the oracle. So:
 
-- **Template text** — recoverable, via the `curl` commands under "Reproducing the fetch".
+- **Template text** — recoverable via the `curl` commands under "Reproducing the fetch";
+  verify the extracted JavaScript-string lengths are exactly **3,959 characters**
+  (Mistral) and **2,509 characters** (Qwen) before committing them.
 - **Expected outputs** — re-derivable by running the oracle, and in fact `nodeCorpusVerify`
   re-derives and checks them on every `check` (see "Verification"). Nothing is lost here.
 - **Contexts** — *not* recoverable. They are authored inputs, not fetchable from
@@ -397,18 +433,22 @@ convention:
 Five new records total: 3 Mistral (plain, tool-use, alternating-role error) + 2 Qwen
 (plain with `add_generation_prompt`, tool-use). `id`s prefixed `model.` to distinguish
 from the existing `self.` records (not schema-enforced, just a readability convention).
-Each record's `template` field holds the exact fetched text; each of the two models needs
-the full ~2.5-4KB template repeated across its records, because the schema has no
-shared/`$ref` mechanism. Note this is genuinely new for the corpus rather than an existing
-habit — all 19 current records carry distinct templates, none duplicated, and the largest
-is 649 bytes. The duplication is accepted on its own merits (no `$ref`, and the schema
-change to add one is out of scope for this slice), not on precedent.
+Each record's `template` field holds the exact fetched text; the schema has no shared/`$ref`
+mechanism, so it repeats the Mistral template three times and Qwen template twice (about
+17 KB in `v1.jsonl`). Avoid a second five-copy set in Java: retain each fetched template
+once as a named test resource (`.jinja`), and have `InterpreterTest` read that resource
+instead of embedding template strings. Add a `corpus.test.mjs` assertion that every
+`model.mistral-*`/`model.qwen-*` record's `template` equals its corresponding resource
+byte-for-byte. This both guards the three Mistral copies and makes the resource the
+reviewable canonical fetched byte sequence. Java does not need to parse corpus JSON for
+this: the existing test classpath is JUnit-only, while the corpus check can compare native
+JSON strings cheaply.
 
 ### Error-pattern table (`tools/corpus/error-patterns-0.5.9.json`) — required
 
 **The alternating-role record fails `check` without this change.** The table currently
 holds five patterns and none maps to `EXPLICIT_RAISE`. `errorClassifier` throws
-`Unmatched upstream error for …` when no pattern matches (`corpus.mjs:105`), which
+`Unmatched upstream error for …` when no pattern matches (`corpus.mjs:106`), which
 `run-node-oracle.mjs` reports as a `FAIL` — so the record breaks the build rather than
 being skipped. `EXPLICIT_RAISE` *is* in the schema's accepted category set
 (`corpus.mjs:4-7`); it simply has no classifier entry yet.
@@ -428,7 +468,10 @@ upstream's own error messages, and it will not be the last — every model templ
 its own strings. Decide the convention now rather than at implementation time. The cheaper
 alternative, if a per-template regex per fixture is unappealing, is one anchored pattern
 covering the shape of raised messages; but that risks masking genuinely unclassified
-upstream errors, so the narrow literal is the safer default for this slice.
+upstream errors, so the narrow literal is the safer default for this slice. The validator
+at `corpus.mjs:93` requires only `regex` and `category` and ignores additional keys;
+give this entry a `comment` explaining that it classifies a model-template raise in a file
+otherwise scoped to upstream error messages.
 
 ### `InterpreterTest.java`
 
@@ -436,7 +479,10 @@ Per this project's established (manual, not mechanically linked) pattern, add on
 `@Test` per corpus record with the same template/context/expected-output triple, plus
 narrower unit tests for the new primitives in isolation:
 
-- `selectattr`/`rejectattr` with and without a test name; `equalto` via `selectattr`.
+- `selectattr`/`rejectattr` with and without a test name, on both `ArrayValue` and
+  `TupleValue`; tuple input returns an `ArrayValue` as upstream does. Cover `equalto` and
+  a pre-existing interpreter test such as `string` through `selectattr`, proving the
+  shared registry rather than a duplicate list.
 - **`selectattr` preserves element identity** — two objects with identical content, then
   assert `x == selected[-1]` is true for the last only. This is the regression test for the
   `[AVAILABLE_TOOLS]` gate.
@@ -446,8 +492,7 @@ narrower unit tests for the new primitives in isolation:
   `undefined`), rather than raising.
 - `list` filter identity on `ArrayValue` **and `TupleValue`**, plus its type-error case.
 - `string` filter across `StringValue`/`ArrayValue`/`TupleValue`/`IntegerValue`/
-  `FloatValue`/`BooleanValue`, **and the `ObjectValue` type-error case** — the last one is
-  the parity assertion, so it must be present, not implied.
+  `FloatValue`/`BooleanValue`, and the `ObjectValue` type-error case.
 - `tool.items()` iterated with `for key, val in ...`, including the `if key != "return"`
   filtered form.
 - **`obj.items is defined` is now `true`** for an object with no `items` key — pins the
@@ -458,11 +503,21 @@ narrower unit tests for the new primitives in isolation:
 Replace the placeholder row in `NOTICE`'s `## Model fixtures` table with two rows (one per
 model), each recording repository, pinned revision, `tokenizer_config.json` (`chat_template`
 field) as the template path, Apache-2.0 license, "full template text retained in
-`src/test/resources/corpus/v1.jsonl`" as the retained form, and a reference to
-`req/model-fixture-policy.md` for the notice/attribution basis — matching the table's
-existing column format and the sources already reviewed and cited in
-`req/model-fixture-policy.md`'s "Sources reviewed" section (no new legal review needed;
-both repositories/revisions are already pre-approved there).
+`src/test/resources/corpus/v1.jsonl`" as the retained form, and a **model-card attribution
+URL**. Add a `Model-card attribution` column to the NOTICE table explicitly; a reference
+to the policy is not a substitute for the actual attribution required by its approval row.
+
+In the same commit, update `NOTICE:6` from "No model chat-template text is vendored yet"
+and replace `req/model-fixture-policy.md`'s `## Current fixture set` assertion that no
+model template text or model-derived output is committed. The revised policy text must
+name these first retained Qwen and Mistral cases, link their source records/notices and
+model cards, and confirm that their additions satisfy the policy's same-change rule.
+These are factual updates, not optional follow-up bookkeeping. Also add the pinned model
+card URLs to the policy's "Sources reviewed" section and use those exact links in NOTICE:
+`https://huggingface.co/Qwen/Qwen2.5-32B-Instruct/blob/afb2829595f63efa3548e9d6b13aa66e61aa0f38/README.md`
+and
+`https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/blob/c170c708c41dac9275d15a8fff4eca08d52bab71/README.md`.
+No new legal review is needed: both repository/revision pairs are already pre-approved.
 
 `upstream/upstream-lock.json`'s `fixtureRevision` field (currently
 `"no-imported-fixtures"`) and its schema have no existing `modelFixtures` section or
@@ -472,8 +527,10 @@ today.
 
 ## Reproducing the fetch (for the user, on a machine with normal network access)
 
-The template text above was already fetched and verified during planning. To reproduce or
-re-verify independently:
+The planning artefacts are gone, so the implementation session must fetch the text again.
+Network access to `huggingface.co` is a prerequisite; it works from this machine without
+an `--interface` workaround. Fetch it as follows, then confirm the extracted string
+lengths (Mistral 3,959; Qwen 2,509 characters) before use:
 
 ```bash
 curl -L -o /tmp/mistral_tokenizer_config.json \
@@ -511,7 +568,13 @@ The `InterpreterTest` cases remain the check that *hfjinja* matches the same exp
 values — the division of labour is: `nodeCorpusVerify` pins expected-vs-upstream,
 `InterpreterTest` pins expected-vs-hfjinja, and the shared literal in the corpus record
 joins them. A separate throwaway Java scratch render is redundant with step 2 and is not
-part of this plan.
+part of this plan. Error parity in this slice is **category-level only**: for example,
+hfjinja's `ObjectValue|string` currently says `Cannot apply filter \`string\` to type:
+ObjectValue`, while the oracle says `Unknown ObjectValue filter: string`; similarly
+`"abc"|list` differs in wording. Do not describe either as a message-parity assertion.
+Because the corpus stores only an error category, these cases cannot serve as corpus
+records that prove message equality; keep any message comparison out of this slice (or
+add a dedicated message-parity mechanism in a later, explicitly scoped change).
 
 ## Known gaps this slice leaves open
 
@@ -523,12 +586,13 @@ part of this plan.
   documented for `filterJoin` ("per-filter arity caps"), and the resulting `ARITY` error is
   not classifiable against upstream's message, so it must not appear in a corpus record.
 - `selectattr`/`rejectattr` argument-error *precedence* differs: the array-of-objects check
-  now runs first (matching upstream), but a non-string argument still surfaces hfjinja's
+  runs after hfjinja's keyword/arity checks but before attribute/test validation (filter
+  arguments were already eagerly evaluated before dispatch); a non-string argument still surfaces hfjinja's
   `TYPE` error from `requireFilterString` rather than upstream's
   ``arguments of `selectattr` must be strings``.
-- Only the `equalto`/`eq` named tests are wired into `selectattr`/`rejectattr`; other
-  upstream tests (`callable`, `odd`, `even`, `mapping`, `lower`, `upper`, etc.) remain
-  unimplemented until a template needs them there.
+- The shared dispatcher covers the tests already supported by `Interpreter.test()` plus
+  `equalto`/`eq`; other upstream tests (`callable`, `odd`, `even`, `mapping`, `lower`,
+  `upper`, etc.) remain unimplemented until mapped work requires them.
 - Only `.items()` is added as an `ObjectValue` method-call fallback; `get`/`keys`/`values`/
   `dictsort`, the `| items` filter-pipe form, and the same fallback on
   `KeywordArgumentsValue` are not added.

@@ -284,11 +284,7 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ 1 is no_such_test }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, unknownTest.category());
-    var deferredEquality =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ 1 is equalto }}").render(Map.of()));
-    assertEquals(ErrorCategory.TYPE, deferredEquality.category());
+    assertEquals("false", Template.parse("{{ 1 is equalto }}").render(Map.of()));
   }
 
   @Test
@@ -1135,5 +1131,42 @@ class InterpreterTest {
                     .render(Map.of()));
     assertEquals(ErrorCategory.TYPE, error.category());
     assertEquals("Unknown filter: f", error.getMessage());
+  }
+
+  @Test
+  void supportsMistralSelectattrFiltersAndSharedTests() {
+    assertEquals(
+        "a|b|",
+        Template.parse(
+                "{% set xs = [{'x': 'a'}, {'x': 1}, {'x': 'b'}] %}"
+                    + "{% for x in xs|selectattr('x', 'string') %}{{ x.x }}|{% endfor %}")
+            .render(Map.of()));
+    assertEquals(
+        "2",
+        Template.parse("{% set xs = ({'x': 'a'}, {'x': 'b'}) %}{{ xs|selectattr('x')|length }}")
+            .render(Map.of()));
+    assertEquals(
+        "true",
+        Template.parse(
+                "{{ [{'n': '1'}, {'n': 1}, {'n': true}]|selectattr('n', 'equalto', 1)|length == 1 }}")
+            .render(Map.of()));
+  }
+
+  @Test
+  void supportsMistralListStringAndObjectItems() {
+    assertEquals(
+        "[1, 2]|[1, 2]|true",
+        Template.parse("{{ [1, 2]|list }}|{{ (1, 2)|string }}|{{ (1, 2)|list is sequence }}")
+            .render(Map.of()));
+    assertEquals(
+        "a=1,b=2,",
+        Template.parse(
+                "{% for key, value in {'a': 1, 'b': 2}.items() %}{{ key }}={{ value }},{% endfor %}")
+            .render(Map.of()));
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1}|string }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
   }
 }
