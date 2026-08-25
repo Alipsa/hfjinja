@@ -1367,10 +1367,27 @@ public final class Interpreter {
   }
 
   private static Value strftime(List<Value> a, boolean k, SourceLocation l, RenderOptions o) {
-    var format = argument(a, 0);
-    if (!(format instanceof Value.StringValue f))
+    // ARITY means "no positional format argument was supplied," which is not the same test as
+    // `a.isEmpty()`: two call shapes reach here with a non-empty `a` yet no positional value.
+    // `{% call strftime_now() %}...{% endcall %}` has evaluateCallStatement push a
+    // KeywordArgumentsValue bag as a.get(0) unconditionally (even with no keywords), and
+    // `strftime_now(fmt='%Y')` has call()'s conditional append push the same shape because its
+    // keywords are non-empty. Guard on the shape, not just the count, before calling
+    // argument(a, 0) at all.
+    if (a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue)
       throw new TemplateRenderException(
           "strftime_now() expected one string argument", ErrorCategory.ARITY, l);
+    var format = argument(a, 0);
+    // Upstream's convertToRuntimeValues unwraps every argument shape to its raw .value before
+    // calling strftime_now, so an absent/undefined-backed argument and an explicit `none` both
+    // reach the same unguarded format.replace(...) call there and only differ in which
+    // "Cannot read properties of ... (reading 'replace')" message surfaces -- never a single
+    // shared message, and never a distinguishable category. hfjinja's ARITY/TYPE split below is a
+    // deliberate category decision upstream cannot express, so it has no matching oracle error
+    // record; retain this comment as that record's rationale.
+    if (!(format instanceof Value.StringValue f))
+      throw new TemplateRenderException(
+          "strftime_now() format must be a string", ErrorCategory.TYPE, l);
     if (o.clock().isEmpty() || o.zoneId().isEmpty())
       throw new TemplateRenderException(
           "strftime_now requires clock and zone", ErrorCategory.VALUE, l);
