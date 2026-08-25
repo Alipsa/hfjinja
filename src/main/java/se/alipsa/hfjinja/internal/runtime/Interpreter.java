@@ -163,23 +163,16 @@ public final class Interpreter {
       // calling evaluateExpression on that property. Parser.parseArgumentsList is the only site
       // that builds a KeywordArgumentExpression or SpreadExpression, feeding a CallExpression's
       // argument list, a Macro's own parameter list, or a {% call %} block's caller parameter
-      // list; evaluateArguments() (ordinary calls), evaluateMacro's parameter-binding loop (macro
-      // parameter declarations), and evaluateCallStatement's caller-parameter loop (caller
-      // parameter declarations) all switch on the node type themselves and only fall through to
-      // evaluateExpression for anything else. No valid AST from this parser can hand one of these
-      // three node types to this switch directly, so — matching renderText's identical
-      // NullValue/UndefinedValue arms below — these throw AssertionError rather than a
-      // template-facing exception: reaching here is an interpreter bug, not a template author's
-      // mistake.
-      case Expression.SliceExpression x ->
-          throw new AssertionError(
-              "unreachable: " + x.getClass().getSimpleName() + " at " + x.location());
-      case Expression.KeywordArgumentExpression x ->
-          throw new AssertionError(
-              "unreachable: " + x.getClass().getSimpleName() + " at " + x.location());
-      case Expression.SpreadExpression x ->
-          throw new AssertionError(
-              "unreachable: " + x.getClass().getSimpleName() + " at " + x.location());
+      // list; none of those three consumers ever passes the kwarg/spread node itself to
+      // evaluateExpression — evaluateArguments recurses only into keyword.value()/
+      // spread.argument(), and the macro and caller-parameter loops reject unexpected node types
+      // outright. No valid AST from this parser can hand one of these three node types to this
+      // switch directly, so — matching renderText's identical NullValue/UndefinedValue arms below
+      // — these throw AssertionError rather than a template-facing exception: reaching here is an
+      // interpreter bug, not a template author's mistake.
+      case Expression.SliceExpression x -> throw unreachable(x);
+      case Expression.KeywordArgumentExpression x -> throw unreachable(x);
+      case Expression.SpreadExpression x -> throw unreachable(x);
     };
   }
 
@@ -188,6 +181,11 @@ public final class Interpreter {
     return truthy(evaluateExpression(expression.condition(), env, budget))
         ? evaluateExpression(expression.trueExpr(), env, budget)
         : evaluateExpression(expression.falseExpr(), env, budget);
+  }
+
+  private static AssertionError unreachable(Expression n) {
+    return new AssertionError(
+        "unreachable: " + n.getClass().getSimpleName() + " at " + n.location());
   }
 
   private static Value binary(
