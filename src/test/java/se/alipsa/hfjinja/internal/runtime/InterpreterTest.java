@@ -1,5 +1,6 @@
 package se.alipsa.hfjinja.internal.runtime;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -551,28 +552,40 @@ class InterpreterTest {
 
   // Intentionally red: today's unmodified Interpreter.java validates strftime_now's first
   // argument by checking `instanceof Value.StringValue` before ever inspecting
-  // o.clock()/o.zoneId(),
-  // so a non-string first argument (`none`, or an undefined-backed value like `x.missing`) throws
-  // ARITY with the arity message, not TYPE with the message asserted below. Both only turn green
-  // once step 2 of the plan (docs/superpowers/plans/2026-08-24-wp5-slice6-strftime-runtime.md)
-  // changes strftime's validation to distinguish "no value supplied" (ARITY) from "a value was
-  // supplied but it isn't a string" (TYPE). Do not modify Interpreter.java to make these pass in
-  // this task.
+  // o.clock()/o.zoneId(), so a non-string first argument (`none`, or an undefined-backed value
+  // like `x.missing`) throws ARITY with the arity message, not TYPE with the message asserted
+  // below. Both only turn green once step 2 of the plan
+  // (docs/superpowers/plans/2026-08-24-wp5-slice6-strftime-runtime.md) changes strftime's
+  // validation to distinguish "no value supplied" (ARITY) from "a value was supplied but it
+  // isn't a string" (TYPE). Do not modify Interpreter.java to make these pass in this task.
+  //
+  // The two sub-cases are wrapped in their own assertAll() lambdas rather than run as plain
+  // sequential statements: a bare `assertEquals` failure throws immediately and would abort the
+  // method, silently skipping the `x.missing` sub-case entirely on a run against today's
+  // interpreter (both currently fail on their first assertEquals). assertAll executes every
+  // lambda and aggregates failures, so both sub-cases are independently observed as red in the
+  // same test run instead of the second one being masked by the first.
   @Test
   void strftimeNowRejectsNonStringPresentFormatWithType() {
-    var noneError =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ strftime_now(none) }}").render(Map.of()));
-    assertEquals(ErrorCategory.TYPE, noneError.category());
-    assertEquals("strftime_now() format must be a string", noneError.getMessage());
-
-    var undefinedBackedError =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ strftime_now(x.missing) }}").render(Map.of("x", Map.of())));
-    assertEquals(ErrorCategory.TYPE, undefinedBackedError.category());
-    assertEquals("strftime_now() format must be a string", undefinedBackedError.getMessage());
+    assertAll(
+        () -> {
+          var noneError =
+              assertThrows(
+                  TemplateRenderException.class,
+                  () -> Template.parse("{{ strftime_now(none) }}").render(Map.of()));
+          assertEquals(ErrorCategory.TYPE, noneError.category());
+          assertEquals("strftime_now() format must be a string", noneError.getMessage());
+        },
+        () -> {
+          var undefinedBackedError =
+              assertThrows(
+                  TemplateRenderException.class,
+                  () ->
+                      Template.parse("{{ strftime_now(x.missing) }}")
+                          .render(Map.of("x", Map.of())));
+          assertEquals(ErrorCategory.TYPE, undefinedBackedError.category());
+          assertEquals("strftime_now() format must be a string", undefinedBackedError.getMessage());
+        });
   }
 
   @Test
