@@ -17,7 +17,7 @@ for await (const line of readline.createInterface({ input: process.stdin, crlfDe
       reply({ id: candidate.id, result: 'PARSED', ast: candidate.family === 'grammar' ? Buffer.from(emit(ast)).toString('base64') : undefined });
     } catch (error) {
       const result = error instanceof RangeError ? 'LIMIT' : error instanceof SyntaxError ? 'SYNTAX' : 'OTHER_ERROR';
-      reply({ id: candidate.id, result });
+      reply({ id: candidate.id, result, detail: result === 'OTHER_ERROR' ? String(error) : undefined });
     }
   } catch (error) {
     reply({ id: null, result: 'HARNESS', detail: String(error) });

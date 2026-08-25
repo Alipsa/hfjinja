@@ -30,8 +30,9 @@ final class FuzzParserRunner {
 
   private static String run(String json) {
     String id = null;
+    Candidate candidate = null;
     try {
-      var candidate = Candidate.read(json);
+      candidate = Candidate.read(json);
       id = candidate.id;
       var options =
           TemplateOptions.builder()
@@ -56,24 +57,44 @@ final class FuzzParserRunner {
     } catch (StackOverflowError error) {
       throw new AssertionError("Stack overflow in parser runner for " + id, error);
     } catch (Throwable error) {
-      return response(id, "HARNESS", null);
+      return response(
+          id,
+          "HARNESS",
+          null,
+          error.getClass().getName()
+              + ": "
+              + error.getMessage()
+              + " source="
+              + (candidate == null ? "<unavailable>" : quote(candidate.source)));
     }
   }
 
   private static String response(String id, String result, String ast) {
+    return response(id, result, ast, null);
+  }
+
+  private static String response(String id, String result, String ast, String detail) {
     return "{\"id\":"
         + (id == null ? "null" : quote(id))
         + ",\"result\":"
         + quote(result)
         + (ast == null ? "" : ",\"ast\":" + quote(ast))
+        + (detail == null ? "" : ",\"detail\":" + quote(detail))
         + "}";
   }
 
   private static String quote(String value) {
-    return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    return "\""
+        + value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        + "\"";
   }
 
-  private record Candidate(
+  record Candidate(
       String id, String family, String source, boolean trimBlocks, boolean lstripBlocks) {
     static Candidate read(String json) {
       String id = null, family = null, encoded = null;

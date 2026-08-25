@@ -20,28 +20,39 @@ const pick = (random, values) => values[Math.floor(random() * values.length)];
 const source64 = source => Buffer.from(source, 'utf16le').toString('base64');
 
 function grammar(random, index) {
-  const atoms = ['none', 'true', 'false', '0', '1', "'x'", '"y"', '[1, 2]', '{a: 1}', '(1, 2)'];
-  const expressions = [
-    () => pick(random, atoms), () => `${pick(random, atoms)} + ${pick(random, atoms)}`,
-    () => `${pick(random, atoms)} == ${pick(random, atoms)}`, () => `not ${pick(random, atoms)}`,
-    () => `foo.bar[0:1]`, () => `foo|default('x')`, () => `foo is defined`,
-    () => `${pick(random, atoms)} if true else ${pick(random, atoms)}`,
-  ];
-  const expression = pick(random, expressions)();
+  const atoms = ['none', 'true', 'false', '0', '1', "'x'", '"y"'];
+  function expression(depth = 0) {
+    if (depth >= 4) return pick(random, atoms);
+    const next = () => expression(depth + 1);
+    return pick(random, [
+      () => pick(random, atoms),
+      () => `(${next()})`,
+      () => `${next()} + ${next()}`,
+      () => `${next()} == ${next()}`,
+      () => `not (${next()})`,
+      () => 'foo.bar[0:1]',
+      () => 'range(range(1))',
+    ])();
+  }
+  const value = expression();
   const templates = [
-    () => `text-${index} {{ ${expression} }}`,
-    () => `{%- set value = ${expression} -%}{{ value }}`,
-    () => `{% if true %}{{ ${expression} }}{% else %}no{% endif %}`,
+    () => `text-${index} {{ ${value}|default('x') }}`,
+    () => `{%- set value = ${value} -%}{{ value }}`,
+    () => `{% if ${value} is defined %}{{ ${value} if true else 'x' }}{% else %}no{% endif %}`,
     () => `{% for item in [1, 2] %}{{ item }}{% else %}empty{% endfor %}`,
     () => `{% macro hello(value='x') %}{{ value }}{% endmacro %}{{ hello('y') }}`,
     () => `{% filter default('x') %}value{% endfilter %}`,
     () => `{% macro wrapper() %}{{ caller() }}{% endmacro %}{% call wrapper() %}body{% endcall %}`,
-    () => `{# comment #}\r\n{{ ${expression} }}`,
+    () => `{% if true %}{% for item in [1] %}{{ ${value} }}{% endfor %}{% endif %}`,
+    () => `{# comment #}\r\n{{ ${value} }}`,
   ];
   return pick(random, templates)();
 }
 
 function hostile(random) {
+  // Single-cause probes are deliberately short: random junk alone tends to fail for many reasons.
+  const probes = ['{{ \0 }}', '{{ \uD800 }}', '{{ ] }}', '{% if %}', '{{ " }}', '{#', '{{ ( }}', '{{ foo[ }}'];
+  if (random() < 0.4) return pick(random, probes);
   const pieces = ['{{', '{%', '{#', '}}', '%}', '#}', "'", '"', '[', ']', '(', ')', '{', '}', '\0', '\r\n', '\r', '\n', '😀', '\uD800', '\uDC00', '...', '////', '!!!', 'text'];
   const count = 1 + Math.floor(random() * 32);
   let value = '';
@@ -52,6 +63,7 @@ function hostile(random) {
 export function generate({ seed, count = 100, maxSourceCodeUnits = 512 }) {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xFFFFFFFF) throw new Error('seed must be an unsigned 32-bit word');
   if (!Number.isInteger(count) || count < 1) throw new Error('count must be positive');
+  if (!Number.isInteger(maxSourceCodeUnits) || maxSourceCodeUnits < 1 || maxSourceCodeUnits > 512) throw new Error('max-source-code-units must be 1..512');
   const random = rng(seed);
   const records = [{ protocol: 'hfjinja-parser-fuzz-v1', algorithm: ALGORITHM, seed: seed >>> 0 }];
   for (const family of ['grammar', 'hostile']) for (let index = 0; index < count; index++) {

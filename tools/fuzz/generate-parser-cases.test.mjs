@@ -9,6 +9,9 @@ test('parser candidate protocol is deterministic and lossless', async () => {
   assert.equal(records.map(JSON.stringify).join('\n') + '\n', fixture);
   assert.equal(new Set(records.slice(1).map(record => record.id)).size, records.length - 1);
   assert.deepEqual(new Set(records.slice(1).map(record => record.family)), new Set(['grammar', 'hostile']));
+  assert.throws(() => generate({ seed: -1 }), /unsigned/);
+  assert.throws(() => generate({ seed: 0x1_0000_0000 }), /unsigned/);
+  assert.throws(() => generate({ seed: 1, maxSourceCodeUnits: 513 }), /max-source/);
   for (const record of records.slice(1)) {
     const source = Buffer.from(record.source, 'base64').toString('utf16le');
     assert.equal(source.length, record.sourceCodeUnits);
