@@ -496,14 +496,12 @@ class InterpreterTest {
             () -> Template.parse("{{ strftime_now() }}").render(Map.of()));
     assertEquals(ErrorCategory.ARITY, missingArgumentError.category());
     assertEquals("strftime_now() expected one string argument", missingArgumentError.getMessage());
-    assertEquals(
-        "strftime_now() expected one string argument",
-        raisedMessage("{{ strftime_now() }}", Map.of()));
 
-    // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement pushes a
-    // KeywordArgumentsValue bag unconditionally (even when empty) as arguments.get(0), so the
-    // same guard's `a.get(0) instanceof Value.KeywordArgumentsValue` check catches it directly --
-    // argument(a, 0) is never reached, exactly like the keyword-only case below.
+    // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement appends a
+    // KeywordArgumentsValue bag as the last element of `arguments`, landing at index 0 only
+    // because this call has no positionals (even with no keywords), so the same guard's
+    // `a.get(0) instanceof Value.KeywordArgumentsValue` check catches it directly -- argument(a,
+    // 0) is never reached, exactly like the keyword-only case below.
     var callBlockError =
         assertThrows(
             TemplateRenderException.class,
@@ -521,6 +519,33 @@ class InterpreterTest {
             () -> Template.parse("{{ strftime_now(fmt='%Y') }}").render(Map.of()));
     assertEquals(ErrorCategory.ARITY, keywordOnlyError.category());
     assertEquals("strftime_now() expected one string argument", keywordOnlyError.getMessage());
+  }
+
+  @Test
+  void strftimeNowArityGuardHasAcceptedFalsePositiveForNamespaceValues() {
+    // `namespace` returns its keyword bag verbatim when given keywords (Environment.namespace),
+    // so `strftime_now(namespace(a=1))` reaches Interpreter.strftime as `a=[KeywordArgumentsValue],
+    // k=false` -- structurally identical to `{% call strftime_now() %}` even though a real
+    // positional argument was supplied. The ARITY guard cannot tell these apart (see the comment
+    // above Interpreter.strftime's guard) and resolves the ambiguity toward ARITY rather than
+    // TYPE. This test pins that accepted, documented false positive so a future refactor of the
+    // guard changes it deliberately rather than by accident.
+    var namespaceWithKeywordsError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(namespace(a=1)) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, namespaceWithKeywordsError.category());
+    assertEquals(
+        "strftime_now() expected one string argument", namespaceWithKeywordsError.getMessage());
+
+    // Contrast: `namespace()` with no keywords returns a fresh ObjectValue, not the bag, so it
+    // does not trip the guard and instead falls through to the TYPE check.
+    var namespaceEmptyError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(namespace()) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, namespaceEmptyError.category());
+    assertEquals("strftime_now() format must be a string", namespaceEmptyError.getMessage());
   }
 
   @Test

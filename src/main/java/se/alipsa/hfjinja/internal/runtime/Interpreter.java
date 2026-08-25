@@ -1370,11 +1370,21 @@ public final class Interpreter {
   private static Value strftime(List<Value> a, boolean k, SourceLocation l, RenderOptions o) {
     // ARITY means "no positional format argument was supplied," which is not the same test as
     // `a.isEmpty()`: two call shapes reach here with a non-empty `a` yet no positional value.
-    // `{% call strftime_now() %}...{% endcall %}` has evaluateCallStatement push a
-    // KeywordArgumentsValue bag as a.get(0) unconditionally (even with no keywords), and
-    // `strftime_now(fmt='%Y')` has call()'s conditional append push the same shape because its
-    // keywords are non-empty. Guard on the shape, not just the count, before calling
-    // argument(a, 0) at all.
+    // `{% call strftime_now() %}...{% endcall %}` has evaluateCallStatement append a
+    // KeywordArgumentsValue bag as the last element of `a`, landing at index 0 only because this
+    // call has no positionals (even with no keywords), and `strftime_now(fmt='%Y')` has call()'s
+    // conditional append push the same shape at index 0 for the same reason, because its keywords
+    // are non-empty. Guard on the shape, not just the count, before calling argument(a, 0) at all.
+    //
+    // Known false positive: this guard cannot distinguish "no positional value was supplied" from
+    // "a positional value was supplied whose runtime type happens to be KeywordArgumentsValue" --
+    // e.g. `strftime_now(namespace(a=1))`, where `namespace` returns its keyword bag verbatim
+    // (Environment.namespace). Both shapes arrive here as `a=[KeywordArgumentsValue], k=false`;
+    // the Callable protocol carries no positional-arity signal that could tell them apart. This
+    // guard resolves that ambiguity toward ARITY rather than TYPE. No corpus or oracle record pins
+    // either category for this shape, so it is an accepted internal-consistency gap, not a parity
+    // regression -- fixing it would require carrying positional count through the Callable
+    // signature project-wide, which is out of proportion to this edge case.
     if (a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue)
       throw new TemplateRenderException(
           "strftime_now() expected one string argument", ErrorCategory.ARITY, l);
