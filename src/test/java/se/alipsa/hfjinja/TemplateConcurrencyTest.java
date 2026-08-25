@@ -30,7 +30,7 @@ import se.alipsa.hfjinja.internal.ast.Statement;
 class TemplateConcurrencyTest {
   private static final int WORKERS = 16;
   private static final int ROUNDS = 8;
-  // One isolated render currently charges 119-122 cumulative characters for the ids used here;
+  // One isolated render currently charges 98-120 cumulative characters for the ids used here;
   // 256 permits two renders but exposes a shared budget across this suite's constrained calls.
   private static final int CONSTRAINED_MAX_OUTPUT_LENGTH = 256;
   private static final String SOURCE =
