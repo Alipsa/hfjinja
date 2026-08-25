@@ -1,5 +1,6 @@
 package se.alipsa.hfjinja.internal.runtime;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -482,6 +483,155 @@ class InterpreterTest {
     } finally {
       Locale.setDefault(Locale.Category.FORMAT, previous);
     }
+  }
+
+  @Test
+  void strftimeNowRejectsMissingOrKeywordOnlyFormatWithArity() {
+    // {{ strftime_now() }}: no arguments at all, so `a.isEmpty()` is true and the
+    // `a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue` guard in
+    // Interpreter.strftime throws directly -- argument(a, 0) is never called for this case.
+    var missingArgumentError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now() }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, missingArgumentError.category());
+    assertEquals("strftime_now() expected one string argument", missingArgumentError.getMessage());
+
+    // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement appends a
+    // KeywordArgumentsValue bag as the last element of `arguments`, landing at index 0 only
+    // because this call has no positionals (even with no keywords), so the same guard's
+    // `a.get(0) instanceof Value.KeywordArgumentsValue` check catches it directly -- argument(a,
+    // 0) is never reached, exactly like the keyword-only case below.
+    var callBlockError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% call strftime_now() %}{% endcall %}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, callBlockError.category());
+    assertEquals("strftime_now() expected one string argument", callBlockError.getMessage());
+
+    // strftime_now(fmt='%Y'): a keyword-only call expression. evaluateCallExpression's `call()`
+    // only pushes the KeywordArgumentsValue bag when keywords are non-empty, but that is exactly
+    // the case here, so arguments.get(0) is again the bag and the same guard intercepts it before
+    // argument(a, 0) is ever called.
+    var keywordOnlyError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(fmt='%Y') }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, keywordOnlyError.category());
+    assertEquals("strftime_now() expected one string argument", keywordOnlyError.getMessage());
+  }
+
+  @Test
+  void strftimeNowArityGuardHasAcceptedFalsePositiveForNamespaceValues() {
+    // `namespace` returns its keyword bag verbatim when given keywords (Environment.namespace),
+    // so `strftime_now(namespace(a=1))` reaches Interpreter.strftime as `a=[KeywordArgumentsValue],
+    // k=false` -- structurally identical to `{% call strftime_now() %}` even though a real
+    // positional argument was supplied. The ARITY guard cannot tell these apart (see the comment
+    // above Interpreter.strftime's guard) and resolves the ambiguity toward ARITY rather than
+    // TYPE. This test pins that accepted, documented false positive so a future refactor of the
+    // guard changes it deliberately rather than by accident.
+    var namespaceWithKeywordsError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(namespace(a=1)) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, namespaceWithKeywordsError.category());
+    assertEquals(
+        "strftime_now() expected one string argument", namespaceWithKeywordsError.getMessage());
+
+    // Contrast: `namespace()` with no keywords returns a fresh ObjectValue, not the bag, so it
+    // does not trip the guard and instead falls through to the TYPE check.
+    var namespaceEmptyError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(namespace()) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, namespaceEmptyError.category());
+    assertEquals("strftime_now() format must be a string", namespaceEmptyError.getMessage());
+  }
+
+  @Test
+  void strftimeNowRequiresBothClockAndZoneIndependently() {
+    // Both cases use Template.parse(source).render(context, options) directly (not
+    // raisedMessage, which has no options parameter) with a RenderOptions.builder() that sets
+    // only one of clock/zoneId: raisedMessage cannot express a partially-built options object.
+    var missingClockError =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ strftime_now('%Y') }}")
+                    .render(Map.of(), RenderOptions.builder().zoneId(ZoneId.of("UTC")).build()));
+    assertEquals(ErrorCategory.VALUE, missingClockError.category());
+    assertEquals("strftime_now requires clock and zone", missingClockError.getMessage());
+
+    var missingZoneError =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ strftime_now('%Y') }}")
+                    .render(
+                        Map.of(),
+                        RenderOptions.builder()
+                            .clock(
+                                Clock.fixed(
+                                    Instant.parse("2026-08-21T09:05:00Z"), ZoneId.of("UTC")))
+                            .build()));
+    assertEquals(ErrorCategory.VALUE, missingZoneError.category());
+    assertEquals("strftime_now requires clock and zone", missingZoneError.getMessage());
+  }
+
+  @Test
+  void strftimeNowConvertsClockIntoSuppliedZone() {
+    // Every other strftime_now fixture in this file uses the same zone for both the Clock and
+    // zoneId (UTC), so none of them would notice if
+    // `ZonedDateTime.now(o.clock().get()).withZoneSameInstant(o.zoneId().get())` in
+    // Interpreter.strftime had its zone conversion deleted or its argument swapped. This mirrors
+    // the oracle-verified `self.strftime-date-boundary` corpus record byte-for-byte (same
+    // instant, zone, template, and expected text) to prove hfjinja's own interpreter performs
+    // that cross-zone conversion, not just the pinned Node oracle.
+    var options =
+        RenderOptions.builder()
+            .clock(Clock.fixed(Instant.parse("2026-01-01T00:30:00Z"), ZoneId.of("UTC")))
+            .zoneId(ZoneId.of("America/Los_Angeles"))
+            .build();
+    assertEquals(
+        "2025-12-31 16:30",
+        Template.parse("{{ strftime_now('%Y-%m-%d %H:%M') }}").render(Map.of(), options));
+  }
+
+  // The message "strftime_now() format must be a string" is deliberately distinct from the
+  // ARITY message ("strftime_now() expected one string argument") asserted above: a
+  // message-based assertion -- such as `getMessage()` and `raisedMessage(...)` here -- can only
+  // tell TYPE and ARITY failures apart if their texts differ, not merely their ErrorCategory.
+  // `none` and an undefined-backed value like `x.missing` both pass the ARITY guard (`a` is
+  // non-empty and `a.get(0)` is not a KeywordArgumentsValue) but then fail the
+  // `instanceof Value.StringValue` check in Interpreter.strftime, so both land on the TYPE
+  // branch below.
+  //
+  // The two sub-cases are wrapped in their own assertAll() lambdas rather than run as plain
+  // sequential statements: a bare `assertEquals` failure throws immediately and would abort the
+  // method, silently skipping the `x.missing` sub-case if the `none` sub-case were to regress.
+  // assertAll executes every lambda and aggregates failures, so a regression in either sub-case
+  // is independently observed instead of being masked by the other.
+  @Test
+  void strftimeNowRejectsNonStringPresentFormatWithType() {
+    assertAll(
+        () -> {
+          var noneError =
+              assertThrows(
+                  TemplateRenderException.class,
+                  () -> Template.parse("{{ strftime_now(none) }}").render(Map.of()));
+          assertEquals(ErrorCategory.TYPE, noneError.category());
+          assertEquals("strftime_now() format must be a string", noneError.getMessage());
+        },
+        () -> {
+          var undefinedBackedError =
+              assertThrows(
+                  TemplateRenderException.class,
+                  () ->
+                      Template.parse("{{ strftime_now(x.missing) }}")
+                          .render(Map.of("x", Map.of())));
+          assertEquals(ErrorCategory.TYPE, undefinedBackedError.category());
+          assertEquals("strftime_now() format must be a string", undefinedBackedError.getMessage());
+        });
   }
 
   @Test

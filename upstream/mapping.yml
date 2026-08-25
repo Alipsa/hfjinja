@@ -24,8 +24,8 @@ utils.ts:
   milestone: M2
   # Ported runtime paths: range/strftime_now and slice; titleCase/replace remain unimplemented.
   status: implemented
-  java: [src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java, src/main/java/se/alipsa/hfjinja/internal/util/JsSlice.java]
-  tests: [src/test/java/se/alipsa/hfjinja/internal/runtime/InterpreterTest.java, src/test/java/se/alipsa/hfjinja/internal/util/JsSliceTest.java]
+  java: [src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java, src/main/java/se/alipsa/hfjinja/internal/util/JsSlice.java, src/main/java/se/alipsa/hfjinja/internal/util/PosixStrftime.java]
+  tests: [src/test/java/se/alipsa/hfjinja/internal/runtime/InterpreterTest.java, src/test/java/se/alipsa/hfjinja/internal/util/JsSliceTest.java, src/test/java/se/alipsa/hfjinja/internal/util/PosixStrftimeTest.java]
 index.ts:
   milestone: M2
   status: planned

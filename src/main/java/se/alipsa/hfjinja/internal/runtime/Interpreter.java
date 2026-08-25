@@ -18,6 +18,7 @@ import se.alipsa.hfjinja.internal.Value;
 import se.alipsa.hfjinja.internal.ast.Expression;
 import se.alipsa.hfjinja.internal.ast.Statement;
 import se.alipsa.hfjinja.internal.util.JsSlice;
+import se.alipsa.hfjinja.internal.util.PosixStrftime;
 
 /** Internal evaluator entry point. */
 @SuppressWarnings("doclint:missing")
@@ -1367,52 +1368,42 @@ public final class Interpreter {
   }
 
   private static Value strftime(List<Value> a, boolean k, SourceLocation l, RenderOptions o) {
-    var format = argument(a, 0);
-    if (!(format instanceof Value.StringValue f))
+    // ARITY means "no positional format argument was supplied," which is not the same test as
+    // `a.isEmpty()`: two call shapes reach here with a non-empty `a` yet no positional value.
+    // `{% call strftime_now() %}...{% endcall %}` has evaluateCallStatement append a
+    // KeywordArgumentsValue bag as the last element of `a` even when there are no keywords,
+    // landing at index 0 only because this call has no positionals. `strftime_now(fmt='%Y')` has
+    // call()'s conditional append push the same shape at index 0 for that same no-positionals
+    // reason -- its bag exists at all because its keywords are non-empty. Guard on the shape, not
+    // just the count, before calling argument(a, 0) at all.
+    //
+    // Known false positive: this guard cannot distinguish "no positional value was supplied" from
+    // "a positional value was supplied whose runtime type happens to be KeywordArgumentsValue" --
+    // e.g. `strftime_now(namespace(a=1))`, where `namespace` returns its keyword bag verbatim
+    // (Environment.namespace). Both shapes arrive here as `a=[KeywordArgumentsValue], k=false`;
+    // the Callable protocol carries no positional-arity signal that could tell them apart. This
+    // guard resolves that ambiguity toward ARITY rather than TYPE. No corpus or oracle record pins
+    // either category for this shape, so it is an accepted internal-consistency gap, not a parity
+    // regression -- fixing it would require carrying positional count through the Callable
+    // signature project-wide, which is out of proportion to this edge case.
+    if (a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue)
       throw new TemplateRenderException(
           "strftime_now() expected one string argument", ErrorCategory.ARITY, l);
+    var format = argument(a, 0);
+    // Upstream's convertToRuntimeValues unwraps every argument shape to its raw .value before
+    // calling strftime_now, so an absent/undefined-backed argument and an explicit `none` both
+    // reach the same unguarded format.replace(...) call there and only differ in which
+    // "Cannot read properties of ... (reading 'replace')" message surfaces -- never a single
+    // shared message, and never a distinguishable category. hfjinja's ARITY/TYPE split below is a
+    // deliberate category decision upstream cannot express, so it has no matching oracle error
+    // record; retain this comment as that record's rationale.
+    if (!(format instanceof Value.StringValue f))
+      throw new TemplateRenderException(
+          "strftime_now() format must be a string", ErrorCategory.TYPE, l);
     if (o.clock().isEmpty() || o.zoneId().isEmpty())
       throw new TemplateRenderException(
           "strftime_now requires clock and zone", ErrorCategory.VALUE, l);
     var z = ZonedDateTime.now(o.clock().get()).withZoneSameInstant(o.zoneId().get());
-    String[] sm = {
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-    };
-    String[] lm = {
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December"
-    };
-    var out = new StringBuilder();
-    for (int i = 0; i < f.value().length(); i++) {
-      char c = f.value().charAt(i);
-      if (c != '%' || i + 1 == f.value().length()) {
-        out.append(c);
-        continue;
-      }
-      char directive = f.value().charAt(++i);
-      out.append(
-          switch (directive) {
-            case 'Y' -> Integer.toString(z.getYear());
-            case 'm' -> String.format(Locale.ROOT, "%02d", z.getMonthValue());
-            case 'd' -> String.format(Locale.ROOT, "%02d", z.getDayOfMonth());
-            case 'b' -> sm[z.getMonthValue() - 1];
-            case 'B' -> lm[z.getMonthValue() - 1];
-            case 'H' -> String.format(Locale.ROOT, "%02d", z.getHour());
-            case 'M' -> String.format(Locale.ROOT, "%02d", z.getMinute());
-            case '%' -> "%";
-            default -> "%" + directive;
-          });
-    }
-    return new Value.StringValue(out.toString());
+    return new Value.StringValue(PosixStrftime.format(z, f.value()));
   }
 }
