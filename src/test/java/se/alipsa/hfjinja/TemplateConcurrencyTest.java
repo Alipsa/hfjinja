@@ -2,6 +2,7 @@ package se.alipsa.hfjinja;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Modifier;
@@ -18,10 +19,14 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.Timeout;
 import se.alipsa.hfjinja.internal.ast.Statement;
 
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class TemplateConcurrencyTest {
   private static final int WORKERS = 16;
   private static final int ROUNDS = 8;
@@ -31,12 +36,13 @@ class TemplateConcurrencyTest {
           + "{% set state.seen = id %}"
           + "{% set ns.seen = id %}"
           + "{% if use_host %}{{ format_tool(id) }}{% endif %}"
-          + "{% if fail %}{{ raise_exception(id) }}{% endif %}"
           + "{% filter upper %}{% call wrap() %}{{ id }}:"
+          + "{% if fail %}{{ raise_exception(id) }}{% endif %}"
           + "{% for value in values %}{{ loop.index }}={{ value }};{% endfor %}"
           + ":{{ state.seen }}:{{ ns.seen }}{% endcall %}{% endfilter %}";
 
   @Test
+  @Order(1)
   @Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   void oneParsedTemplateRendersIndependentlyAcrossThreads() throws Exception {
     var template = Template.parse(SOURCE);
@@ -50,6 +56,17 @@ class TemplateConcurrencyTest {
                   return "host-" + arguments.getFirst();
                 })
             .build();
+    var constrainedOptions =
+        RenderOptions.builder()
+            .maxOutputLength(256)
+            .hostFunction(
+                "format_tool",
+                arguments -> {
+                  hostCalls.incrementAndGet();
+                  return "host-" + arguments.getFirst();
+                })
+            .build();
+    renderAndAssert(template, constrainedOptions, constrainedOptions, 1, 0, false);
     var ready = new CountDownLatch(WORKERS);
     var start = new CountDownLatch(1);
     var executor = Executors.newFixedThreadPool(WORKERS, daemonThreadFactory());
@@ -73,7 +90,7 @@ class TemplateConcurrencyTest {
                   }
                   for (var round = 0; round < ROUNDS; round++) {
                     try {
-                      renderAndAssert(template, options, workerId, round);
+                      renderAndAssert(template, options, constrainedOptions, workerId, round, true);
                     } catch (AssertionError | RuntimeException failure) {
                       throw new AssertionError(
                           "worker " + workerId + ", round " + round + " failed", failure);
@@ -84,7 +101,7 @@ class TemplateConcurrencyTest {
       assertTrue(ready.await(10, TimeUnit.SECONDS), "not every worker reached the start barrier");
       start.countDown();
       for (var future : futures) future.get(20, TimeUnit.SECONDS);
-      assertEquals(WORKERS * ROUNDS / 2, hostCalls.get());
+      assertEquals(expectedHostCalls(), hostCalls.get());
     } finally {
       start.countDown();
       shutdown(executor);
@@ -92,6 +109,7 @@ class TemplateConcurrencyTest {
   }
 
   @Test
+  @Order(2)
   void templateStoresOnlyItsFinalParsedProgram() throws Exception {
     var template = Template.parse("{{ value }}");
     var fields =
@@ -107,16 +125,21 @@ class TemplateConcurrencyTest {
     var parsedProgram = program.get(template);
     for (var value = 0; value < 10; value++)
       assertEquals(Integer.toString(value), template.render(Map.of("value", value)));
-    assertEquals(parsedProgram, program.get(template));
+    assertSame(parsedProgram, program.get(template));
     assertNotNull(parsedProgram);
   }
 
   private static void renderAndAssert(
-      Template template, RenderOptions options, int worker, int round) {
+      Template template,
+      RenderOptions options,
+      RenderOptions constrainedOptions,
+      int worker,
+      int round,
+      boolean allowFailure) {
     var id = "W" + worker + "R" + round;
     var overload = (worker + round) % 4;
     var explicitOptions = overload == 1 || overload == 3;
-    var fail = overload == 3 && round % 2 == 0;
+    var fail = allowFailure && round == 0;
     var state = new LinkedHashMap<String, Object>();
     state.put("seen", "caller-value");
     state.put("nested", new ArrayList<>(List.of("first", "second")));
@@ -130,9 +153,8 @@ class TemplateConcurrencyTest {
 
     if (fail) {
       var error =
-          explicitOptions
-              ? capture(() -> template.render(context, options))
-              : capture(() -> template.render(context));
+          captureFailure(
+              template, context, optionsFor(options, constrainedOptions, worker, round), overload);
       assertEquals(ErrorCategory.EXPLICIT_RAISE, error.category());
       assertTrue(error.getMessage().contains(id));
     } else {
@@ -141,7 +163,9 @@ class TemplateConcurrencyTest {
       String actual;
       switch (overload) {
         case 0 -> actual = template.render(context);
-        case 1 -> actual = template.render(context, options);
+        case 1 ->
+            actual =
+                template.render(context, optionsFor(options, constrainedOptions, worker, round));
         case 2 -> {
           var output = new StringBuilder();
           template.render(context, output);
@@ -149,7 +173,7 @@ class TemplateConcurrencyTest {
         }
         case 3 -> {
           var output = new StringBuilder();
-          template.render(context, output, options);
+          template.render(context, output, optionsFor(options, constrainedOptions, worker, round));
           actual = output.toString();
         }
         default -> throw new AssertionError("unreachable overload selection");
@@ -157,6 +181,43 @@ class TemplateConcurrencyTest {
       assertEquals(expected, actual);
     }
     assertEquals(expectedState, state);
+  }
+
+  private static RenderOptions optionsFor(
+      RenderOptions options, RenderOptions constrainedOptions, int worker, int round) {
+    return (worker + round) % 3 == 0 ? constrainedOptions : options;
+  }
+
+  private static int expectedHostCalls() {
+    var calls =
+        1; // The constrained explicit-options priming render above invokes format_tool once.
+    for (var worker = 0; worker < WORKERS; worker++)
+      for (var round = 0; round < ROUNDS; round++) {
+        var overload = (worker + round) % 4;
+        if (overload == 1 || overload == 3) calls++;
+      }
+    return calls;
+  }
+
+  private static TemplateRenderException captureFailure(
+      Template template, Map<String, Object> context, RenderOptions options, int overload) {
+    return switch (overload) {
+      case 0 -> capture(() -> template.render(context));
+      case 1 -> capture(() -> template.render(context, options));
+      case 2 ->
+          capture(
+              () -> {
+                var output = new StringBuilder();
+                template.render(context, output);
+              });
+      case 3 ->
+          capture(
+              () -> {
+                var output = new StringBuilder();
+                template.render(context, output, options);
+              });
+      default -> throw new AssertionError("unreachable overload selection");
+    };
   }
 
   private static TemplateRenderException capture(RenderCall call) {

@@ -80,6 +80,13 @@ parallel overlap, rather than merely rendering repeatedly in a loop.
    false, while explicit-options workers set it true. This permits one template to exercise the
    default API without registering a host function and the explicit API with one.
 
+   Build a second explicit `RenderOptions` instance with the same host function and a small,
+   per-render `maxOutputLength` that comfortably admits one expected render. Prime that bounded
+   options path before releasing the workers, then give a deterministic subset of explicit-options
+   calls the bounded instance. An accidentally shared `RenderBudget` consequently exhausts the
+   primed limit across otherwise valid renders, while one fresh budget per invocation passes. This
+   is a budget-isolation check, not a new resource-limit boundary suite.
+
    Include a per-render `HostFunction` whose result incorporates that call's id, registered in one
    shared immutable `RenderOptions` object. Its implementation may use an `AtomicInteger` only to
    count calls; it must not supply worker identity from shared mutable state. Place the call in the
@@ -89,17 +96,20 @@ parallel overlap, rather than merely rendering repeatedly in a loop.
    function/options read-only while each invocation retains its own scopes and converted arguments.
 
    Make a deterministic subset of workers take an id-keyed `{% if %}` branch that calls
-   `raise_exception(id)`. Assert `TemplateRenderException`, its `EXPLICIT_RAISE` category, and a
+   `raise_exception(id)` *inside the call-block body*, after the host-function call. Route each
+   failure through the same one of the four overloads selected for that round, including both
+   Appendable overloads. Assert `TemplateRenderException`, its `EXPLICIT_RAISE` category, and a
    message containing that worker's id. Continue collecting all worker rounds and assert adjacent
    successful workers retain their exact expected output. This is the abort-path isolation check:
-   a failed render must not leak its environment or budget into another render.
+   a failed render must not leak its environment, macro depth, or budget into another render.
 
 3. **Pin template non-retention/non-cache structure with a narrow white-box assertion.**
 
    Add a separate test in the same class that parses once, renders distinct caller graphs, and
    verifies via reflection that `Template` has exactly one declared non-synthetic field: `program`,
    of type `Statement.Program`, and `Modifier.isFinal(...)`. Assert its value is unchanged before
-   and after many renders. This is intentionally mechanical; do not attempt to infer what an
+   and after many renders, using identity rather than record equality. This is intentionally
+   mechanical; do not attempt to infer what an
    arbitrary `Object`-typed field might retain. If a future legitimate immutable parse cache is
    proposed, update this invariant only after reviewing its thread safety and retention properties.
    Do not use `WeakReference`/forced GC: collection timing is nondeterministic and cannot prove
@@ -165,6 +175,8 @@ parallel overlap, rather than merely rendering repeatedly in a loop.
   output overload paths show no cross-render state leakage.
 - Caller-owned nested context graphs equal their independently captured pre-render state after
   every render.
+- A bounded per-render output budget is unaffected by prior concurrent renders; the deliberate
+  shared-budget mutation fails the focused suite.
 - `Template` retains only immutable parsed state; the test catches a future lazy per-template
   context/render cache before it ships, as shown by the deliberate cache mutation.
 - The deliberate shared-`Environment` mutation makes the behavioral isolation assertions fail.
