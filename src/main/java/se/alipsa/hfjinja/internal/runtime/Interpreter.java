@@ -18,6 +18,7 @@ import se.alipsa.hfjinja.internal.Value;
 import se.alipsa.hfjinja.internal.ast.Expression;
 import se.alipsa.hfjinja.internal.ast.Statement;
 import se.alipsa.hfjinja.internal.util.JsSlice;
+import se.alipsa.hfjinja.internal.util.PosixStrftime;
 
 /** Internal evaluator entry point. */
 @SuppressWarnings("doclint:missing")
@@ -1392,44 +1393,6 @@ public final class Interpreter {
       throw new TemplateRenderException(
           "strftime_now requires clock and zone", ErrorCategory.VALUE, l);
     var z = ZonedDateTime.now(o.clock().get()).withZoneSameInstant(o.zoneId().get());
-    String[] sm = {
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-    };
-    String[] lm = {
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December"
-    };
-    var out = new StringBuilder();
-    for (int i = 0; i < f.value().length(); i++) {
-      char c = f.value().charAt(i);
-      if (c != '%' || i + 1 == f.value().length()) {
-        out.append(c);
-        continue;
-      }
-      char directive = f.value().charAt(++i);
-      out.append(
-          switch (directive) {
-            case 'Y' -> Integer.toString(z.getYear());
-            case 'm' -> String.format(Locale.ROOT, "%02d", z.getMonthValue());
-            case 'd' -> String.format(Locale.ROOT, "%02d", z.getDayOfMonth());
-            case 'b' -> sm[z.getMonthValue() - 1];
-            case 'B' -> lm[z.getMonthValue() - 1];
-            case 'H' -> String.format(Locale.ROOT, "%02d", z.getHour());
-            case 'M' -> String.format(Locale.ROOT, "%02d", z.getMinute());
-            case '%' -> "%";
-            default -> "%" + directive;
-          });
-    }
-    return new Value.StringValue(out.toString());
+    return new Value.StringValue(PosixStrftime.format(z, f.value()));
   }
 }
