@@ -10,6 +10,24 @@ import java.util.Locale;
  * ordinary characters are copied through literally.
  */
 public final class PosixStrftime {
+  private static final String[] SHORT_MONTH_NAMES = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+  private static final String[] LONG_MONTH_NAMES = {
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  };
+
   private PosixStrftime() {}
 
   /**
@@ -22,23 +40,6 @@ public final class PosixStrftime {
    * @return the formatted string
    */
   public static String format(ZonedDateTime dateTime, String format) {
-    String[] sm = {
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-    };
-    String[] lm = {
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December"
-    };
     var out = new StringBuilder();
     for (int i = 0; i < format.length(); i++) {
       char c = format.charAt(i);
@@ -52,8 +53,8 @@ public final class PosixStrftime {
             case 'Y' -> Integer.toString(dateTime.getYear());
             case 'm' -> String.format(Locale.ROOT, "%02d", dateTime.getMonthValue());
             case 'd' -> String.format(Locale.ROOT, "%02d", dateTime.getDayOfMonth());
-            case 'b' -> sm[dateTime.getMonthValue() - 1];
-            case 'B' -> lm[dateTime.getMonthValue() - 1];
+            case 'b' -> SHORT_MONTH_NAMES[dateTime.getMonthValue() - 1];
+            case 'B' -> LONG_MONTH_NAMES[dateTime.getMonthValue() - 1];
             case 'H' -> String.format(Locale.ROOT, "%02d", dateTime.getHour());
             case 'M' -> String.format(Locale.ROOT, "%02d", dateTime.getMinute());
             case '%' -> "%";

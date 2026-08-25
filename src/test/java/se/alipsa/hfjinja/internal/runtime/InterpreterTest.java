@@ -487,7 +487,9 @@ class InterpreterTest {
 
   @Test
   void strftimeNowRejectsMissingOrKeywordOnlyFormatWithArity() {
-    // {{ strftime_now() }}: no arguments at all, so argument(a, 0) is UndefinedValue.
+    // {{ strftime_now() }}: no arguments at all, so `a.isEmpty()` is true and the
+    // `a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue` guard in
+    // Interpreter.strftime throws directly -- argument(a, 0) is never called for this case.
     var missingArgumentError =
         assertThrows(
             TemplateRenderException.class,
@@ -499,9 +501,9 @@ class InterpreterTest {
         raisedMessage("{{ strftime_now() }}", Map.of()));
 
     // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement pushes a
-    // KeywordArgumentsValue bag unconditionally (even when empty) as arguments.get(0), so
-    // argument(a, 0) yields that bag rather than a string, exactly like the keyword-only case
-    // below.
+    // KeywordArgumentsValue bag unconditionally (even when empty) as arguments.get(0), so the
+    // same guard's `a.get(0) instanceof Value.KeywordArgumentsValue` check catches it directly --
+    // argument(a, 0) is never reached, exactly like the keyword-only case below.
     var callBlockError =
         assertThrows(
             TemplateRenderException.class,
@@ -511,7 +513,8 @@ class InterpreterTest {
 
     // strftime_now(fmt='%Y'): a keyword-only call expression. evaluateCallExpression's `call()`
     // only pushes the KeywordArgumentsValue bag when keywords are non-empty, but that is exactly
-    // the case here, so arguments.get(0) is again the bag, not a string.
+    // the case here, so arguments.get(0) is again the bag and the same guard intercepts it before
+    // argument(a, 0) is ever called.
     var keywordOnlyError =
         assertThrows(
             TemplateRenderException.class,
@@ -550,21 +553,39 @@ class InterpreterTest {
     assertEquals("strftime_now requires clock and zone", missingZoneError.getMessage());
   }
 
-  // Intentionally red: today's unmodified Interpreter.java validates strftime_now's first
-  // argument by checking `instanceof Value.StringValue` before ever inspecting
-  // o.clock()/o.zoneId(), so a non-string first argument (`none`, or an undefined-backed value
-  // like `x.missing`) throws ARITY with the arity message, not TYPE with the message asserted
-  // below. Both only turn green once step 2 of the plan
-  // (docs/superpowers/plans/2026-08-24-wp5-slice6-strftime-runtime.md) changes strftime's
-  // validation to distinguish "no value supplied" (ARITY) from "a value was supplied but it
-  // isn't a string" (TYPE). Do not modify Interpreter.java to make these pass in this task.
+  @Test
+  void strftimeNowConvertsClockIntoSuppliedZone() {
+    // Every other strftime_now fixture in this file uses the same zone for both the Clock and
+    // zoneId (UTC), so none of them would notice if
+    // `ZonedDateTime.now(o.clock().get()).withZoneSameInstant(o.zoneId().get())` in
+    // Interpreter.strftime had its zone conversion deleted or its argument swapped. This mirrors
+    // the oracle-verified `self.strftime-date-boundary` corpus record byte-for-byte (same
+    // instant, zone, template, and expected text) to prove hfjinja's own interpreter performs
+    // that cross-zone conversion, not just the pinned Node oracle.
+    var options =
+        RenderOptions.builder()
+            .clock(Clock.fixed(Instant.parse("2026-01-01T00:30:00Z"), ZoneId.of("UTC")))
+            .zoneId(ZoneId.of("America/Los_Angeles"))
+            .build();
+    assertEquals(
+        "2025-12-31 16:30",
+        Template.parse("{{ strftime_now('%Y-%m-%d %H:%M') }}").render(Map.of(), options));
+  }
+
+  // The message "strftime_now() format must be a string" is deliberately distinct from the
+  // ARITY message ("strftime_now() expected one string argument") asserted above: a
+  // message-based assertion -- such as `getMessage()` and `raisedMessage(...)` here -- can only
+  // tell TYPE and ARITY failures apart if their texts differ, not merely their ErrorCategory.
+  // `none` and an undefined-backed value like `x.missing` both pass the ARITY guard (`a` is
+  // non-empty and `a.get(0)` is not a KeywordArgumentsValue) but then fail the
+  // `instanceof Value.StringValue` check in Interpreter.strftime, so both land on the TYPE
+  // branch below.
   //
   // The two sub-cases are wrapped in their own assertAll() lambdas rather than run as plain
   // sequential statements: a bare `assertEquals` failure throws immediately and would abort the
-  // method, silently skipping the `x.missing` sub-case entirely on a run against today's
-  // interpreter (both currently fail on their first assertEquals). assertAll executes every
-  // lambda and aggregates failures, so both sub-cases are independently observed as red in the
-  // same test run instead of the second one being masked by the first.
+  // method, silently skipping the `x.missing` sub-case if the `none` sub-case were to regress.
+  // assertAll executes every lambda and aggregates failures, so a regression in either sub-case
+  // is independently observed instead of being masked by the other.
   @Test
   void strftimeNowRejectsNonStringPresentFormatWithType() {
     assertAll(
