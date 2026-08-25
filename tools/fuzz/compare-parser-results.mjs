@@ -17,11 +17,12 @@ const decode = candidate => Buffer.from(candidate.source, 'base64').toString('ut
 
 function runner(command, args) {
   const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-  let pending, stderr = '', buffer = '';
+  let pending, stderr = '', buffer = '', unexpectedOutput = null;
   child.stderr.on('data', data => { stderr += data; }); child.stdout.setEncoding('utf8');
-  child.stdout.on('data', data => { buffer += data; let at; while ((at = buffer.indexOf('\n')) >= 0) { const line = buffer.slice(0, at); buffer = buffer.slice(at + 1); if (pending) { const done = pending; pending = null; done.resolve(line); } } });
+  child.stdout.on('data', data => { buffer += data; let at; while ((at = buffer.indexOf('\n')) >= 0) { const line = buffer.slice(0, at); buffer = buffer.slice(at + 1); if (pending) { const done = pending; pending = null; done.resolve(line); } else unexpectedOutput = line; } });
   child.on('exit', code => { if (pending) { const done = pending; pending = null; done.reject(new Error(`HARNESS runner exited ${code}: ${stderr}`)); } });
   return { async request(candidate) {
+    if (unexpectedOutput != null) throw new Error(`HARNESS unexpected runner output before id=${candidate.id}: ${unexpectedOutput}`);
     if (pending) throw new Error('HARNESS concurrent request');
     const line = await new Promise((resolve, reject) => { const timer = setTimeout(() => { pending = null; child.kill('SIGKILL'); reject(new Error(`HARNESS timeout id=${candidate.id}`)); }, REQUEST_TIMEOUT_MS); pending = { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } }; child.stdin.write(`${JSON.stringify(candidate)}\n`); });
     let value; try { value = JSON.parse(line); } catch { throw new Error(`HARNESS malformed output id=${candidate.id}`); }

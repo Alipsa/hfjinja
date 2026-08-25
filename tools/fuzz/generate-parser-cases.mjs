@@ -22,7 +22,7 @@ const source64 = source => Buffer.from(source, 'utf16le').toString('base64');
 function grammar(random, index) {
   const atoms = ['none', 'true', 'false', '0', '1', "'x'", '"y"'];
   function expression(depth = 0) {
-    if (depth >= 4) return pick(random, atoms);
+    if (depth >= 12) return pick(random, atoms);
     const next = () => expression(depth + 1);
     return pick(random, [
       () => pick(random, atoms),
@@ -67,7 +67,9 @@ export function generate({ seed, count = 100, maxSourceCodeUnits = 512 }) {
   const random = rng(seed);
   const records = [{ protocol: 'hfjinja-parser-fuzz-v1', algorithm: ALGORITHM, seed: seed >>> 0 }];
   for (const family of ['grammar', 'hostile']) for (let index = 0; index < count; index++) {
-    const raw = family === 'grammar' ? grammar(random, index) : hostile(random);
+    let raw = family === 'grammar' ? grammar(random, index) : hostile(random);
+    // Grammar candidates promise upstream validity; retry rather than truncate a deep expression.
+    while (family === 'grammar' && raw.length > maxSourceCodeUnits) raw = grammar(random, index);
     const source = raw.slice(0, maxSourceCodeUnits);
     records.push({ id: `${(seed >>> 0).toString(16).padStart(8, '0')}-${family}-${index}`, family,
       source: source64(source), trimBlocks: random() < 0.5, lstripBlocks: random() < 0.5,

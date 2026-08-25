@@ -246,3 +246,5 @@ free; all new code belongs under `src/test` and `tools`.
 - A general Java JSONL corpus runner or importing retained model resources into `v1.jsonl`; those
   remain separate schema/harness work called out by WP1b and WP5 slice 4/5.
 - New syntax, new upstream versions, or changing intentionally documented semantic divergences.
+- Hostile-input error-shape parity: this suite compares termination and accept/reject outcomes,
+  not the particular syntax error selected when both parsers reject the same malformed source.
