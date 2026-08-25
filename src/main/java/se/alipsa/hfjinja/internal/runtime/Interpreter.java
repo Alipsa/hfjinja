@@ -153,12 +153,26 @@ public final class Interpreter {
       case Expression.FilterExpression x -> filter(x, env, budget);
       case Expression.TestExpression x -> test(x, env, budget);
       case Expression.Ternary x -> ternary(x, env, budget);
-      case Expression.SliceExpression x ->
-          throw unsupportedExpression("SliceExpression", x.location());
-      case Expression.KeywordArgumentExpression x ->
-          throw unsupportedExpression("KeywordArgumentExpression", x.location());
-      case Expression.SpreadExpression x ->
-          throw unsupportedExpression("SpreadExpression", x.location());
+      // SliceExpression/KeywordArgumentExpression/SpreadExpression are the only three sealed
+      // Expression cases with no real evaluation logic here, and that is not a gap: the parser
+      // constructs each of them in exactly one place, and every structural position they can
+      // occupy is intercepted before it can ever reach this generic dispatch.
+      // Parser.parseMemberExpressionArgumentsList is the only site that builds a SliceExpression,
+      // and it always becomes the `property` of a computed MemberExpression; member()
+      // special-cases `n.computed() && n.property() instanceof SliceExpression` before ever
+      // calling evaluateExpression on that property. Parser.parseArgumentsList is the only site
+      // that builds a KeywordArgumentExpression or SpreadExpression, feeding a CallExpression's
+      // argument list, a Macro's own parameter list, or a {% call %} block's caller parameter
+      // list; none of those three consumers ever passes the kwarg/spread node itself to
+      // evaluateExpression — evaluateArguments recurses only into keyword.value()/
+      // spread.argument(), and the macro and caller-parameter loops reject unexpected node types
+      // outright. No valid AST from this parser can hand one of these three node types to this
+      // switch directly, so — matching renderText's identical NullValue/UndefinedValue arms below
+      // — these throw AssertionError rather than a template-facing exception: reaching here is an
+      // interpreter bug, not a template author's mistake.
+      case Expression.SliceExpression x -> throw unreachable(x);
+      case Expression.KeywordArgumentExpression x -> throw unreachable(x);
+      case Expression.SpreadExpression x -> throw unreachable(x);
     };
   }
 
@@ -169,9 +183,9 @@ public final class Interpreter {
         : evaluateExpression(expression.falseExpr(), env, budget);
   }
 
-  private static TemplateRenderException unsupportedExpression(String n, SourceLocation l) {
-    return new TemplateRenderException(
-        n + " is not yet supported", ErrorCategory.UNDEFINED_OR_ACCESS, l);
+  private static AssertionError unreachable(Expression n) {
+    return new AssertionError(
+        "unreachable: " + n.getClass().getSimpleName() + " at " + n.location());
   }
 
   private static Value binary(

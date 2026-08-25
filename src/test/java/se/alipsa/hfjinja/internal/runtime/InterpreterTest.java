@@ -23,6 +23,7 @@ import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.Template;
 import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.internal.JsFormat;
+import se.alipsa.hfjinja.internal.ast.Expression;
 
 class InterpreterTest {
   @Test
@@ -1545,6 +1546,46 @@ class InterpreterTest {
     assertEquals(
         resource("step3-tooluse.expected.txt"),
         Template.parse(resource("step3.jinja")).render(context));
+  }
+
+  @Test
+  void evaluateExpressionAssertsUnreachableForParserOnlyExpressionShapes() {
+    // Handing one of these three node types directly to evaluateExpression, as this test does,
+    // is the only way to reach their arms at all -- see the comment above
+    // Interpreter.evaluateExpression's three matching cases for why the parser itself never can.
+    var location = new SourceLocation(0, 1, 1);
+    var env = new Environment(null);
+    var budget = new RenderBudget(RenderOptions.builder().build());
+    var slice = new Expression.SliceExpression(null, null, null, location);
+    var keywordArgument =
+        new Expression.KeywordArgumentExpression(
+            new Expression.Identifier("k", location),
+            new Expression.IntegerLiteral(1, location),
+            location);
+    var spread =
+        new Expression.SpreadExpression(new Expression.Identifier("x", location), location);
+    assertAll(
+        () ->
+            assertEquals(
+                "unreachable: SliceExpression at " + location,
+                assertThrows(
+                        AssertionError.class,
+                        () -> Interpreter.evaluateExpression(slice, env, budget))
+                    .getMessage()),
+        () ->
+            assertEquals(
+                "unreachable: KeywordArgumentExpression at " + location,
+                assertThrows(
+                        AssertionError.class,
+                        () -> Interpreter.evaluateExpression(keywordArgument, env, budget))
+                    .getMessage()),
+        () ->
+            assertEquals(
+                "unreachable: SpreadExpression at " + location,
+                assertThrows(
+                        AssertionError.class,
+                        () -> Interpreter.evaluateExpression(spread, env, budget))
+                    .getMessage()));
   }
 
   private String resource(String name) throws Exception {

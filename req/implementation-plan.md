@@ -175,7 +175,15 @@ on successful output and by category on Node-comparable errors.
    remains a follow-up that first requires a schema change because text records currently reject
    model provenance fields.
 4. Run fuzz/property suites with harness timeouts; preserve every oracle mismatch as a regression.
-5. Remove every remaining AST allowlist exemption.
+5. Remove every remaining AST allowlist exemption. Closed: `Interpreter.evaluateExpression`'s
+   only remaining placeholder arms — `SliceExpression`, `KeywordArgumentExpression`, and
+   `SpreadExpression` — now assert unreachability instead of throwing a template-facing "not
+   yet supported" error, matching the parser guarantee that these three node types never reach
+   that generic dispatch path. `evaluateStatement`'s M3 nodes (`Macro`, `FilterStatement`,
+   `CallStatement`) already had no such placeholder. `upstream/ast-allowlist.json`'s per-node
+   milestone tags are unaffected: `upstreamVerify` only checks that every discovered AST node
+   has a key in the allowlist, and `AstInventoryTest` checks exact key-set equality — neither
+   reads the milestone value, so there was nothing there to clear.
 
 Gate: complete pinned upstream suite, all retained model corpus entries, and no unimplemented AST
 nodes or stale mapping/no-impact records.
