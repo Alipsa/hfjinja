@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+/** Deterministic UTF-16 parser-candidate generator. PRNG: mulberry32-v1. */
+import { writeFile } from 'node:fs/promises';
+
+export const ALGORITHM = 'mulberry32-v1';
+export const SMOKE_SEEDS = [0x5EEDC0DE, 0xC0FFEE42, 0x13579BDF];
+
+function rng(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1) >>> 0;
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 0x100000000;
+  };
+}
+
+const pick = (random, values) => values[Math.floor(random() * values.length)];
+const source64 = source => Buffer.from(source, 'utf16le').toString('base64');
+
+function grammar(random, index) {
+  const atoms = ['none', 'true', 'false', '0', '1', "'x'", '"y"', '[1, 2]', '{a: 1}', '(1, 2)'];
+  const expressions = [
+    () => pick(random, atoms), () => `${pick(random, atoms)} + ${pick(random, atoms)}`,
+    () => `${pick(random, atoms)} == ${pick(random, atoms)}`, () => `not ${pick(random, atoms)}`,
+    () => `foo.bar[0:1]`, () => `foo|default('x')`, () => `foo is defined`,
+    () => `${pick(random, atoms)} if true else ${pick(random, atoms)}`,
+  ];
+  const expression = pick(random, expressions)();
+  const templates = [
+    () => `text-${index} {{ ${expression} }}`,
+    () => `{%- set value = ${expression} -%}{{ value }}`,
+    () => `{% if true %}{{ ${expression} }}{% else %}no{% endif %}`,
+    () => `{% for item in [1, 2] %}{{ item }}{% else %}empty{% endfor %}`,
+    () => `{% macro hello(value='x') %}{{ value }}{% endmacro %}{{ hello('y') }}`,
+    () => `{% filter default('x') %}value{% endfilter %}`,
+    () => `{% macro wrapper() %}{{ caller() }}{% endmacro %}{% call wrapper() %}body{% endcall %}`,
+    () => `{# comment #}\r\n{{ ${expression} }}`,
+  ];
+  return pick(random, templates)();
+}
+
+function hostile(random) {
+  const pieces = ['{{', '{%', '{#', '}}', '%}', '#}', "'", '"', '[', ']', '(', ')', '{', '}', '\0', '\r\n', '\r', '\n', '😀', '\uD800', '\uDC00', '...', '////', '!!!', 'text'];
+  const count = 1 + Math.floor(random() * 32);
+  let value = '';
+  for (let i = 0; i < count; i++) value += pick(random, pieces);
+  return value.slice(0, 512);
+}
+
+export function generate({ seed, count = 100, maxSourceCodeUnits = 512 }) {
+  if (!Number.isInteger(seed) || seed < 0 || seed > 0xFFFFFFFF) throw new Error('seed must be an unsigned 32-bit word');
+  if (!Number.isInteger(count) || count < 1) throw new Error('count must be positive');
+  const random = rng(seed);
+  const records = [{ protocol: 'hfjinja-parser-fuzz-v1', algorithm: ALGORITHM, seed: seed >>> 0 }];
+  for (const family of ['grammar', 'hostile']) for (let index = 0; index < count; index++) {
+    const raw = family === 'grammar' ? grammar(random, index) : hostile(random);
+    const source = raw.slice(0, maxSourceCodeUnits);
+    records.push({ id: `${(seed >>> 0).toString(16).padStart(8, '0')}-${family}-${index}`, family,
+      source: source64(source), trimBlocks: random() < 0.5, lstripBlocks: random() < 0.5,
+      sourceCodeUnits: source.length });
+  }
+  return records;
+}
+
+function argument(name, fallback) { const index = process.argv.indexOf(name); return index < 0 ? fallback : process.argv[index + 1]; }
+if (import.meta.main) {
+  const seedText = argument('--seed');
+  if (seedText == null) throw new Error('Usage: generate-parser-cases.mjs --seed <u32> [--count N] [--max-source-code-units N] [--output path]');
+  const seed = Number(seedText);
+  const records = generate({ seed, count: Number(argument('--count', '100')), maxSourceCodeUnits: Number(argument('--max-source-code-units', '512')) });
+  const output = records.map(record => JSON.stringify(record)).join('\n') + '\n';
+  const target = argument('--output');
+  if (target) await writeFile(target, output); else process.stdout.write(output);
+}
