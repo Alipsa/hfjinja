@@ -23,6 +23,7 @@ import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.Template;
 import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.internal.JsFormat;
+import se.alipsa.hfjinja.internal.ast.Expression;
 
 class InterpreterTest {
   @Test
@@ -1545,6 +1546,52 @@ class InterpreterTest {
     assertEquals(
         resource("step3-tooluse.expected.txt"),
         Template.parse(resource("step3.jinja")).render(context));
+  }
+
+  @Test
+  void evaluateExpressionAssertsUnreachableForParserOnlyExpressionShapes() {
+    // Parser.parseMemberExpressionArgumentsList only ever returns a SliceExpression as a
+    // computed MemberExpression's property, and Parser.parseArgumentsList only ever returns a
+    // KeywordArgumentExpression/SpreadExpression inside a CallExpression's argument list, a
+    // Macro's parameter list, or a {% call %} block's caller parameter list -- every one of
+    // those call sites intercepts the value before evaluateExpression's generic dispatch ever
+    // sees it (see the comment above Interpreter.evaluateExpression's three matching cases).
+    // Handing one directly to evaluateExpression, as this test does, is the only way to reach
+    // those arms at all, and pins that they now assert rather than throwing a template-facing
+    // "not yet supported" error.
+    var location = new SourceLocation(0, 1, 1);
+    var env = new Environment(null);
+    var budget = new RenderBudget(RenderOptions.builder().build());
+    var slice = new Expression.SliceExpression(null, null, null, location);
+    var keywordArgument =
+        new Expression.KeywordArgumentExpression(
+            new Expression.Identifier("k", location),
+            new Expression.IntegerLiteral(1, location),
+            location);
+    var spread =
+        new Expression.SpreadExpression(new Expression.Identifier("x", location), location);
+    assertAll(
+        () ->
+            assertTrue(
+                assertThrows(
+                        AssertionError.class,
+                        () -> Interpreter.evaluateExpression(slice, env, budget))
+                    .getMessage()
+                    .startsWith("unreachable: ")),
+        () ->
+            assertTrue(
+                assertThrows(
+                        AssertionError.class,
+                        () -> Interpreter.evaluateExpression(keywordArgument, env, budget))
+                    .getMessage()
+                    .startsWith("unreachable: ")),
+        () ->
+            assertTrue(
+                assertThrows(
+                        AssertionError.class,
+                        () -> Interpreter.evaluateExpression(spread, env, budget))
+                    .getMessage()
+                    .startsWith("unreachable: ")));
   }
 
   private String resource(String name) throws Exception {
