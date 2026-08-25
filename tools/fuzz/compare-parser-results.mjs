@@ -45,7 +45,7 @@ const node = runner('node', ['tools/fuzz/node-parser-runner.mjs']);
 const jvm = runner(java, ['-cp', classpath, 'se.alipsa.hfjinja.internal.parser.FuzzParserRunner']);
 async function evaluate(candidate) { const [nodeResult, javaResult] = await Promise.all([node.request(candidate), jvm.request(candidate)]); return { nodeResult, javaResult, issue: discrepancy(candidate, nodeResult, javaResult) }; }
 async function minimize(candidate, originalIssue) {
-  const started = Date.now(); let trials = 0, source = decode(candidate), width = Math.max(1, Math.floor(source.length / 2));
+  const started = Date.now(); let trials = 0, source = decode(candidate), width = Math.max(1, Math.floor(source.length / 2)), exhausted = false;
   while (width && trials < REDUCTION_TRIALS && Date.now() - started < REDUCTION_TIMEOUT_MS) {
     let reduced = false;
     for (let index = 0; index < source.length && trials < REDUCTION_TRIALS && Date.now() - started < REDUCTION_TIMEOUT_MS; index += width) {
@@ -54,9 +54,12 @@ async function minimize(candidate, originalIssue) {
       const issue = (await evaluate(trial)).issue;
       if (issue && issue.kind === originalIssue.kind && issue.reason === originalIssue.reason) { source = next; reduced = true; break; }
     }
-    if (!reduced) width = Math.floor(width / 2);
+    if (!reduced) {
+      if (trials >= REDUCTION_TRIALS || Date.now() - started >= REDUCTION_TIMEOUT_MS) { exhausted = true; break; }
+      width = Math.floor(width / 2);
+    }
   }
-  const exhausted = width > 0 && (trials >= REDUCTION_TRIALS || Date.now() - started >= REDUCTION_TIMEOUT_MS);
+  exhausted ||= trials >= REDUCTION_TRIALS || Date.now() - started >= REDUCTION_TIMEOUT_MS;
   return { source, trials, status: exhausted ? 'budget-exhausted' : 'complete' };
 }
 
@@ -80,5 +83,5 @@ try {
     }
   }
   await mkdir(dirname(report), { recursive: true });
-  await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 120 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}.\n\nExclusions: none.\n`);
+  await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 120 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}\n\nExclusions: none.\n`);
 } finally { node.close(); jvm.close(); }

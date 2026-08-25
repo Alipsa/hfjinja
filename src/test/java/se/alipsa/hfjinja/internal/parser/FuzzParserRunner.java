@@ -87,14 +87,15 @@ final class FuzzParserRunner {
   }
 
   private static String quote(String value) {
-    return "\""
-        + value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-        + "\"";
+    var result = new StringBuilder("\"");
+    for (var index = 0; index < value.length(); index++) {
+      var character = value.charAt(index);
+      if (character == '\\') result.append("\\\\");
+      else if (character == '"') result.append("\\\"");
+      else if (character >= 0x20 && character <= 0x7e) result.append(character);
+      else result.append(String.format("\\u%04x", (int) character));
+    }
+    return result.append('"').toString();
   }
 
   record Candidate(
