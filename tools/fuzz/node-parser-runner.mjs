@@ -16,6 +16,7 @@ for await (const line of readline.createInterface({ input: process.stdin, crlfDe
       const ast = parse(tokenize(source, { trim_blocks: candidate.trimBlocks, lstrip_blocks: candidate.lstripBlocks }));
       reply({ id: candidate.id, result: 'PARSED', ast: candidate.family === 'grammar' ? Buffer.from(emit(ast)).toString('base64') : undefined });
     } catch (error) {
+      // Pinned upstream's expect() throws plain Error("Parser Error: ..."), not SyntaxError.
       const result = error instanceof RangeError ? 'LIMIT' : error instanceof SyntaxError || (error instanceof Error && error.message.startsWith('Parser Error:')) ? 'SYNTAX' : 'OTHER_ERROR';
       reply({ id: candidate.id, result, detail: result === 'OTHER_ERROR' ? String(error) : undefined });
     }

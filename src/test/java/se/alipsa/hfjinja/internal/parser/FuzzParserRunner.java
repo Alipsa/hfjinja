@@ -65,10 +65,7 @@ final class FuzzParserRunner {
               + ": "
               + error.getMessage()
               + " sourceUtf16le="
-              + (candidate == null
-                  ? "<unavailable>"
-                  : Base64.getEncoder()
-                      .encodeToString(candidate.source.getBytes(StandardCharsets.UTF_16LE))));
+              + (candidate == null ? "<unavailable>" : candidate.encodedSource));
     }
   }
 
@@ -99,7 +96,12 @@ final class FuzzParserRunner {
   }
 
   record Candidate(
-      String id, String family, String source, boolean trimBlocks, boolean lstripBlocks) {
+      String id,
+      String family,
+      String source,
+      String encodedSource,
+      boolean trimBlocks,
+      boolean lstripBlocks) {
     static Candidate read(String json) {
       String id = null, family = null, encoded = null;
       var strings = STRING.matcher(json);
@@ -131,7 +133,7 @@ final class FuzzParserRunner {
       var source = new String(chars);
       if (source.length() != Integer.parseInt(length.group(1)))
         throw new IllegalArgumentException("HARNESS source length differs");
-      return new Candidate(id, family, source, trim, lstrip);
+      return new Candidate(id, family, source, encoded, trim, lstrip);
     }
   }
 }

@@ -16,6 +16,7 @@ class FuzzParserRunnerTest {
     assertEquals('A', value.charAt(0));
     assertEquals('\uD800', value.charAt(1));
     assertEquals('B', value.charAt(2));
+    assertEquals("QQAA2EIA", candidate.encodedSource());
   }
 
   @Test
