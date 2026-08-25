@@ -1371,10 +1371,11 @@ public final class Interpreter {
     // ARITY means "no positional format argument was supplied," which is not the same test as
     // `a.isEmpty()`: two call shapes reach here with a non-empty `a` yet no positional value.
     // `{% call strftime_now() %}...{% endcall %}` has evaluateCallStatement append a
-    // KeywordArgumentsValue bag as the last element of `a`, landing at index 0 only because this
-    // call has no positionals (even with no keywords), and `strftime_now(fmt='%Y')` has call()'s
-    // conditional append push the same shape at index 0 for the same reason, because its keywords
-    // are non-empty. Guard on the shape, not just the count, before calling argument(a, 0) at all.
+    // KeywordArgumentsValue bag as the last element of `a` even when there are no keywords,
+    // landing at index 0 only because this call has no positionals. `strftime_now(fmt='%Y')` has
+    // call()'s conditional append push the same shape at index 0 for that same no-positionals
+    // reason -- its bag exists at all because its keywords are non-empty. Guard on the shape, not
+    // just the count, before calling argument(a, 0) at all.
     //
     // Known false positive: this guard cannot distinguish "no positional value was supplied" from
     // "a positional value was supplied whose runtime type happens to be KeywordArgumentsValue" --
