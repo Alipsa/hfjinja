@@ -485,6 +485,97 @@ class InterpreterTest {
   }
 
   @Test
+  void strftimeNowRejectsMissingOrKeywordOnlyFormatWithArity() {
+    // {{ strftime_now() }}: no arguments at all, so argument(a, 0) is UndefinedValue.
+    var missingArgumentError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now() }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, missingArgumentError.category());
+    assertEquals("strftime_now() expected one string argument", missingArgumentError.getMessage());
+    assertEquals(
+        "strftime_now() expected one string argument",
+        raisedMessage("{{ strftime_now() }}", Map.of()));
+
+    // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement pushes a
+    // KeywordArgumentsValue bag unconditionally (even when empty) as arguments.get(0), so
+    // argument(a, 0) yields that bag rather than a string, exactly like the keyword-only case
+    // below.
+    var callBlockError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% call strftime_now() %}{% endcall %}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, callBlockError.category());
+    assertEquals("strftime_now() expected one string argument", callBlockError.getMessage());
+
+    // strftime_now(fmt='%Y'): a keyword-only call expression. evaluateCallExpression's `call()`
+    // only pushes the KeywordArgumentsValue bag when keywords are non-empty, but that is exactly
+    // the case here, so arguments.get(0) is again the bag, not a string.
+    var keywordOnlyError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(fmt='%Y') }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, keywordOnlyError.category());
+    assertEquals("strftime_now() expected one string argument", keywordOnlyError.getMessage());
+  }
+
+  @Test
+  void strftimeNowRequiresBothClockAndZoneIndependently() {
+    // Both cases use Template.parse(source).render(context, options) directly (not
+    // raisedMessage, which has no options parameter) with a RenderOptions.builder() that sets
+    // only one of clock/zoneId: raisedMessage cannot express a partially-built options object.
+    var missingClockError =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ strftime_now('%Y') }}")
+                    .render(Map.of(), RenderOptions.builder().zoneId(ZoneId.of("UTC")).build()));
+    assertEquals(ErrorCategory.VALUE, missingClockError.category());
+    assertEquals("strftime_now requires clock and zone", missingClockError.getMessage());
+
+    var missingZoneError =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ strftime_now('%Y') }}")
+                    .render(
+                        Map.of(),
+                        RenderOptions.builder()
+                            .clock(
+                                Clock.fixed(
+                                    Instant.parse("2026-08-21T09:05:00Z"), ZoneId.of("UTC")))
+                            .build()));
+    assertEquals(ErrorCategory.VALUE, missingZoneError.category());
+    assertEquals("strftime_now requires clock and zone", missingZoneError.getMessage());
+  }
+
+  // Intentionally red: today's unmodified Interpreter.java validates strftime_now's first
+  // argument by checking `instanceof Value.StringValue` before ever inspecting
+  // o.clock()/o.zoneId(),
+  // so a non-string first argument (`none`, or an undefined-backed value like `x.missing`) throws
+  // ARITY with the arity message, not TYPE with the message asserted below. Both only turn green
+  // once step 2 of the plan (docs/superpowers/plans/2026-08-24-wp5-slice6-strftime-runtime.md)
+  // changes strftime's validation to distinguish "no value supplied" (ARITY) from "a value was
+  // supplied but it isn't a string" (TYPE). Do not modify Interpreter.java to make these pass in
+  // this task.
+  @Test
+  void strftimeNowRejectsNonStringPresentFormatWithType() {
+    var noneError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(none) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, noneError.category());
+    assertEquals("strftime_now() format must be a string", noneError.getMessage());
+
+    var undefinedBackedError =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ strftime_now(x.missing) }}").render(Map.of("x", Map.of())));
+    assertEquals(ErrorCategory.TYPE, undefinedBackedError.category());
+    assertEquals("strftime_now() format must be a string", undefinedBackedError.getMessage());
+  }
+
+  @Test
   void matchesRuntimeExceptionStringificationAndCallEvaluationOrder() {
     assertEquals("1,2", raisedMessage("{{ raise_exception((1, 2)) }}", Map.of()));
     assertEquals("1", raisedMessage("{{ raise_exception(1.0) }}", Map.of()));
