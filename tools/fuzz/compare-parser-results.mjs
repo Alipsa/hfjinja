@@ -28,8 +28,10 @@ function runner(command, args) {
     let value; try { value = JSON.parse(line); } catch { throw new Error(`HARNESS malformed output id=${candidate.id}`); }
     if (value.id !== candidate.id || !value.result) throw new Error(`HARNESS invalid output id=${candidate.id}: ${line}`);
     if (value.result === 'HARNESS') throw new Error(`HARNESS id=${candidate.id}: ${value.detail ?? '<no detail>'}`);
+    await new Promise(resolve => setImmediate(resolve));
+    if (unexpectedOutput != null) throw new Error(`HARNESS unexpected runner output after id=${candidate.id}: ${unexpectedOutput}`);
     return value;
-  }, close() { child.kill(); } };
+  }, assertClean() { if (unexpectedOutput != null) throw new Error(`HARNESS unexpected runner output after final response: ${unexpectedOutput}`); }, close() { child.kill(); } };
 }
 
 function discrepancy(candidate, node, jvm) {
@@ -83,6 +85,7 @@ try {
       throw new Error(`${result.issue.kind} ${result.issue.reason} id=${candidate.id} seed=0x${seed.toString(16)} trimBlocks=${candidate.trimBlocks} lstripBlocks=${candidate.lstripBlocks} source=${JSON.stringify(minimized.source)} minimization=${minimized.status} trials=${minimized.trials} replay=node tools/fuzz/compare-parser-results.mjs --java ${java} --java-classpath <classpath> --count ${count}`);
     }
   }
+  node.assertClean(); jvm.assertClean();
   await mkdir(dirname(report), { recursive: true });
   await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 120 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}\n\nExclusions: none.\n`);
 } finally { node.close(); jvm.close(); }

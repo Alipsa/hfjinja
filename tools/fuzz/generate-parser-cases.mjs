@@ -69,7 +69,12 @@ export function generate({ seed, count = 100, maxSourceCodeUnits = 512 }) {
   for (const family of ['grammar', 'hostile']) for (let index = 0; index < count; index++) {
     let raw = family === 'grammar' ? grammar(random, index) : hostile(random);
     // Grammar candidates promise upstream validity; retry rather than truncate a deep expression.
-    while (family === 'grammar' && raw.length > maxSourceCodeUnits) raw = grammar(random, index);
+    let attempts = 0;
+    while (family === 'grammar' && raw.length > maxSourceCodeUnits) {
+      if (++attempts === 100)
+        throw new Error(`Unable to generate grammar candidate within ${maxSourceCodeUnits} code units after ${attempts} attempts`);
+      raw = grammar(random, index);
+    }
     const source = raw.slice(0, maxSourceCodeUnits);
     records.push({ id: `${(seed >>> 0).toString(16).padStart(8, '0')}-${family}-${index}`, family,
       source: source64(source), trimBlocks: random() < 0.5, lstripBlocks: random() < 0.5,
