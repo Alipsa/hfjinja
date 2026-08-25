@@ -72,7 +72,7 @@ export function generate({ seed, count = 100, maxSourceCodeUnits = 512 }) {
     let attempts = 0;
     while (family === 'grammar' && raw.length > maxSourceCodeUnits) {
       if (++attempts === 100)
-        throw new Error(`Unable to generate grammar candidate within ${maxSourceCodeUnits} code units after ${attempts} attempts`);
+        throw new Error(`Grammar retry budget exhausted: no candidate within ${maxSourceCodeUnits} code units after ${attempts} attempts`);
       raw = grammar(random, index);
     }
     const source = raw.slice(0, maxSourceCodeUnits);
