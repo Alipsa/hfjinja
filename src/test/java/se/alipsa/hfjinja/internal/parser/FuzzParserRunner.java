@@ -64,8 +64,11 @@ final class FuzzParserRunner {
           error.getClass().getName()
               + ": "
               + error.getMessage()
-              + " source="
-              + (candidate == null ? "<unavailable>" : quote(candidate.source)));
+              + " sourceUtf16le="
+              + (candidate == null
+                  ? "<unavailable>"
+                  : Base64.getEncoder()
+                      .encodeToString(candidate.source.getBytes(StandardCharsets.UTF_16LE))));
     }
   }
 

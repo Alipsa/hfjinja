@@ -51,8 +51,8 @@ function grammar(random, index) {
 
 function hostile(random) {
   // Single-cause probes are deliberately short: random junk alone tends to fail for many reasons.
-  const probes = ['{{ \0 }}', '{{ \uD800 }}', '{{ ] }}', '{% if %}', '{{ " }}', '{#', '{{ ( }}', '{{ foo[ }}'];
-  if (random() < 0.4) return pick(random, probes);
+  const probes = ['{{ 1 \0 }}', '{{ 1 \uD800 }}', '{{ 1 ] }}', '{{ 1 ( }}', '{{ 1 foo[ }}', '{{ 1 " }}', '{% if true %}{% endif', '{{ 1 }}{%'];
+  if (random() < 0.15) return pick(random, probes);
   const pieces = ['{{', '{%', '{#', '}}', '%}', '#}', "'", '"', '[', ']', '(', ')', '{', '}', '\0', '\r\n', '\r', '\n', '😀', '\uD800', '\uDC00', '...', '////', '!!!', 'text'];
   const count = 1 + Math.floor(random() * 32);
   let value = '';
