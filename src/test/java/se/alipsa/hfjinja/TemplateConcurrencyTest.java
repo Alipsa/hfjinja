@@ -30,6 +30,9 @@ import se.alipsa.hfjinja.internal.ast.Statement;
 class TemplateConcurrencyTest {
   private static final int WORKERS = 16;
   private static final int ROUNDS = 8;
+  // One isolated render currently charges 119-122 cumulative characters for the ids used here;
+  // 256 permits two renders but exposes a shared budget across this suite's constrained calls.
+  private static final int CONSTRAINED_MAX_OUTPUT_LENGTH = 256;
   private static final String SOURCE =
       "{% macro wrap() %}[{{ caller() }}]{% endmacro %}"
           + "{% set ns = namespace(seen=false) %}"
@@ -42,31 +45,26 @@ class TemplateConcurrencyTest {
           + ":{{ state.seen }}:{{ ns.seen }}{% endcall %}{% endfilter %}";
 
   @Test
+  // This must run first when executing this class alone: its constrained priming render must be
+  // the first budget constructed to make a hypothetical shared RenderBudget observable. In the
+  // full test JVM earlier renders may prime such a defect with the default limit instead.
   @Order(1)
   @Timeout(value = 30, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   void oneParsedTemplateRendersIndependentlyAcrossThreads() throws Exception {
     var template = Template.parse(SOURCE);
     var hostCalls = new AtomicInteger();
-    var options =
-        RenderOptions.builder()
-            .hostFunction(
-                "format_tool",
-                arguments -> {
-                  hostCalls.incrementAndGet();
-                  return "host-" + arguments.getFirst();
-                })
-            .build();
+    HostFunction formatTool =
+        arguments -> {
+          hostCalls.incrementAndGet();
+          return "host-" + arguments.getFirst();
+        };
+    var options = RenderOptions.builder().hostFunction("format_tool", formatTool).build();
     var constrainedOptions =
         RenderOptions.builder()
-            .maxOutputLength(256)
-            .hostFunction(
-                "format_tool",
-                arguments -> {
-                  hostCalls.incrementAndGet();
-                  return "host-" + arguments.getFirst();
-                })
+            .maxOutputLength(CONSTRAINED_MAX_OUTPUT_LENGTH)
+            .hostFunction("format_tool", formatTool)
             .build();
-    renderAndAssert(template, constrainedOptions, constrainedOptions, 1, 0, false);
+    renderAndAssert(template, constrainedOptions, constrainedOptions, WORKERS + 1, 0, false);
     var ready = new CountDownLatch(WORKERS);
     var start = new CountDownLatch(1);
     var executor = Executors.newFixedThreadPool(WORKERS, daemonThreadFactory());
@@ -139,7 +137,7 @@ class TemplateConcurrencyTest {
     var id = "W" + worker + "R" + round;
     var overload = (worker + round) % 4;
     var explicitOptions = overload == 1 || overload == 3;
-    var fail = allowFailure && round == 0;
+    var fail = allowFailure && (worker + round) % 5 == 0;
     var state = new LinkedHashMap<String, Object>();
     state.put("seen", "caller-value");
     state.put("nested", new ArrayList<>(List.of("first", "second")));

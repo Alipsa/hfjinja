@@ -87,6 +87,13 @@ parallel overlap, rather than merely rendering repeatedly in a loop.
    primed limit across otherwise valid renders, while one fresh budget per invocation passes. This
    is a budget-isolation check, not a new resource-limit boundary suite.
 
+   Run this method first within `TemplateConcurrencyTest` and document why next to its order
+   annotation: when this class is executed directly, the constrained priming render must construct
+   the first budget for the shared-budget falsification to be deterministic. In the full test JVM,
+   another class may construct a hypothetical shared budget with the default options first; that is
+   an inherent limitation of testing this public-boundary defect rather than a reason to remove the
+   focused ordering.
+
    Include a per-render `HostFunction` whose result incorporates that call's id, registered in one
    shared immutable `RenderOptions` object. Its implementation may use an `AtomicInteger` only to
    count calls; it must not supply worker identity from shared mutable state. Place the call in the
@@ -95,7 +102,7 @@ parallel overlap, rather than merely rendering repeatedly in a loop.
    the known number of explicit-options calls. This confirms the interpreter takes the
    function/options read-only while each invocation retains its own scopes and converted arguments.
 
-   Make a deterministic subset of workers take an id-keyed `{% if %}` branch that calls
+   Make a deterministic subset of workers in every round take an id-keyed `{% if %}` branch that calls
    `raise_exception(id)` *inside the call-block body*, after the host-function call. Route each
    failure through the same one of the four overloads selected for that round, including both
    Appendable overloads. Assert `TemplateRenderException`, its `EXPLICIT_RAISE` category, and a
