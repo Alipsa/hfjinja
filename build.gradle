@@ -57,6 +57,9 @@ tasks.register('codenarcBuildScripts', CodeNarc) {
 
 tasks.withType(Test).configureEach {
   useJUnitPlatform()
+  // This is a single-project build, so org.gradle.parallel cannot parallelize project work.
+  // Two forked JVMs provide the intended test-level parallelism without oversubscribing CI hosts.
+  maxParallelForks = 2
   // Gradle runs test outputs on the test classpath, allowing white-box internal.* tests while the
   // published module continues to export only se.alipsa.hfjinja. A future module-path test suite
   // must use --patch-module and qualified opens rather than widening module-info.java.

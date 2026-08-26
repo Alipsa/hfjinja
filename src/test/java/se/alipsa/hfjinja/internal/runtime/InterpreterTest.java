@@ -1745,7 +1745,32 @@ class InterpreterTest {
                 "[\"a\", \"b-c\"]", Template.parse("{{ 'a-b-c'.split('-', 1) }}").render(Map.of())),
         () ->
             assertEquals(
-                "[1, 2]", Template.parse("{{ [2,1]|sort(attribute=none) }}").render(Map.of())));
+                "[1, 2]", Template.parse("{{ [2,1]|sort(attribute=none) }}").render(Map.of())),
+        () ->
+            assertEquals("[null, null]", Template.parse("{{ [none,none]|sort }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a b \"]", Template.parse("{{ ' a b '.split(none, 0) }}").render(Map.of())),
+        () -> assertEquals("A_b 3d", Template.parse("{{ 'a_b 3d'|title }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "a b|Hello World|Hello",
+                Template.parse(
+                        "{{ ' a b '.strip() }}|{{ 'hello world'.title() }}|{{ 'hello'.capitalize() }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "xbab|xbab",
+                Template.parse(
+                        "{{ 'abab'|replace('a','x',count=1) }}|{{ 'abab'.replace('a','x',count=1) }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "falsefalsefalsefalsefalsefalse",
+                Template.parse(
+                        "{{ 3 is even }}{{ 4 is odd }}{{ 'abc' is upper }}{{ 'ABC' is lower }}"
+                            + "{{ 1.0 is integer }}{{ 1 is callable }}")
+                    .render(Map.of())));
     var mapReceiver =
         assertThrows(
             TemplateRenderException.class,
@@ -1754,6 +1779,52 @@ class InterpreterTest {
     assertEquals(
         "[[2, 0], [3, 1]]",
         Template.parse("{{ [[3,1], [2,0]]|sort(attribute=0) }}").render(Map.of()));
+    assertAll(
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ 5|keys }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|sort(attribute=true) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ 'a'|replace('a','b','c') }}").render(Map.of()))
+                    .category()));
+  }
+
+  @Test
+  void documentsAcceptedUpstreamDivergences() {
+    // The pinned upstream produces raw TypeErrors for the undefined-key dictsort and undefined
+    // lower-test cases; these assertions pin hfjinja's deliberate contracts described in WP7.
+    assertAll(
+        () -> assertEquals("|", Template.parse("{{ []|first }}|{{ []|last }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[[, 1], [\"z\", 2]]",
+                Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
+                    .render(Map.of())),
+        () -> assertEquals("false", Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())),
+        () -> {
+          var error =
+              assertThrows(
+                  TemplateRenderException.class,
+                  () -> Template.parse("{{ 'ab'|replace('a') }}").render(Map.of()));
+          assertEquals("replace() requires at least two arguments", error.getMessage());
+        },
+        () ->
+            assertEquals(
+                "", Template.parse("{{ {'a': 1}.get('z', default='d') }}").render(Map.of())));
   }
 
   @Test

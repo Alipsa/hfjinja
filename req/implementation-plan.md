@@ -11,6 +11,10 @@ ordered so that provenance and a repeatable oracle exist before behavior is port
 - Add a differential mismatch as a focused Java regression before changing expected results.
 - Do not add a production dependency to solve parsing, JSON, date formatting, or execution.
 - Keep implementation packages unexported. Only `se.alipsa.hfjinja` is public.
+- Keep Gradle's configuration cache enabled. `upstreamVerify` must resolve project paths during
+  configuration rather than retain Gradle model objects in execution closures. This single-project
+  build uses two forked test JVMs for actual test parallelism; project-level parallel execution is
+  intentionally not enabled. Corpus tasks must declare every resource tree they read as an input.
 
 ## Work packages
 
