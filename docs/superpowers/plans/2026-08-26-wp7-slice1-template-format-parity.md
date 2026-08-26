@@ -210,6 +210,11 @@ rejected finite count, derived from that constant, is `MAX_PINNED_NODE_STRING_LE
 
 ## Deliberately deferred
 
+- `{% set x %}{% endset %}` is deliberately absent from the format-vector round-trip schema.
+  Pinned upstream formats it as `{%- set x -%}` and then crashes with an unclassified internal
+  JavaScript `TypeError`; hfjinja produces the same formatted bytes and subsequently reports its
+  public `SYNTAX` exception. Its failure has no stable cross-runtime category under the project
+  error contract.
 - The remaining WP7 normal-runtime parity gaps, which follow as focused oracle-backed slices.
 - WP6 Slice 4 publication/reproducibility/Javadoc/tokenizer-example work and WP6 item 5 release
   checklist work. They resume only after the pinned feature surface is complete.

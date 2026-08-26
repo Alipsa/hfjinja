@@ -76,7 +76,7 @@ class FormatDifferentialTest {
       case "{\"a\":[0,1,2,3]}" -> Map.of("a", java.util.List.of(0, 1, 2, 3));
       case "{\"message\":{\"content\":\"<think>x</think>answer\"}}" ->
           Map.of("message", Map.of("content", "<think>x</think>answer"));
-      default -> throw new IllegalArgumentException("Unsupported format-vector context: " + json);
+      default -> throw new AssertionError("Unsupported format-vector context: " + json);
     };
   }
 
