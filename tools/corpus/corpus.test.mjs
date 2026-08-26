@@ -212,6 +212,23 @@ test('pins the primary Qwen3.8 MLX resource and goldens against the Node oracle'
   assert.match(result.stdout, /PASS qwen3.8-tooluse/);
 });
 
+test('pins the remaining upstream runtime feature inventory against the Node oracle', async () => {
+  const template = "{{ [3,1,3]|first }}|{{ [3,1,3]|last }}|{{ [3,1,3]|reverse }}|"
+    + "{{ [3,1,3]|unique }}|{{ [3,1,2]|sort }}|{{ xs|map(attribute='n', default=0) }}|"
+    + "{{ 'hello world'|title }}|{{ 'hello'|capitalize }}|{{ 'a\\nb'|indent(2) }}|"
+    + "{{ 'abab'|replace('a','x',1) }}|{{ -2|abs }}|{{ true|bool }}|"
+    + "{{ ' a b '.split() }}|{{ 'a-b-c'.replace('-','/',1) }}|{{ o.get('x','d') }}|"
+    + "{{ o.keys() }}|{{ o.values() }}|{{ o.dictsort() }}|{{ 3 is odd }}{{ 4 is even }}"
+    + "{{ 4 is integer }}{{ 'ABC' is upper }}{{ 'abc' is lower }}";
+  const expected = '3|3|[3, 1, 3]|[3, 1]|[1, 2, 3]|[2, 0]|Hello World|Hello|a\n  b|xbab|2|true|["a", "b"]|a/b-c|d|["b", "a"]|[2, 1]|[["a", 1], ["b", 2]]|truetruetruetruetrue';
+  const result = await runOracle([{
+    id: 'remaining-runtime-inventory', source: 'self-authored upstream runtime inventory', template,
+    context: {xs: [{n: 2}, {}], o: {b: 2, a: 1}}, expected: {text: expected},
+  }]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /PASS remaining-runtime-inventory/);
+});
+
 async function runOracle(records, environment = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-'));
   const corpus = join(directory, 'corpus.jsonl');

@@ -140,7 +140,7 @@ final class JsOperations {
         : other instanceof Value.StringValue x && number == stringNumber(x.value());
   }
 
-  private static boolean strictValueEquals(Value left, Value right) {
+  static boolean strictValueEquals(Value left, Value right) {
     if (numeric(left) && numeric(right)) return number(left) == number(right);
     if (left instanceof Value.StringValue a && right instanceof Value.StringValue b)
       return a.undefinedBacked() == b.undefinedBacked() && a.value().equals(b.value());

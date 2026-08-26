@@ -313,7 +313,19 @@ public final class Interpreter {
       case "join" -> filterJoin(operand, filter, location);
       case "list" -> filterList(operand, filter, location);
       case "items" -> filterItems(operand, filter, location);
+      case "first" -> filterFirstLast(operand, filter, location, false);
+      case "last" -> filterFirstLast(operand, filter, location, true);
+      case "reverse" -> filterReverse(operand, filter, location);
+      case "unique" -> filterUnique(operand, filter, location);
+      case "sort" -> filterSort(operand, filter, location);
+      case "map" -> filterMap(operand, filter, location);
       case "string" -> filterToString(operand, filter, location);
+      case "title" -> filterString(operand, filter, location, Interpreter::titleCase);
+      case "capitalize" -> filterString(operand, filter, location, Interpreter::capitalize);
+      case "abs" -> filterAbs(operand, filter, location);
+      case "bool" -> filterBool(operand, filter, location);
+      case "indent" -> filterIndent(operand, filter, location);
+      case "replace" -> filterReplace(operand, filter, location);
       case "selectattr" -> filterSelectAttr(operand, filter, location, true);
       case "rejectattr" -> filterSelectAttr(operand, filter, location, false);
       case "int" -> filterNumber(operand, filter, location, true);
@@ -477,6 +489,184 @@ public final class Interpreter {
         .invoke(List.of(), false, location, null);
   }
 
+  private static List<Value> sequence(Value operand, String name, SourceLocation location) {
+    if (operand instanceof Value.ArrayValue array) return array.values();
+    if (operand instanceof Value.TupleValue tuple) return tuple.values();
+    throw filterReceiver(name, operand, location);
+  }
+
+  private static Value filterFirstLast(
+      Value operand, NamedArguments filter, SourceLocation location, boolean last) {
+    requireNoArguments(filter, location);
+    var values = sequence(operand, filter.name(), location);
+    return values.isEmpty()
+        ? Value.UndefinedValue.INSTANCE
+        : values.get(last ? values.size() - 1 : 0);
+  }
+
+  private static Value filterReverse(
+      Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    var values = new ArrayList<>(sequence(operand, filter.name(), location));
+    Collections.reverse(values);
+    return new Value.ArrayValue(values);
+  }
+
+  private static Value filterUnique(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    var result = new ArrayList<Value>();
+    for (var value : sequence(operand, filter.name(), location))
+      if (result.stream().noneMatch(existing -> JsOperations.strictValueEquals(existing, value)))
+        result.add(value);
+    return new Value.ArrayValue(result);
+  }
+
+  private static Value filterAbs(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    if (operand instanceof Value.IntegerValue number)
+      return new Value.IntegerValue(Math.abs(number.value()));
+    if (operand instanceof Value.FloatValue number)
+      return new Value.FloatValue(Math.abs(number.value()));
+    throw filterReceiver(filter.name(), operand, location);
+  }
+
+  private static Value filterSort(Value operand, NamedArguments filter, SourceLocation location) {
+    var values = new ArrayList<>(sequence(operand, filter.name(), location));
+    boolean reverse = filterBoolean(filter, 0, "reverse", false, location);
+    boolean caseSensitive = filterBoolean(filter, 1, "case_sensitive", false, location);
+    Value attribute = filterArgument(filter, 2, "attribute");
+    if (attribute != null
+        && !(attribute instanceof Value.NullValue
+            || attribute instanceof Value.StringValue
+            || attribute instanceof Value.IntegerValue))
+      throw filterType("attribute must be a string, integer, or null", location);
+    values.sort(
+        (left, right) -> {
+          Value a = sortValue(left, attribute);
+          Value b = sortValue(right, attribute);
+          int comparison = compareValues(a, b, caseSensitive, location);
+          return reverse ? -comparison : comparison;
+        });
+    return new Value.ArrayValue(values);
+  }
+
+  private static Value filterMap(Value operand, NamedArguments filter, SourceLocation location) {
+    var attribute = filter.keywords().get("attribute");
+    if (!(attribute instanceof Value.StringValue string) || string.undefinedBacked())
+      throw filterType("attribute must be a string", location);
+    Value fallback = filter.keywords().getOrDefault("default", Value.UndefinedValue.INSTANCE);
+    var values = new ArrayList<Value>();
+    for (var item : sequence(operand, filter.name(), location)) {
+      if (!(item instanceof Value.ObjectValue))
+        throw filterType("items in map must be an object", location);
+      Value mapped = attribute(item, string.value());
+      values.add(mapped instanceof Value.UndefinedValue ? fallback : mapped);
+    }
+    return new Value.ArrayValue(values);
+  }
+
+  private static Value filterIndent(Value operand, NamedArguments filter, SourceLocation location) {
+    if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
+      throw filterReceiver(filter.name(), operand, location);
+    Value width = filterArgument(filter, 0, "width");
+    if (width == null) width = new Value.IntegerValue(4);
+    if (!(width instanceof Value.IntegerValue number))
+      throw filterType("width must be a number", location);
+    boolean first = filterBoolean(filter, 1, "first", false, location);
+    boolean blank = filterBoolean(filter, 2, "blank", false, location);
+    var lines = string.value().split("\\n", -1);
+    String prefix = " ".repeat((int) number.value());
+    for (int index = 0; index < lines.length; index++)
+      if ((first || index != 0) && (blank || !lines[index].isEmpty()))
+        lines[index] = prefix + lines[index];
+    return new Value.StringValue(String.join("\n", lines));
+  }
+
+  private static Value filterReplace(
+      Value operand, NamedArguments filter, SourceLocation location) {
+    if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
+      throw filterReceiver(filter.name(), operand, location);
+    Value old = filterArgument(filter, 0, "old");
+    Value replacement = filterArgument(filter, 1, "new");
+    if (!(old instanceof Value.StringValue oldString)
+        || !(replacement instanceof Value.StringValue newString))
+      throw filterType("replace() arguments must be strings", location);
+    Value count = filterArgument(filter, 2, "count");
+    if (count != null
+        && !(count instanceof Value.IntegerValue)
+        && !(count instanceof Value.NullValue))
+      throw filterType("replace() count argument must be a number or null", location);
+    return new Value.StringValue(
+        replace(
+            string.value(),
+            oldString.value(),
+            newString.value(),
+            count instanceof Value.IntegerValue number ? (int) number.value() : -1));
+  }
+
+  private static Value filterArgument(NamedArguments filter, int index, String key) {
+    return filter.positional().size() > index
+        ? filter.positional().get(index)
+        : filter.keywords().get(key);
+  }
+
+  private static boolean filterBoolean(
+      NamedArguments filter, int index, String key, boolean fallback, SourceLocation location) {
+    Value value = filterArgument(filter, index, key);
+    if (value == null) return fallback;
+    if (value instanceof Value.BooleanValue booleanValue) return booleanValue.value();
+    throw filterType(key + " must be a boolean", location);
+  }
+
+  private static Value sortValue(Value value, Value attribute) {
+    if (attribute == null || attribute instanceof Value.NullValue) return value;
+    String path =
+        attribute instanceof Value.StringValue string
+            ? string.value()
+            : JsFormat.plainString(((Value.IntegerValue) attribute).value());
+    return attribute(value, path);
+  }
+
+  private static Value attribute(Value value, String path) {
+    for (var part : path.split("\\.")) {
+      if (value instanceof Value.ObjectValue object)
+        value = object.values().getOrDefault(part, Value.UndefinedValue.INSTANCE);
+      else if (value instanceof Value.ArrayValue array) {
+        try {
+          int index = Integer.parseInt(part);
+          value =
+              index >= 0 && index < array.values().size()
+                  ? array.values().get(index)
+                  : Value.UndefinedValue.INSTANCE;
+        } catch (NumberFormatException ignored) {
+          return Value.UndefinedValue.INSTANCE;
+        }
+      } else return Value.UndefinedValue.INSTANCE;
+    }
+    return value;
+  }
+
+  private static Value filterBool(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    if (operand instanceof Value.BooleanValue) return operand;
+    throw filterReceiver(filter.name(), operand, location);
+  }
+
+  private static String titleCase(String value) {
+    var result = new StringBuilder(value.length());
+    boolean word = true;
+    for (int index = 0; index < value.length(); index++) {
+      char character = value.charAt(index);
+      result.append(word ? Character.toUpperCase(character) : character);
+      word = !Character.isLetterOrDigit(character) && character != '_';
+    }
+    return result.toString();
+  }
+
+  private static String capitalize(String value) {
+    return value.isEmpty() ? value : Character.toUpperCase(value.charAt(0)) + value.substring(1);
+  }
+
   private static Value filterToString(
       Value operand, NamedArguments filter, SourceLocation location) {
     requireNoArguments(filter, location);
@@ -551,6 +741,16 @@ public final class Interpreter {
       case "true" -> value instanceof Value.BooleanValue booleanValue && booleanValue.value();
       case "false" -> value instanceof Value.BooleanValue booleanValue && !booleanValue.value();
       case "boolean" -> value instanceof Value.BooleanValue;
+      case "callable" -> value instanceof Value.CallableValue;
+      case "odd" -> integerTest(value, true, location);
+      case "even" -> integerTest(value, false, location);
+      case "integer" -> value instanceof Value.IntegerValue;
+      case "lower" ->
+          value instanceof Value.StringValue string
+              && string.value().equals(string.value().toLowerCase(Locale.ROOT));
+      case "upper" ->
+          value instanceof Value.StringValue string
+              && string.value().equals(string.value().toUpperCase(Locale.ROOT));
       case "number" -> JsOperations.numeric(value);
       case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
       case "mapping" ->
@@ -566,6 +766,12 @@ public final class Interpreter {
               || value instanceof Value.StringValue string && !string.undefinedBacked();
       default -> throw filterType("Unknown test: " + name, location);
     };
+  }
+
+  private static boolean integerTest(Value value, boolean odd, SourceLocation location) {
+    if (!(value instanceof Value.IntegerValue number))
+      throw filterType("cannot " + (odd ? "odd" : "even") + " on " + type(value), location);
+    return (number.value() % 2 != 0) == odd;
   }
 
   private static String joinText(Value value, SourceLocation location) {
@@ -823,6 +1029,11 @@ public final class Interpreter {
       var key = objectKey(s);
       if (x.values().containsKey(key)) return x.values().get(key);
       if (!s.undefinedBacked() && "items".equals(s.value())) return objectItemsBuiltin(x);
+      if (!s.undefinedBacked()
+          && (s.value().equals("get")
+              || s.value().equals("keys")
+              || s.value().equals("values")
+              || s.value().equals("dictsort"))) return objectBuiltin(x, s.value());
       return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
@@ -838,6 +1049,17 @@ public final class Interpreter {
       if (p instanceof Value.StringValue property && !property.undefinedBacked()) {
         if (property.value().equals("startswith") || property.value().equals("endswith"))
           return stringBoundaryBuiltin(x.value(), property.value());
+        if (List.of(
+                "upper",
+                "lower",
+                "strip",
+                "title",
+                "capitalize",
+                "rstrip",
+                "lstrip",
+                "split",
+                "replace")
+            .contains(property.value())) return stringBuiltin(x.value(), property.value());
         return Value.UndefinedValue.INSTANCE;
       }
       if (!(p instanceof Value.IntegerValue))
@@ -874,6 +1096,192 @@ public final class Interpreter {
               ErrorCategory.TYPE,
               location);
         });
+  }
+
+  private static Value stringBuiltin(String receiver, String name) {
+    return new Value.CallableValue(
+        (arguments, hasKeywords, location, environment) -> {
+          var positional = positional(arguments);
+          return switch (name) {
+            case "upper" -> new Value.StringValue(receiver.toUpperCase(Locale.ROOT));
+            case "lower" -> new Value.StringValue(receiver.toLowerCase(Locale.ROOT));
+            case "strip" -> new Value.StringValue(JsOperations.trimEcmaWhitespace(receiver));
+            case "rstrip" -> new Value.StringValue(receiver.replaceFirst("\\s+$", ""));
+            case "lstrip" -> new Value.StringValue(receiver.replaceFirst("^\\s+", ""));
+            case "title" -> new Value.StringValue(titleCase(receiver));
+            case "capitalize" -> new Value.StringValue(capitalize(receiver));
+            case "split" -> stringSplit(receiver, positional, location);
+            case "replace" -> stringReplace(receiver, positional, arguments, location);
+            default -> throw new AssertionError(name);
+          };
+        });
+  }
+
+  private static List<Value> positional(List<Value> arguments) {
+    if (arguments.isEmpty() || !(arguments.getLast() instanceof Value.KeywordArgumentsValue))
+      return arguments;
+    return arguments.subList(0, arguments.size() - 1);
+  }
+
+  private static Value stringSplit(
+      String receiver, List<Value> arguments, SourceLocation location) {
+    Value separator = arguments.isEmpty() ? Value.NullValue.INSTANCE : arguments.getFirst();
+    if (!(separator instanceof Value.StringValue) && !(separator instanceof Value.NullValue))
+      throw filterType("sep argument must be a string or null", location);
+    int max = -1;
+    if (arguments.size() > 1) {
+      if (!(arguments.get(1) instanceof Value.IntegerValue number))
+        throw filterType("maxsplit argument must be a number", location);
+      max = (int) number.value();
+    }
+    String[] parts;
+    if (separator instanceof Value.NullValue)
+      parts =
+          receiver.trim().isEmpty()
+              ? new String[0]
+              : receiver.trim().split("\\s+", max < 0 ? 0 : max + 1);
+    else {
+      String text = ((Value.StringValue) separator).value();
+      if (text.isEmpty()) throw filterType("empty separator", location);
+      parts = receiver.split(java.util.regex.Pattern.quote(text), max < 0 ? -1 : max + 1);
+    }
+    return new Value.ArrayValue(
+        java.util.Arrays.stream(parts).map(Value.StringValue::new).map(x -> (Value) x).toList());
+  }
+
+  private static Value stringReplace(
+      String receiver, List<Value> positional, List<Value> arguments, SourceLocation location) {
+    if (positional.size() < 2)
+      throw filterType("replace() requires at least two arguments", location);
+    if (!(positional.get(0) instanceof Value.StringValue oldValue)
+        || !(positional.get(1) instanceof Value.StringValue newValue))
+      throw filterType("replace() arguments must be strings", location);
+    Value count = positional.size() > 2 ? positional.get(2) : keyword(arguments, "count");
+    if (count != null
+        && !(count instanceof Value.IntegerValue)
+        && !(count instanceof Value.NullValue))
+      throw filterType("replace() count argument must be a number or null", location);
+    return new Value.StringValue(
+        replace(
+            receiver,
+            oldValue.value(),
+            newValue.value(),
+            count instanceof Value.IntegerValue n ? (int) n.value() : -1));
+  }
+
+  private static String replace(String value, String oldValue, String newValue, int count) {
+    if (count == 0) return value;
+    var result = new StringBuilder();
+    int position = 0;
+    int replacements = 0;
+    while (count < 0 || replacements < count) {
+      int index = value.indexOf(oldValue, position);
+      if (index < 0) break;
+      result.append(value, position, index).append(newValue);
+      position = index + oldValue.length();
+      replacements++;
+      if (oldValue.isEmpty()) {
+        if (position >= value.length()) break;
+        result.append(value.charAt(position++));
+      }
+    }
+    return result.append(value.substring(position)).toString();
+  }
+
+  private static Value keyword(List<Value> arguments, String key) {
+    return !arguments.isEmpty()
+            && arguments.getLast() instanceof Value.KeywordArgumentsValue keywords
+        ? keywords.values().get(key)
+        : null;
+  }
+
+  private static Value objectBuiltin(Value.ObjectValue object, String name) {
+    return new Value.CallableValue(
+        (arguments, hasKeywords, location, environment) -> {
+          var positional = positional(arguments);
+          return switch (name) {
+            case "get" -> {
+              if (positional.isEmpty() || !(positional.getFirst() instanceof Value.StringValue key))
+                throw filterType(
+                    "Object key must be a string: got "
+                        + (positional.isEmpty() ? "UndefinedValue" : type(positional.getFirst())),
+                    location);
+              yield object
+                  .values()
+                  .getOrDefault(
+                      key.value(),
+                      positional.size() > 1 ? positional.get(1) : Value.NullValue.INSTANCE);
+            }
+            case "keys" ->
+                new Value.ArrayValue(
+                    object.values().keySet().stream()
+                        .map(key -> (Value) new Value.StringValue((String) key))
+                        .toList());
+            case "values" -> new Value.ArrayValue(new ArrayList<>(object.values().values()));
+            case "dictsort" -> dictSort(object, positional, arguments, location);
+            default -> throw new AssertionError(name);
+          };
+        });
+  }
+
+  private static Value dictSort(
+      Value.ObjectValue object,
+      List<Value> positional,
+      List<Value> arguments,
+      SourceLocation location) {
+    Value caseValue =
+        positional.isEmpty() ? keyword(arguments, "case_sensitive") : positional.getFirst();
+    Value byValue = positional.size() < 2 ? keyword(arguments, "by") : positional.get(1);
+    Value reverseValue = positional.size() < 3 ? keyword(arguments, "reverse") : positional.get(2);
+    boolean caseSensitive =
+        caseValue == null ? false : booleanValue(caseValue, "case_sensitive", location);
+    String by = byValue == null ? "key" : stringValue(byValue, "by", location);
+    if (!by.equals("key") && !by.equals("value"))
+      throw filterType("by must be either 'key' or 'value'", location);
+    boolean reverse = reverseValue != null && booleanValue(reverseValue, "reverse", location);
+    var entries = new ArrayList<Value>();
+    for (var entry : object.values().entrySet())
+      entries.add(
+          new Value.ArrayValue(
+              List.of(new Value.StringValue((String) entry.getKey()), entry.getValue())));
+    int index = by.equals("key") ? 0 : 1;
+    entries.sort(
+        (a, b) -> {
+          int comparison =
+              compareValues(
+                  ((Value.ArrayValue) a).values().get(index),
+                  ((Value.ArrayValue) b).values().get(index),
+                  caseSensitive,
+                  location);
+          return reverse ? -comparison : comparison;
+        });
+    return new Value.ArrayValue(entries);
+  }
+
+  private static boolean booleanValue(Value value, String name, SourceLocation location) {
+    if (value instanceof Value.BooleanValue booleanValue) return booleanValue.value();
+    throw filterType(name + " must be a boolean", location);
+  }
+
+  private static String stringValue(Value value, String name, SourceLocation location) {
+    if (value instanceof Value.StringValue string) return string.value();
+    throw filterType(name + " must be a string", location);
+  }
+
+  private static int compareValues(
+      Value left, Value right, boolean caseSensitive, SourceLocation location) {
+    if (JsOperations.numeric(left) && JsOperations.numeric(right))
+      return Double.compare(JsOperations.toNumber(left), JsOperations.toNumber(right));
+    if (left instanceof Value.StringValue a && right instanceof Value.StringValue b) {
+      String aText = caseSensitive ? a.value() : a.value().toLowerCase(Locale.ROOT);
+      String bText = caseSensitive ? b.value() : b.value().toLowerCase(Locale.ROOT);
+      return aText.compareTo(bText);
+    }
+    if (left instanceof Value.BooleanValue a && right instanceof Value.BooleanValue b)
+      return Boolean.compare(a.value(), b.value());
+    if (left instanceof Value.NullValue && right instanceof Value.NullValue) return 0;
+    if (left instanceof Value.UndefinedValue && right instanceof Value.UndefinedValue) return 0;
+    throw filterType("Cannot compare " + type(left) + " with " + type(right), location);
   }
 
   private static Value stringBoundaryTuple(

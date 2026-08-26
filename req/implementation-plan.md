@@ -145,6 +145,11 @@ coverage, lexer/parser termination properties.
 
 ### WP4 — interpreter core
 
+Status (2026-08-26): complete for the pinned runtime's ordinary rendering feature inventory.
+`InterpreterTest` and the Node-oracle corpus test cover the formerly absent sequence/string/object
+filters and members, plus the remaining named tests. Deliberate safety limits and separately
+documented error-shape divergences remain outside byte-for-byte parity outcomes.
+
 1. Build a fresh render environment per invocation: scopes, assignment, context/global lookup in
    the M0-derived order, loop state, and break/continue result variants.
 2. Implement expression evaluation, member/index access, truthiness, equality, string/list/object
@@ -152,8 +157,9 @@ coverage, lexer/parser termination properties.
 3. Implement JavaScript double arithmetic under the split integer/float value model, independently
    of host-boundary validation: precision loss, `NaN`, infinity, negative modulo/floor division,
    division result types, and rendering.
-4. Implement all upstream filters/tests as mapped work items. Implement deterministic JSON output
-   locally, including JS-number formatting and `NaN`/infinity becoming `null`.
+4. Implement all upstream filters/tests as mapped work items. Complete: the pinned ordinary
+   runtime filter/test/member inventory is implemented and oracle-tested. Implement deterministic
+   JSON output locally, including JS-number formatting and `NaN`/infinity becoming `null`.
 5. Implement all `RenderBudget` counters. String renders accumulate privately and are atomic;
    streaming renders write progressively and have no rollback after output or I/O failure.
    Do not introduce lazy memoization caches in `Template`; scopes, budgets, conversion state, and

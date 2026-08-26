@@ -1679,6 +1679,25 @@ class InterpreterTest {
   }
 
   @Test
+  void supportsRemainingPinnedRuntimeFiltersTestsAndMembers() {
+    var source =
+        "{{ [3,1,3]|first }}|{{ [3,1,3]|last }}|{{ [3,1,3]|reverse }}|"
+            + "{{ [3,1,3]|unique }}|{{ [3,1,2]|sort }}|{{ xs|map(attribute='n', default=0) }}|"
+            + "{{ 'hello world'|title }}|{{ 'hello'|capitalize }}|{{ 'a\\nb'|indent(2) }}|"
+            + "{{ 'abab'|replace('a','x',1) }}|{{ -2|abs }}|{{ true|bool }}|"
+            + "{{ ' a b '.split() }}|{{ 'a-b-c'.replace('-','/',1) }}|{{ o.get('x','d') }}|"
+            + "{{ o.keys() }}|{{ o.values() }}|{{ o.dictsort() }}|{{ 3 is odd }}{{ 4 is even }}"
+            + "{{ 4 is integer }}{{ 'ABC' is upper }}{{ 'abc' is lower }}";
+    assertEquals(
+        "3|3|[3, 1, 3]|[3, 1]|[1, 2, 3]|[2, 0]|Hello World|Hello|a\n  b|xbab|2|true|[\"a\", \"b\"]|a/b-c|d|[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|truetruetruetruetrue",
+        Template.parse(source)
+            .render(
+                Map.of(
+                    "xs", java.util.List.of(Map.of("n", 2), Map.of()),
+                    "o", orderedMap("b", 2, "a", 1))));
+  }
+
+  @Test
   void evaluateExpressionAssertsUnreachableForParserOnlyExpressionShapes() {
     // Handing one of these three node types directly to evaluateExpression, as this test does,
     // is the only way to reach their arms at all -- see the comment above
