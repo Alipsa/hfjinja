@@ -28,11 +28,11 @@ utils.ts:
   tests: [src/test/java/se/alipsa/hfjinja/internal/runtime/InterpreterTest.java, src/test/java/se/alipsa/hfjinja/internal/util/JsSliceTest.java, src/test/java/se/alipsa/hfjinja/internal/util/PosixStrftimeTest.java]
 index.ts:
   milestone: M2
-  status: planned
-  java: []
-  tests: []
+  status: implemented
+  java: [src/main/java/se/alipsa/hfjinja/Template.java]
+  tests: [src/test/java/se/alipsa/hfjinja/TemplateFormatTest.java]
 format.ts:
   milestone: M2
-  reviewed-no-port-impact:
-    sha256: ae4dd933ed99e933153c713667219d18a9689069560caecbfbf9c995d6674fd0
-    rationale: No v1 runtime path calls Template.format().
+  status: implemented
+  java: [src/main/java/se/alipsa/hfjinja/internal/TemplateFormatter.java]
+  tests: [src/test/java/se/alipsa/hfjinja/TemplateFormatTest.java]

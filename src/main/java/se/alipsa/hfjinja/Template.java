@@ -2,6 +2,7 @@ package se.alipsa.hfjinja;
 
 import java.util.Map;
 import java.util.Objects;
+import se.alipsa.hfjinja.internal.TemplateFormatter;
 import se.alipsa.hfjinja.internal.Value;
 import se.alipsa.hfjinja.internal.Values;
 import se.alipsa.hfjinja.internal.ast.Statement;
@@ -38,6 +39,29 @@ public final class Template {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(options, "options");
     return new Template(Parser.parse(Lexer.tokenize(source, options), options));
+  }
+
+  /** Formats this parsed template using the pinned upstream's tab indentation default. */
+  public String format() {
+    return TemplateFormatter.format(program, "\t");
+  }
+
+  /** Formats this parsed template using a string indentation unit; an empty unit selects a tab. */
+  public String format(String indent) {
+    Objects.requireNonNull(indent, "indent");
+    return TemplateFormatter.format(program, indent.isEmpty() ? "\t" : indent);
+  }
+
+  /**
+   * Formats this parsed template using a numeric space indentation count.
+   *
+   * <p>A character argument such as {@code format('\t')} widens to its numeric code point (nine);
+   * use {@link #format(String)} for a text indentation unit.
+   */
+  public String format(double indent) {
+    if (Double.isNaN(indent) || indent == 0d) return format();
+    return TemplateFormatter.format(
+        program, " ".repeat(TemplateFormatter.validateIndentCount(indent)));
   }
 
   /**

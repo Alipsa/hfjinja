@@ -212,30 +212,27 @@ nodes or stale mapping/no-impact records.
 
 ### WP7 — pinned-upstream parity closure
 
-1. Close or explicitly accept every remaining normal-rendering semantic divergence against the
-   pinned `@huggingface/jinja` runtime. The current known set includes eager filter-argument
-   evaluation; Java arity caps and unknown-keyword rejection where upstream ignores arguments; and
-   no-argument sequence filters, where upstream reports an unclassified `Unknown …Value filter`
-   error while hfjinja reports `ARITY`;
-   macro/call-block `break`/`continue` propagation; and the `tojson(sort_keys=true)` undefined-key
-   edge; plus empty `first`/`last`, where the upstream's raw-undefined failure differs from
-   hfjinja's rendered undefined behavior. The remaining diagnostic/keyword differences include
-   filter-form `replace` with one positional argument (category matches but the text differs) and
-   `Object.get` with keyword arguments (upstream exposes its keyword bag, while hfjinja returns the
-   normal missing-key default). Raw upstream TypeErrors also remain for `dictsort()` when an
-   undefined-backed key must be compared with another key (hfjinja renders a sorted result), and for
-   `is lower` on an undefined-backed string (hfjinja returns `false`). The one-key undefined-key
-   `dictsort()` corpus case is intentionally retained because it is byte-exact; the two-key case is
-   this documented divergence. Every accepted difference must have a named regression, a rationale,
-   and a documented compatibility contract; every closable difference must have a Node-oracle corpus
-   case before production code changes.
+1. Close every remaining normal-rendering semantic divergence against the pinned
+   `@huggingface/jinja` runtime. The current known set includes eager filter-argument evaluation;
+   Java arity caps and unknown-keyword rejection where upstream ignores arguments; no-argument
+   sequence filters, macro/call-block `break`/`continue` propagation, the
+   `tojson(sort_keys=true)` undefined-key edge, empty `first`/`last`, filter-form `replace` with
+   one positional argument, `Object.get` with keyword arguments, `dictsort()` when an
+   undefined-backed key must be compared with another key, and `is lower` on an undefined-backed
+   string. The one-key undefined-key `dictsort()` corpus case is byte-exact; the two-key case must
+   become byte-exact as well. Every difference must have a Node-oracle corpus case before
+   production code changes, and no normal-rendering semantic or diagnostic difference may be
+   accepted as a release exception. Java-only safety limits and host-boundary failures remain
+   explicitly outside the Node runtime contract.
 2. Expand `v1.jsonl` from representative cases to a complete reviewed mapping of all executable,
    non-model upstream runtime vectors. Add an explicit inventory report that fails when a supported
    upstream filter, test, member, global, or error family lacks either byte-exact coverage or an
    approved exclusion. Keep model-template provenance constraints intact.
-3. Decide the public `Template.format()` contract: port the pinned API with oracle coverage, or
-   record an explicit public-API exclusion in the mapping ledger and README. A no-runtime-path note
-   alone is insufficient for a feature-equivalence claim.
+3. Port the pinned `Template.format()` API with oracle coverage. Design its Java options surface
+   explicitly for upstream's string-or-number `indent` value, retain the default-tab behavior, and
+   map `index.ts` and `format.ts` as implemented only when public API, formatter, and oracle tests
+   land together. A no-runtime-path note or public-API exclusion is insufficient for feature
+   parity.
 4. Specify the intended error contract per feature. Where exact upstream messages are practical,
    compare them; otherwise retain category-level comparison only after documenting why. In
    particular, resolve or document call-form filter diagnostics such as `safe(...)`/`items(...)`.
@@ -246,9 +243,8 @@ nodes or stale mapping/no-impact records.
    coverage report a release-blocking check. New upstream versions remain a separate reviewed
    sync, not an implicit upgrade.
 
-Gate: all ordinary rendering behavior in the pinned upstream is byte-exact or has an explicit,
-approved exception; the corpus/mapping inventory is complete; and `Template.format()` is either
-implemented or publicly excluded.
+Gate: all ordinary rendering behavior and public APIs in the pinned upstream are byte-exact; the
+corpus/mapping inventory is complete; and `Template.format()` is implemented and oracle-tested.
 
 ## Delivery gates
 
@@ -262,12 +258,13 @@ implemented or publicly excluded.
 | G4 | Core corpus plus Llama/Qwen goldens pass under effectively unbounded budgets. |
 | G5 | Full pinned suite, Mistral/tool-use goldens, and complete AST ledger pass. |
 | G6 | Packaging, notices, concurrency, limits, reproducibility, and consumer example pass. |
-| G7 | Pinned-upstream parity closure: complete reviewed runtime/vector inventory, resolved or approved semantic differences, and an explicit `Template.format()` contract. This is the final release gate. |
+| G7 | Pinned-upstream parity closure: complete reviewed runtime/vector inventory, no normal-runtime exceptions, and an implemented `Template.format()` contract. This is the final release gate. |
 
 ## Suggested implementation sequence
 
 Complete WP0 and WP1a before starting language code. WP1b may run in parallel with WP2 and WP3;
 it blocks the WP4 corpus gate, not the lexer or value work. WP2 and WP3 may proceed in parallel once
 the public API and upstream inventory are stable. WP4 follows their merged value/AST contracts. WP5
-and WP6 are sequential release gates because model/template coverage depends on the completed
-runtime; WP6 confirms the earlier licensing decision remains accurate.
+and the first three WP6 safety/licensing slices establish the runtime evidence needed for parity.
+Prioritize WP7 parity closure, including `Template.format()`, ahead of the remaining WP6 packaging
+and release-checklist work; release polish cannot compensate for a missing pinned-upstream feature.

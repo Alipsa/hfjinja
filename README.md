@@ -21,6 +21,8 @@ Running `./gradlew check` also requires exactly Node.js 26.7.0, the pinned oracl
 - Hugging Face Jinja syntax and runtime semantics: expressions, control flow, loops, filters,
   tests, macros, call/filter blocks, slices, keyword/spread arguments, `tojson`, and
   `raise_exception`.
+- Canonical formatting of parsed templates through `Template.format()`, with tab, string, or
+  numeric-space indentation.
 - Byte-exact compatibility corpus generated from the pinned Node package, including whitespace and
   Unicode behavior.
 - Closed host-value boundary: templates cannot reflect over Java objects, call Java methods, or
@@ -71,6 +73,14 @@ overloads buffer output; the latter performs one terminal append after a success
 
 ```java
 template.render(context, writer);
+```
+
+To produce the pinned upstream's canonical template style without rendering it, call `format()`:
+
+```java
+String canonical = template.format();       // tab indentation
+String spaces = template.format(2);         // two spaces per nesting level
+String custom = template.format("  ");      // string indentation unit
 ```
 
 ## Values and safety
