@@ -22,6 +22,10 @@
       "category": "TYPE"
     },
     {
+      "regex": "^Unknown operator \"(?<op>.+)\" between (?<left>.+) and (?<right>.+)$",
+      "category": "TYPE"
+    },
+    {
       "regex": "^Invalid count value: (?<count>-?\\d+)$",
       "category": "VALUE",
       "comment": "tojson(indent) rejects a negative String.repeat count"

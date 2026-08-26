@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class FormatDifferentialTest {
   private static final Pattern RECORD =
       Pattern.compile(
-          "\\{\\\"name\\\":\\\"(?<name>(?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"(?<source>(?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(?<number>-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"(?<string>(?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"(?<roundTrip>[^\\\"]+)\\\",\\\"formatted\\\":\\\"(?<formatted>(?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"(?<context>(?:\\\\.|[^\\\"])*)\\\",\\\"originalRendered\\\":(?:null|\\\"(?<originalRendered>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedRendered\\\":(?:null|\\\"(?<reformattedRendered>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedError\\\":(?:null|\\\"(?<reformattedError>(?:\\\\.|[^\\\"])*)\\\")\\}");
+          "\\{\\\"name\\\":\\\"(?<name>(?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"(?<source>(?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(?<number>-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"(?<string>(?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"(?<roundTrip>[^\\\"]+)\\\",\\\"formatted\\\":\\\"(?<formatted>(?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"(?<context>(?:\\\\.|[^\\\"])*)\\\",\\\"originalRendered\\\":(?:null|\\\"(?<originalRendered>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedRendered\\\":(?:null|\\\"(?<reformattedRendered>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedError\\\":(?:null|\\\"(?<reformattedError>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedCategory\\\":(?:null|\\\"(?<reformattedCategory>[^\\\"]+)\\\")\\}");
 
   @Test
   void matchesEveryPinnedNodeFormatGolden() throws Exception {
@@ -43,7 +43,10 @@ class FormatDifferentialTest {
           var failure =
               assertThrows(
                   TemplateRenderException.class, () -> Template.parse(actual).render(context));
-          assertEquals(ErrorCategory.TYPE, failure.category(), name + " formatted error category");
+          assertEquals(
+              ErrorCategory.valueOf(required(matcher, "reformattedCategory")),
+              failure.category(),
+              name + " formatted error category");
         } else
           assertEquals(
               unescape(required(matcher, "reformattedRendered")),

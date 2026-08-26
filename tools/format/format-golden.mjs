@@ -2,6 +2,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { Template, tokenize, parse } from '../../upstream/vendor/dist/index.js';
+import { errorClassifier } from '../corpus/corpus.mjs';
 
 const args = process.argv.slice(2);
 if (args[0] !== '--vectors' || !args[1]) {
@@ -10,6 +11,7 @@ if (args[0] !== '--vectors' || !args[1]) {
 const vectors = JSON.parse(await readFile(args[1], 'utf8'));
 const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
 if (process.version !== lock.nodeVersion) throw new Error(`Node oracle version ${process.version} does not match lock ${lock.nodeVersion}`);
+const classifyError = await errorClassifier('tools/corpus/error-patterns-0.5.9.json', `${lock.package}@${lock.version}`);
 const types = new Set();
 function walk(value) {
   if (!value || typeof value !== 'object') return;
@@ -29,12 +31,14 @@ const output = vectors.map(vector => {
   let originalRendered = null;
   let reformattedRendered = null;
   let reformattedError = null;
+  let reformattedCategory = null;
   if (vector.roundTrip !== 'not-renderable') {
     originalRendered = template.render(vector.context ?? {});
     try {
       reformattedRendered = new Template(formatted).render(vector.context ?? {});
     } catch (error) {
       reformattedError = `${error.name}: ${error.message}`;
+      reformattedCategory = classifyError(error.message);
     }
     if (vector.roundTrip === 'preserves' && (reformattedError !== null || originalRendered !== reformattedRendered)) {
       throw new Error(`Format round trip changed rendering for ${vector.name}`);
@@ -56,6 +60,7 @@ const output = vectors.map(vector => {
     originalRendered,
     reformattedRendered,
     reformattedError,
+    reformattedCategory,
   };
 });
 const text = JSON.stringify(output) + '\n';

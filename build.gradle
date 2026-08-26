@@ -82,7 +82,8 @@ tasks.register('formatGoldenVerify', Exec) {
       '--check', 'src/test/resources/format/upstream-formatted.json', '--report', formatGoldenReport.absolutePath
   inputs.files('tools/format/format-golden.mjs', 'src/test/resources/format/vectors.json',
       'src/test/resources/format/upstream-formatted.json', 'upstream/vendor/dist/index.js',
-      'upstream/ast-allowlist.json', 'upstream/upstream-lock.json')
+      'upstream/ast-allowlist.json', 'upstream/upstream-lock.json', 'tools/corpus/corpus.mjs',
+      'tools/corpus/error-patterns-0.5.9.json')
   outputs.file(formatGoldenMarker).withPropertyName('verifiedMarker')
   outputs.file(formatGoldenReport).withPropertyName('astCoverageReport')
   doLast { formatGoldenMarker.parentFile.mkdirs(); formatGoldenMarker.text = "verified\n" }
