@@ -41,8 +41,7 @@ class FormatDifferentialTest {
             name + " original render");
         if (matcher.group("roundTrip").equals("reformat-fails")) {
           var failure =
-              assertThrows(
-                  TemplateRenderException.class, () -> Template.parse(actual).render(context));
+              assertThrows(HfJinjaException.class, () -> Template.parse(actual).render(context));
           assertEquals(
               ErrorCategory.valueOf(required(matcher, "reformattedCategory")),
               failure.category(),
@@ -70,6 +69,7 @@ class FormatDifferentialTest {
       case "{}" -> Map.of();
       case "{\"a\":true,\"x\":\"x\"}" -> Map.of("a", true, "x", "x");
       case "{\"a\":true}" -> Map.of("a", true);
+      case "{\"a\":1}" -> Map.of("a", 1);
       case "{\"a\":false,\"b\":true}" -> Map.of("a", false, "b", true);
       case "{\"a\":1,\"b\":2}" -> Map.of("a", 1, "b", 2);
       case "{\"c\":true}" -> Map.of("c", true);

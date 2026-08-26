@@ -26,6 +26,10 @@
       "category": "TYPE"
     },
     {
+      "regex": "^Parser Error: (?<detail>.+)$",
+      "category": "SYNTAX"
+    },
+    {
       "regex": "^Invalid count value: (?<count>-?\\d+)$",
       "category": "VALUE",
       "comment": "tojson(indent) rejects a negative String.repeat count"
