@@ -1676,6 +1676,23 @@ class InterpreterTest {
                 TemplateRenderException.class,
                 () -> Template.parse("{{ 'abc' | safe(1) }}").render(Map.of()))
             .getMessage());
+    assertEquals("", Template.parse("{{ 'abc'['xy'[9]] }}").render(Map.of()));
+    assertEquals("3", Template.parse("{{ 'abc'.length }}").render(Map.of()));
+  }
+
+  @Test
+  void validatesItemsFilterArgumentsAndReceiver() {
+    assertEquals("[[\"a\", 1]]", Template.parse("{{ {'a': 1} | items }}").render(Map.of()));
+    var arity =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1} | items(1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, arity.category());
+    var receiver =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [1] | items }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, receiver.category());
   }
 
   @Test

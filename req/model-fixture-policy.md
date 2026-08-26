@@ -19,11 +19,11 @@ exact model repository, immutable revision, template path, and applicable licens
 ## Current fixture set
 
 The retained Mistral-7B-Instruct-v0.3, Qwen2.5-32B-Instruct, and primary Qwen3.8-27B-4bit MLX
-template resources are approved Qwen/Mistral cases. Their pinned source records, Apache-2.0 notices, and model-card
-attribution are recorded in NOTICE in this same change; copied templates and generated output are
-not implicitly covered by the upstream MIT notice. The model-bearing upstream README and e2e fixture
-remain intentionally unvendored. The first Llama case may retain only hash-only metadata,
-self-authored test context, and an error category where applicable.
+template resources are approved Qwen/Mistral cases. Their pinned source records, Apache-2.0
+notices, and model-card attribution are recorded in NOTICE in this same change; copied templates
+and generated output are not implicitly covered by the upstream MIT notice. The model-bearing
+upstream README and e2e fixture remain intentionally unvendored. The first Llama case may retain
+only hash-only metadata, self-authored test context, and an error category where applicable.
 
 The retained Step3 resource is the approved macro-heavy fixture. Its pinned source record,
 Apache-2.0 notice, and model-card attribution were added with its first retained copy in NOTICE.

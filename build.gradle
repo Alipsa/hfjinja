@@ -114,7 +114,8 @@ tasks.register('nodeCorpusTest', Exec) {
   executable = 'node'
   args '--test', 'tools/corpus/corpus.test.mjs'
   inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/corpus.test.mjs',
-      'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json')
+      'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json',
+      fileTree('src/test/resources/model-templates'))
   outputs.file(nodeCorpusTestMarker).withPropertyName('verifiedMarker')
   doLast {
     nodeCorpusTestMarker.parentFile.mkdirs()

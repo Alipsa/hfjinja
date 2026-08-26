@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiPredicate;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.RenderOptions;
 import se.alipsa.hfjinja.SourceLocation;
@@ -484,9 +485,7 @@ public final class Interpreter {
     requireNoArguments(filter, location);
     if (!(operand instanceof Value.ObjectValue object))
       throw filterReceiver("items", operand, location);
-    return ((Value.CallableValue) objectItemsBuiltin(object))
-        .callable()
-        .invoke(List.of(), false, location, null);
+    return itemsOf(object);
   }
 
   private static List<Value> sequence(Value operand, String name, SourceLocation location) {
@@ -1046,9 +1045,15 @@ public final class Interpreter {
     if (target instanceof Value.TupleValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.StringValue x) {
       if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
-      if (p instanceof Value.StringValue property && !property.undefinedBacked()) {
-        if (property.value().equals("startswith") || property.value().equals("endswith"))
-          return stringBoundaryBuiltin(x.value(), property.value());
+      if (p instanceof Value.StringValue property) {
+        if (!property.undefinedBacked()
+            && (property.value().equals("startswith") || property.value().equals("endswith")))
+          return stringBoundaryBuiltin(
+              x.value(),
+              property.value(),
+              property.value().equals("startswith") ? String::startsWith : String::endsWith);
+        if (!property.undefinedBacked() && property.value().equals("length"))
+          return new Value.IntegerValue(x.value().length());
         if (List.of(
                 "upper",
                 "lower",
@@ -1075,7 +1080,8 @@ public final class Interpreter {
     return Value.UndefinedValue.INSTANCE;
   }
 
-  private static Value stringBoundaryBuiltin(String receiver, String name) {
+  private static Value stringBoundaryBuiltin(
+      String receiver, String name, BiPredicate<String, String> matches) {
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
           if (arguments.isEmpty())
@@ -1083,14 +1089,11 @@ public final class Interpreter {
                 name + "() requires at least one argument", ErrorCategory.ARITY, location);
           var pattern = arguments.getFirst();
           if (pattern instanceof Value.StringValue string && !string.undefinedBacked())
-            return new Value.BooleanValue(
-                name.equals("startswith")
-                    ? receiver.startsWith(string.value())
-                    : receiver.endsWith(string.value()));
+            return new Value.BooleanValue(matches.test(receiver, string.value()));
           if (pattern instanceof Value.ArrayValue array)
-            return stringBoundaryTuple(receiver, name, array.values(), location);
+            return stringBoundaryTuple(receiver, name, matches, array.values(), location);
           if (pattern instanceof Value.TupleValue tuple)
-            return stringBoundaryTuple(receiver, name, tuple.values(), location);
+            return stringBoundaryTuple(receiver, name, matches, tuple.values(), location);
           throw new TemplateRenderException(
               name + "() argument must be a string or tuple of strings",
               ErrorCategory.TYPE,
@@ -1285,14 +1288,16 @@ public final class Interpreter {
   }
 
   private static Value stringBoundaryTuple(
-      String receiver, String name, List<Value> patterns, SourceLocation location) {
+      String receiver,
+      String name,
+      BiPredicate<String, String> matches,
+      List<Value> patterns,
+      SourceLocation location) {
     for (var pattern : patterns) {
       if (!(pattern instanceof Value.StringValue string) || string.undefinedBacked())
         throw new TemplateRenderException(
             name + "() tuple elements must be strings", ErrorCategory.TYPE, location);
-      if (name.equals("startswith")
-          ? receiver.startsWith(string.value())
-          : receiver.endsWith(string.value())) return new Value.BooleanValue(true);
+      if (matches.test(receiver, string.value())) return new Value.BooleanValue(true);
     }
     return new Value.BooleanValue(false);
   }
@@ -1302,18 +1307,22 @@ public final class Interpreter {
     var builtin =
         new Value.CallableValue(
             (arguments, hasKeywords, location, environment) -> {
-              var pairs = new ArrayList<Value>();
-              for (var entry : object.values().entrySet()) {
-                var key =
-                    entry.getKey() instanceof Value.StringValue string
-                        ? string
-                        : new Value.StringValue((String) entry.getKey());
-                pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
-              }
-              return new Value.ArrayValue(pairs);
+              return itemsOf(object);
             });
     object.setItemsBuiltin(builtin);
     return builtin;
+  }
+
+  private static Value.ArrayValue itemsOf(Value.ObjectValue object) {
+    var pairs = new ArrayList<Value>();
+    for (var entry : object.values().entrySet()) {
+      var key =
+          entry.getKey() instanceof Value.StringValue string
+              ? string
+              : new Value.StringValue((String) entry.getKey());
+      pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
+    }
+    return new Value.ArrayValue(pairs);
   }
 
   private static Value slice(
