@@ -12,7 +12,9 @@ const types = new Set();
 function walk(value) {
   if (!value || typeof value !== 'object') return;
   if (value.constructor?.name && value.constructor.name !== 'Object' && value.constructor.name !== 'Array') types.add(value.constructor.name);
-  if (Array.isArray(value)) value.forEach(walk); else Object.values(value).forEach(walk);
+  if (value instanceof Map) value.forEach((item, key) => { walk(key); walk(item); });
+  else if (Array.isArray(value)) value.forEach(walk);
+  else Object.values(value).forEach(walk);
 }
 const output = vectors.map(vector => {
   const template = new Template(vector.source);
