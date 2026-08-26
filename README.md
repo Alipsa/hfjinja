@@ -143,6 +143,13 @@ Categories cover syntax, undefined/access, type, arity, value, explicit raises, 
 host conversion, resource limits, and output failures. New categories may be added in minor
 releases; consumers should include a `default` branch when switching on them.
 
+Runtime compatibility checks compare error categories by default. The pinned Node oracle's stable
+unknown-filter and receiver-error diagnostic families are additionally checked exactly where
+documented by regression tests; other error wording remains category-only compatibility evidence.
+For example, `1 | upper` remains category-only because the Node runtime selects an unknown numeric
+filter diagnostic. Known-name wrong-receiver cases such as `[1] | items` are likewise
+category-only until their behavior is individually closed.
+
 `TemplateOptions` and `RenderOptions` configure source, token, AST-depth, render-step, loop,
 macro-depth, and output-size limits. Resource-limit failures are distinct from compatibility
 results. `Appendable` write failures are reported as `OUTPUT` errors.

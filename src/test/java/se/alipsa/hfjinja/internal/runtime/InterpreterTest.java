@@ -264,7 +264,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ 'x' | trim(1) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, arity.category());
+    assertEquals(ErrorCategory.TYPE, arity.category());
     assertEquals("{\n}", Template.parse("{{ {} | tojson(indent=2) }}").render(Map.of()));
     var defaultFlag =
         assertThrows(
@@ -852,7 +852,8 @@ class InterpreterTest {
     // order it was inserted.)
     assertEquals(
         "Unknown `int` filter argument: z",
-        raisedMessage("{{ 1 | int(z=1, a=2, m=3) }}", Map.of()));
+        raisedMessage("{{ '1' | int(z=1, a=2, m=3) }}", Map.of()));
+    assertEquals("1", Template.parse("{{ 1 | int(z=1) }}").render(Map.of()));
   }
 
   @Test
@@ -864,13 +865,13 @@ class InterpreterTest {
   }
 
   @Test
-  void filterDispatchOrder_isKnownDivergenceFromUpstream() {
+  void callFormJoinValidatesReceiverBeforeArguments() {
     var error =
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ 5 | join(*none) }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, error.category());
-    assertEquals("Cannot unpack non-iterable type: NullValue", error.getMessage());
+    assertEquals("Cannot apply filter \"join\" to type: IntegerValue", error.getMessage());
   }
 
   @Test
@@ -918,7 +919,7 @@ class InterpreterTest {
     var error =
         assertThrows(
             TemplateRenderException.class,
-            () -> Template.parse("{{ 1 | int(a=1, b=2, c=3) }}").render(Map.of()));
+            () -> Template.parse("{{ '1' | int(a=1, b=2, c=3) }}").render(Map.of()));
     assertEquals(ErrorCategory.VALUE, error.category());
   }
 
@@ -1353,11 +1354,8 @@ class InterpreterTest {
 
   @Test
   void macroCannotBeUsedAsAFilter() {
-    // Upstream reports "Unknown StringValue filter: f" here — the pre-existing, documented,
-    // out-of-scope divergence in this plan's "Discovered, out-of-scope divergence" note (Java's
-    // unknown-filter message omits the operand type). The property this test actually pins is that
-    // filters are resolved from a fixed table, never from the variable/macro namespace: `f` is not
-    // found as a filter even though it is a perfectly callable macro.
+    // Filters are resolved from a fixed table, never from the variable/macro namespace: `f` is
+    // not found as a filter even though it is a perfectly callable macro.
     var error =
         assertThrows(
             TemplateRenderException.class,
@@ -1365,7 +1363,129 @@ class InterpreterTest {
                 Template.parse("{% macro f(x) %}{{ x|upper }}{% endmacro %}{{ 'hi' | f }}")
                     .render(Map.of()));
     assertEquals(ErrorCategory.TYPE, error.category());
-    assertEquals("Unknown filter: f", error.getMessage());
+    assertEquals("Unknown StringValue filter: f", error.getMessage());
+    assertEquals(
+        "Unknown ArrayValue filter: f",
+        assertThrows(
+                TemplateRenderException.class,
+                () ->
+                    Template.parse("{% macro f(x) %}{{ x|upper }}{% endmacro %}{{ [1] | f }}")
+                        .render(Map.of()))
+            .getMessage());
+  }
+
+  @Test
+  void matchesPinnedCallFormFilterDispatch() {
+    assertAll(
+        () ->
+            assertEquals(
+                "Unknown StringValue filter: safe",
+                filterError("{{ 'abc' | safe(raise_exception('sentinel')) }}").getMessage()),
+        () ->
+            assertEquals(
+                "Cannot unpack non-iterable type: StringValue",
+                filterError("{{ {'a': 1} | items(*'ab') }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: first",
+                filterError("{{ [1, 2] | first() }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: first",
+                filterError("{{ (1, 2) | first(1) }}").getMessage()),
+        () ->
+            assertEquals(
+                "1-2|12",
+                Template.parse("{{ (1, 2) | join('-') }}|{{ (1, 2) | join() }}").render(Map.of())),
+        () -> assertEquals("[]", Template.parse("{{ [] | selectattr() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "`selectattr` can only be applied to array of objects",
+                filterError("{{ [1, 2] | selectattr() }}").getMessage()),
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY, filterError("{{ [{'a': 1}] | selectattr() }}").category()),
+        () ->
+            assertEquals(
+                "Cannot apply filter \"abs\" to type: FloatValue",
+                filterError("{{ 1.5 | abs() }}").getMessage()),
+        () ->
+            assertEquals(
+                "2.9|1.5|1",
+                Template.parse("{{ 2.9 | int() }}|{{ 1.5 | int(0) }}|{{ 1 | float() }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "Cannot apply filter \"join\" to type: IntegerValue",
+                filterError("{{ 1 | join() }}").getMessage()),
+        () ->
+            assertEquals(
+                "Cannot apply filter \"frob\" to type: NullValue",
+                filterError("{{ none | frob }}").getMessage()));
+  }
+
+  @Test
+  void matchesPinnedBareUnknownFilterDiagnostics() {
+    assertAll(
+        () ->
+            assertEquals(
+                "Unknown NumericValue filter: frob", filterError("{{ 1 | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown NumericValue filter: frob", filterError("{{ 1.5 | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown BooleanValue filter: frob", filterError("{{ true | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Cannot apply filter \"frob\" to type: UndefinedValue",
+                filterError("{{ nope | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Cannot apply filter \"frob\" to type: FunctionValue",
+                filterError("{{ range | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: frob", filterError("{{ (1, 2) | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ObjectValue filter: frob",
+                filterError("{{ {'a': 1} | frob }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ObjectValue filter: length",
+                filterError("{{ {'a': 1} | length() }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: selectattr",
+                filterError("{{ [1] | selectattr }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: rejectattr",
+                filterError("{{ [1] | rejectattr }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: map", filterError("{{ [1] | map }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown StringValue filter: replace",
+                filterError("{{ 'abc' | replace }}").getMessage()),
+        () ->
+            assertEquals(
+                "`map` expressions without `attribute` set are not currently supported.",
+                filterError("{{ [1, 2] | map() }}").getMessage()),
+        () ->
+            assertEquals(
+                "`map` expressions without `attribute` set are not currently supported.",
+                filterError("{{ [1, 2] | map('x') }}").getMessage()),
+        () ->
+            assertEquals(
+                "Unknown ArrayValue filter: default",
+                filterError("{{ [1] | default }}").getMessage()),
+        () ->
+            assertEquals(
+                "Cannot apply filter \"first\" to type: StringValue",
+                filterError("{{ 'abc' | first }}").getMessage()));
   }
 
   @Test
@@ -1671,7 +1791,7 @@ class InterpreterTest {
     assertEquals(ErrorCategory.TYPE, tuple.category());
     assertEquals("startswith() tuple elements must be strings", tuple.getMessage());
     assertEquals(
-        "Unknown filter: safe",
+        "Unknown StringValue filter: safe",
         assertThrows(
                 TemplateRenderException.class,
                 () -> Template.parse("{{ 'abc' | safe(1) }}").render(Map.of()))
@@ -1683,11 +1803,7 @@ class InterpreterTest {
   @Test
   void validatesItemsFilterArgumentsAndReceiver() {
     assertEquals("[[\"a\", 1]]", Template.parse("{{ {'a': 1} | items }}").render(Map.of()));
-    var arity =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ {'a': 1} | items(1) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, arity.category());
+    assertEquals("[[\"a\", 1]]", Template.parse("{{ {'a': 1} | items(1) }}").render(Map.of()));
     var receiver =
         assertThrows(
             TemplateRenderException.class,
@@ -1865,21 +1981,21 @@ class InterpreterTest {
     assertAll(
         () ->
             assertEquals(
-                ErrorCategory.ARITY,
+                ErrorCategory.TYPE,
                 assertThrows(
                         TemplateRenderException.class,
                         () -> Template.parse("{{ [1]|first(1) }}").render(Map.of()))
                     .category()),
         () ->
             assertEquals(
-                ErrorCategory.ARITY,
+                ErrorCategory.TYPE,
                 assertThrows(
                         TemplateRenderException.class,
                         () -> Template.parse("{{ [1]|last(1) }}").render(Map.of()))
                     .category()),
         () ->
             assertEquals(
-                ErrorCategory.ARITY,
+                ErrorCategory.TYPE,
                 assertThrows(
                         TemplateRenderException.class,
                         () -> Template.parse("{{ [1]|unique(1) }}").render(Map.of()))
@@ -2045,6 +2161,11 @@ class InterpreterTest {
       if (input == null) throw new AssertionError("Missing model template resource: " + name);
       return new String(input.readAllBytes(), StandardCharsets.UTF_8);
     }
+  }
+
+  private static TemplateRenderException filterError(String template) {
+    return assertThrows(
+        TemplateRenderException.class, () -> Template.parse(template).render(Map.of()));
   }
 
   private static String sha256(String text) throws Exception {
