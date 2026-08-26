@@ -17,7 +17,6 @@ public final class TemplateFormatter {
 
   /** Normalizes a truthy numeric indent before constructing a space string. */
   public static int validateIndentCount(double value) {
-    if (!Double.isFinite(value)) throw invalidCount(value);
     double count = value < 0 ? Math.ceil(value) : Math.floor(value);
     if (count < 0 || count > MAX_PINNED_NODE_STRING_LENGTH) throw invalidCount(value);
     return (int) count;

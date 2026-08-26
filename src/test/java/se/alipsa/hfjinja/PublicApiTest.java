@@ -52,6 +52,16 @@ class PublicApiTest {
   }
 
   @Test
+  void formattingOverloadsValidateInputsAndDoNotMutateTheTemplate() {
+    var template = Template.parse("{% if a %}{{ x }}{% endif %}");
+    assertThrows(NullPointerException.class, () -> template.format((String) null));
+    assertEquals(template.format(9), template.format('\t'));
+    assertEquals("{%- if a -%}\n\t{{- x -}}\n{%- endif -%}", template.format(""));
+    assertEquals("x", template.render(Map.of("a", true, "x", "x")));
+    assertEquals("x", template.render(Map.of("a", true, "x", "x")));
+  }
+
+  @Test
   void parseRejectsMalformedTemplatesAtThePublicBoundary() {
     var error = assertThrows(TemplateSyntaxException.class, () -> Template.parse("{% if x %}"));
     assertEquals(ErrorCategory.SYNTAX, error.category());

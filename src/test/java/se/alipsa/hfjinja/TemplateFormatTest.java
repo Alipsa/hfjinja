@@ -29,8 +29,17 @@ class TemplateFormatTest {
     var template = Template.parse("x");
     assertEquals("{{- \"x\" -}}", template.format(0));
     assertEquals("{{- \"x\" -}}", template.format(Double.NaN));
-    assertThrows(IllegalArgumentException.class, () -> template.format(-1));
-    assertThrows(IllegalArgumentException.class, () -> template.format(Double.POSITIVE_INFINITY));
-    assertThrows(IllegalArgumentException.class, () -> template.format(536_870_889d));
+    assertEquals(
+        "Invalid indentation count: -1",
+        assertThrows(IllegalArgumentException.class, () -> template.format(-1)).getMessage());
+    assertEquals(
+        "Invalid indentation count: Infinity",
+        assertThrows(
+                IllegalArgumentException.class, () -> template.format(Double.POSITIVE_INFINITY))
+            .getMessage());
+    assertEquals(
+        "Invalid indentation count: 536870889",
+        assertThrows(IllegalArgumentException.class, () -> template.format(536_870_889d))
+            .getMessage());
   }
 }

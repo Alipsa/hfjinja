@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { Template, tokenize, parse } from '../../upstream/vendor/dist/index.js';
 
 const args = process.argv.slice(2);
-if (args[0] !== '--vectors' || !args[1]) throw new Error('Usage: format-golden.mjs --vectors <path> [--check <path>]');
+if (args[0] !== '--vectors' || !args[1]) {
+  throw new Error('Usage: format-golden.mjs --vectors <path> [--check <path>] [--report <path>] [--update <path>]');
+}
 const vectors = JSON.parse(await readFile(args[1], 'utf8'));
-const coverage = JSON.parse(await readFile('src/test/resources/format/coverage.json', 'utf8'));
 const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
 if (process.version !== lock.nodeVersion) throw new Error(`Node oracle version ${process.version} does not match lock ${lock.nodeVersion}`);
 const types = new Set();
@@ -21,14 +23,42 @@ const output = vectors.map(vector => {
   const indent = vector.indent.default ? undefined : vector.indent.number ?? vector.indent.string;
   const formatted = indent === undefined ? template.format() : template.format({ indent });
   walk(parse(tokenize(vector.source, { lstrip_blocks: true, trim_blocks: true })));
-  return { ...vector, formatted };
+  if (vector.roundTrip !== 'not-renderable') {
+    const original = template.render(vector.context ?? {});
+    const reformatted = new Template(formatted).render(vector.context ?? {});
+    if (vector.roundTrip === 'preserves' && original !== reformatted) {
+      throw new Error(`Format round trip changed rendering for ${vector.name}`);
+    }
+    if (vector.roundTrip === 'upstream-diverges' && original === reformatted) {
+      throw new Error(`Expected upstream round-trip divergence for ${vector.name}`);
+    }
+  }
+  return {
+    name: vector.name,
+    source: vector.source,
+    indent: vector.indent,
+    roundTrip: vector.roundTrip,
+    formatted,
+  };
 });
-for (const source of coverage) walk(parse(tokenize(source, { lstrip_blocks: true, trim_blocks: true })));
 const text = JSON.stringify(output) + '\n';
-if (args[2] === '--check') {
-  if (text !== await readFile(args[3], 'utf8')) throw new Error(`Stale format golden: ${args[3]}`);
+const option = name => {
+  const index = args.indexOf(name);
+  return index < 0 ? undefined : args[index + 1];
+};
+const check = option('--check');
+const update = option('--update');
+const report = option('--report');
+if (check) {
+  if (text !== await readFile(check, 'utf8')) throw new Error(`Stale format golden: ${check}`);
   const allowed = new Set(Object.keys(JSON.parse(await readFile('upstream/ast-allowlist.json', 'utf8'))));
   for (const abstract of ['Statement', 'Expression', 'Literal']) allowed.delete(abstract);
   const missing = [...allowed].filter(type => !types.has(type));
+  if (report) {
+    await mkdir(dirname(report), { recursive: true });
+    await writeFile(report, `# Template formatter AST coverage\n\nSeen: ${[...types].sort().join(', ')}\n\nMissing: ${missing.join(', ') || '(none)'}\n`);
+  }
   if (missing.length) throw new Error(`Format vectors miss AST node types: ${missing.join(', ')}`);
+} else if (update) {
+  await writeFile(update, text);
 } else process.stdout.write(text);

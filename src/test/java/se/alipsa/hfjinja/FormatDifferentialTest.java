@@ -33,7 +33,11 @@ class FormatDifferentialTest {
       assertEquals(expected, actual, name);
       records++;
     }
-    assertEquals(8, records, "golden parser must consume every record");
+    assertEquals(countNames(input), records, "golden parser must consume every record");
+  }
+
+  private static int countNames(String value) {
+    return value.split("\\\"name\\\":", -1).length - 1;
   }
 
   private static String unescape(String value) {
@@ -42,18 +46,30 @@ class FormatDifferentialTest {
       char c = value.charAt(i);
       if (c != '\\') out.append(c);
       else {
-        char escaped = value.charAt(++i);
+        if (++i == value.length()) throw new IllegalArgumentException("Incomplete JSON escape");
+        char escaped = value.charAt(i);
         out.append(
             switch (escaped) {
+              case '/' -> '/';
+              case 'b' -> '\b';
+              case 'f' -> '\f';
               case 'n' -> '\n';
               case 'r' -> '\r';
               case 't' -> '\t';
               case '\\' -> '\\';
               case '"' -> '"';
+              case 'u' -> unicodeEscape(value, i);
               default -> throw new IllegalArgumentException("Unsupported JSON escape: " + escaped);
             });
+        if (escaped == 'u') i += 4;
       }
     }
     return out.toString();
+  }
+
+  private static char unicodeEscape(String value, int escapeIndex) {
+    if (escapeIndex + 4 >= value.length())
+      throw new IllegalArgumentException("Incomplete JSON escape");
+    return (char) Integer.parseInt(value.substring(escapeIndex + 1, escapeIndex + 5), 16);
   }
 }

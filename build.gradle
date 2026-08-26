@@ -72,17 +72,19 @@ def astSnapshotMarker = layout.buildDirectory.file('astSnapshotVerify/verified')
 def fuzzParserTestMarker = layout.buildDirectory.file('fuzzParserTest/verified').get().asFile
 def fuzzParserVerifyReport = layout.buildDirectory.file('reports/fuzz-parser.md').get().asFile
 def formatGoldenMarker = layout.buildDirectory.file('formatGoldenVerify/verified').get().asFile
+def formatGoldenReport = layout.buildDirectory.file('reports/format-ast-coverage.md').get().asFile
 
 tasks.register('formatGoldenVerify', Exec) {
   group = 'verification'
   description = 'Verifies pinned Node template-format goldens and AST coverage.'
   executable = 'node'
   args 'tools/format/format-golden.mjs', '--vectors', 'src/test/resources/format/vectors.json',
-      '--check', 'src/test/resources/format/upstream-formatted.json'
+      '--check', 'src/test/resources/format/upstream-formatted.json', '--report', formatGoldenReport.absolutePath
   inputs.files('tools/format/format-golden.mjs', 'src/test/resources/format/vectors.json',
-      'src/test/resources/format/coverage.json', 'src/test/resources/format/upstream-formatted.json', 'upstream/vendor/dist/index.js',
+      'src/test/resources/format/upstream-formatted.json', 'upstream/vendor/dist/index.js',
       'upstream/ast-allowlist.json', 'upstream/upstream-lock.json')
   outputs.file(formatGoldenMarker).withPropertyName('verifiedMarker')
+  outputs.file(formatGoldenReport).withPropertyName('astCoverageReport')
   doLast { formatGoldenMarker.parentFile.mkdirs(); formatGoldenMarker.text = "verified\n" }
 }
 

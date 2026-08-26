@@ -25,9 +25,10 @@ prompt.
 This slice must not hide the remaining public feature-equivalence gap. The pinned upstream
 `Template` exposes `format(options?: { indent: string | number })`, implemented by
 `upstream/vendor/src/format.ts` and covered by `upstream/vendor/test/format.test.js` plus the
-format-preserves-rendering vector in `templates.test.js`. hfjinja currently exposes parse/render
-only; `upstream/mapping.yml` still marks `index.ts` as planned and `format.ts` as a reviewed
-no-runtime-path exclusion. That is insufficient for the feature-equivalence claim under WP7.3.
+format-preserves-rendering vector in `templates.test.js`. At the time this publication plan was
+written, hfjinja exposed parse/render only; WP7 Slice 1 subsequently implemented formatting and
+updated `upstream/mapping.yml`. This handoff is retained as the reason publication work was
+deferred behind the feature-equivalence gap.
 
 WP7 Slice 1 must port formatting as public API, after first designing an idiomatic Java
 representation of the upstream string-or-number `indent` option. It must add Node-oracle vectors

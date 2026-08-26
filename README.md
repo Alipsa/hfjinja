@@ -163,6 +163,14 @@ by the normal build and require supplied external fixture material.
 Successful compatibility output compares byte-for-byte against the pinned Node package. Error
 comparison uses documented categories only. Python `transformers`/Jinja2 output is not an oracle.
 
+To deliberately refresh the reviewed template-format golden after changing its vectors or the
+pinned upstream, run:
+
+```bash
+node tools/format/format-golden.mjs --vectors src/test/resources/format/vectors.json --update src/test/resources/format/upstream-formatted.json
+./gradlew formatGoldenVerify
+```
+
 ## Project layout
 
 ```text

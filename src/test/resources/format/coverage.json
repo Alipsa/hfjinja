@@ -1,8 +1,0 @@
-[
-  "{% for x in [1] %}{% break %}{% continue %}{% else %}x{% endfor %}",
-  "{% set x = (1, 2) %}{% set y %}x{% endset %}",
-  "{% filter upper %}x{% endfilter %}",
-  "{{ [1, 2] if true }}",
-  "{{ not (1 is not odd) }}",
-  "{{ f(a=1, *[2]) }}"
-]
