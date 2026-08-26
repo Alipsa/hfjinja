@@ -22,8 +22,8 @@
   {"name":"elif-chain","source":"{% if a %}a{% elif b %}b{% else %}c{% endif %}","indent":{"default":true},"roundTrip":"preserves","context":{"a":false,"b":true}},
   {"name":"for-select-and-slice","source":"{% for x in [1, 2, 3] if x is odd %}{{ [0, 1, 2][x:2] }}{% endfor %}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"call-with-caller-arguments","source":"{% macro wrap() %}{{ caller('a', 'b') }}{% endmacro %}{% call(x, y) wrap() %}{{ x }}{{ y }}{% endcall %}","indent":{"default":true},"roundTrip":"preserves"},
-  {"name":"member-object-grouping","source":"{{ (a + b).c }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":1,"b":2}},
-  {"name":"filter-expression-precedence","source":"{{ (a + b) | c }}","indent":{"default":true},"roundTrip":"not-renderable"},
+  {"name":"member-object-grouping","source":"{{ (a + b).c }}","indent":{"default":true},"roundTrip":"not-renderable"},
+  {"name":"filter-expression-precedence","source":"{{ (a + b) | string }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":1,"b":2}},
   {"name":"binary-right-associativity","source":"{{ 1 - (2 - 3) }}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"slice-step","source":"{{ a[1:2:3] }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":[0, 1, 2, 3]}}
 ]

@@ -26,13 +26,15 @@ const output = vectors.map(vector => {
   const indent = vector.indent.default ? undefined : vector.indent.number ?? vector.indent.string;
   const formatted = indent === undefined ? template.format() : template.format({ indent });
   walk(parse(tokenize(vector.source, { lstrip_blocks: true, trim_blocks: true })));
+  let originalRendered = null;
+  let reformattedRendered = null;
   if (vector.roundTrip !== 'not-renderable') {
-    const original = template.render(vector.context ?? {});
-    const reformatted = new Template(formatted).render(vector.context ?? {});
-    if (vector.roundTrip === 'preserves' && original !== reformatted) {
+    originalRendered = template.render(vector.context ?? {});
+    reformattedRendered = new Template(formatted).render(vector.context ?? {});
+    if (vector.roundTrip === 'preserves' && originalRendered !== reformattedRendered) {
       throw new Error(`Format round trip changed rendering for ${vector.name}`);
     }
-    if (vector.roundTrip === 'upstream-diverges' && original === reformatted) {
+    if (vector.roundTrip === 'upstream-diverges' && originalRendered === reformattedRendered) {
       throw new Error(`Expected upstream round-trip divergence for ${vector.name}`);
     }
   }
@@ -43,6 +45,8 @@ const output = vectors.map(vector => {
     roundTrip: vector.roundTrip,
     formatted,
     context: JSON.stringify(vector.context ?? {}),
+    originalRendered,
+    reformattedRendered,
   };
 });
 const text = JSON.stringify(output) + '\n';

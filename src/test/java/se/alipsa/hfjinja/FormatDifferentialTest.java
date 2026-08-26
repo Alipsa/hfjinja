@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 class FormatDifferentialTest {
   private static final Pattern RECORD =
       Pattern.compile(
-          "\\{\\\"name\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"([^\\\"]+)\\\",\\\"formatted\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"\\}");
+          "\\{\\\"name\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"([^\\\"]+)\\\",\\\"formatted\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"originalRendered\\\":(null|\\\"((?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedRendered\\\":(null|\\\"((?:\\\\.|[^\\\"])*)\\\")\\}");
 
   @Test
   void matchesEveryPinnedNodeFormatGolden() throws Exception {
@@ -32,9 +32,14 @@ class FormatDifferentialTest {
                   ? template.format(unescape(matcher.group(4)))
                   : template.format();
       assertEquals(expected, actual, name);
-      if (matcher.group(5).equals("preserves")) {
+      if (!matcher.group(5).equals("not-renderable")) {
         var context = context(unescape(matcher.group(7)));
-        assertEquals(template.render(context), Template.parse(actual).render(context), name);
+        assertEquals(
+            unescape(matcher.group(9)), template.render(context), name + " original render");
+        assertEquals(
+            unescape(matcher.group(11)),
+            Template.parse(actual).render(context),
+            name + " formatted render");
       }
       records++;
     }
