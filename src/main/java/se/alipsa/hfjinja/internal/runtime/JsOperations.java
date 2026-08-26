@@ -210,6 +210,18 @@ final class JsOperations {
     return value.substring(start, end);
   }
 
+  static String trimStartEcmaWhitespace(String value) {
+    int start = 0;
+    while (start < value.length() && isEcmaWhitespace(value.charAt(start))) start++;
+    return value.substring(start);
+  }
+
+  static String trimEndEcmaWhitespace(String value) {
+    int end = value.length();
+    while (end > 0 && isEcmaWhitespace(value.charAt(end - 1))) end--;
+    return value.substring(0, end);
+  }
+
   private static boolean isEcmaWhitespace(char value) {
     return Character.getType(value) == Character.SPACE_SEPARATOR
         || value == '\u0009'

@@ -1715,6 +1715,50 @@ class InterpreterTest {
   }
 
   @Test
+  void matchesPinnedRuntimeEdgesForNewlyPortedFeatures() {
+    assertAll(
+        () ->
+            assertEquals(
+                "[0, 1, true]", Template.parse("{{ [1, true, 0] | sort }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "éLan Vital", Template.parse("{{ 'élan vital' | title }}").render(Map.of())),
+        () ->
+            assertEquals("-😀-", Template.parse("{{ '😀' | replace('', '-') }}").render(Map.of())),
+        () ->
+            assertEquals("[\"a\", \"b\"]", Template.parse("{{ 'a b'.split() }}").render(Map.of())),
+        () -> assertEquals("a", Template.parse("{{ 'a  '.rstrip() }}").render(Map.of())),
+        () -> assertEquals("a", Template.parse("{{ '  a'.lstrip() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b \"]", Template.parse("{{ ' a b '.split(none, 1) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[]|[]",
+                Template.parse("{% set u = {('ab'[9]): 1} %}{{ u.keys() }}|{{ u.dictsort() }}")
+                    .render(Map.of())),
+        () -> assertEquals("2", Template.parse("{{ [1,2].length }}").render(Map.of())));
+    var negative =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'a\\nb' | indent(-1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.VALUE, negative.category());
+    var bounded =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ 'a\\nb' | indent(400000000) }}")
+                    .render(Map.of(), RenderOptions.builder().maxOutputLength(100).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, bounded.category());
+    assertEquals(
+        "replace() requires at least two arguments",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'ab' | replace(old='a', new='x') }}").render(Map.of()))
+            .getMessage());
+  }
+
+  @Test
   void evaluateExpressionAssertsUnreachableForParserOnlyExpressionShapes() {
     // Handing one of these three node types directly to evaluateExpression, as this test does,
     // is the only way to reach their arms at all -- see the comment above

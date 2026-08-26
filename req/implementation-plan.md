@@ -157,9 +157,10 @@ the remaining semantic, diagnostic, corpus, and public-API closure work before r
 3. Implement JavaScript double arithmetic under the split integer/float value model, independently
    of host-boundary validation: precision loss, `NaN`, infinity, negative modulo/floor division,
    division result types, and rendering.
-4. Implement all upstream filters/tests as mapped work items. Complete: the pinned ordinary
-   runtime filter/test/member inventory is implemented and oracle-tested. Implement deterministic
-   JSON output locally, including JS-number formatting and `NaN`/infinity becoming `null`.
+4. Implement all upstream filters/tests as mapped work items. The pinned ordinary runtime
+   filter/test/member names are implemented; WP7 owns complete per-operation oracle coverage and
+   semantic closure. Implement deterministic JSON output locally, including JS-number formatting
+   and `NaN`/infinity becoming `null`.
 5. Implement all `RenderBudget` counters. String renders accumulate privately and are atomic;
    streaming renders write progressively and have no rollback after output or I/O failure.
    Do not introduce lazy memoization caches in `Template`; scopes, budgets, conversion state, and

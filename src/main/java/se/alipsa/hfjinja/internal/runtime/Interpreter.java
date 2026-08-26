@@ -325,8 +325,9 @@ public final class Interpreter {
       case "capitalize" -> filterString(operand, filter, location, Interpreter::capitalize);
       case "abs" -> filterAbs(operand, filter, location);
       case "bool" -> filterBool(operand, filter, location);
-      case "indent" -> filterIndent(operand, filter, location);
+      case "indent" -> filterIndent(operand, filter, location, budget);
       case "replace" -> filterReplace(operand, filter, location);
+      case "keys", "values", "dictsort", "get" -> filterObjectBuiltin(operand, filter, location);
       case "selectattr" -> filterSelectAttr(operand, filter, location, true);
       case "rejectattr" -> filterSelectAttr(operand, filter, location, false);
       case "int" -> filterNumber(operand, filter, location, true);
@@ -564,15 +565,24 @@ public final class Interpreter {
     return new Value.ArrayValue(values);
   }
 
-  private static Value filterIndent(Value operand, NamedArguments filter, SourceLocation location) {
+  private static Value filterIndent(
+      Value operand, NamedArguments filter, SourceLocation location, RenderBudget budget) {
     if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterReceiver(filter.name(), operand, location);
     Value width = filterArgument(filter, 0, "width");
     if (width == null) width = new Value.IntegerValue(4);
     if (!(width instanceof Value.IntegerValue number))
       throw filterType("width must be a number", location);
-    boolean first = filterBoolean(filter, 1, "first", false, location);
-    boolean blank = filterBoolean(filter, 2, "blank", false, location);
+    boolean first = filterTruthy(filterArgument(filter, 1, "first"), false);
+    boolean blank = filterTruthy(filterArgument(filter, 2, "blank"), false);
+    if (number.value() < 0)
+      throw new TemplateRenderException(
+          "Invalid count value: " + JsFormat.plainString(number.value()),
+          ErrorCategory.VALUE,
+          location);
+    if (number.value() > budget.remainingOutputLength())
+      throw new TemplateRenderException(
+          "Maximum render output length exceeded", ErrorCategory.RESOURCE_LIMIT, location);
     var lines = string.value().split("\\n", -1);
     String prefix = " ".repeat((int) number.value());
     for (int index = 0; index < lines.length; index++)
@@ -585,12 +595,17 @@ public final class Interpreter {
       Value operand, NamedArguments filter, SourceLocation location) {
     if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterReceiver(filter.name(), operand, location);
-    Value old = filterArgument(filter, 0, "old");
-    Value replacement = filterArgument(filter, 1, "new");
+    if (filter.positional().size() < 2)
+      throw filterType("replace() requires at least two arguments", location);
+    Value old = filter.positional().isEmpty() ? null : filter.positional().getFirst();
+    Value replacement = filter.positional().size() < 2 ? null : filter.positional().get(1);
     if (!(old instanceof Value.StringValue oldString)
         || !(replacement instanceof Value.StringValue newString))
       throw filterType("replace() arguments must be strings", location);
-    Value count = filterArgument(filter, 2, "count");
+    Value count =
+        filter.positional().size() > 2
+            ? filter.positional().get(2)
+            : filter.keywords().get("count");
     if (count != null
         && !(count instanceof Value.IntegerValue)
         && !(count instanceof Value.NullValue))
@@ -615,6 +630,22 @@ public final class Interpreter {
     if (value == null) return fallback;
     if (value instanceof Value.BooleanValue booleanValue) return booleanValue.value();
     throw filterType(key + " must be a boolean", location);
+  }
+
+  private static boolean filterTruthy(Value value, boolean fallback) {
+    return value == null ? fallback : truthy(value);
+  }
+
+  private static Value filterObjectBuiltin(
+      Value operand, NamedArguments filter, SourceLocation location) {
+    if (!(operand instanceof Value.ObjectValue object))
+      throw filterReceiver(filter.name(), operand, location);
+    var arguments = new ArrayList<>(filter.positional());
+    if (!filter.keywords().isEmpty())
+      arguments.add(new Value.KeywordArgumentsValue(filter.keywords()));
+    return ((Value.CallableValue) objectBuiltin(object, filter.name()))
+        .callable()
+        .invoke(arguments, !filter.keywords().isEmpty(), location, null);
   }
 
   private static Value sortValue(Value value, Value attribute) {
@@ -653,11 +684,16 @@ public final class Interpreter {
 
   private static String titleCase(String value) {
     var result = new StringBuilder(value.length());
-    boolean word = true;
+    boolean previousWord = false;
     for (int index = 0; index < value.length(); index++) {
       char character = value.charAt(index);
-      result.append(word ? Character.toUpperCase(character) : character);
-      word = !Character.isLetterOrDigit(character) && character != '_';
+      boolean word =
+          (character >= 'A' && character <= 'Z')
+              || (character >= 'a' && character <= 'z')
+              || (character >= '0' && character <= '9')
+              || character == '_';
+      result.append(word && !previousWord ? Character.toUpperCase(character) : character);
+      previousWord = word;
     }
     return result.toString();
   }
@@ -746,9 +782,11 @@ public final class Interpreter {
       case "integer" -> value instanceof Value.IntegerValue;
       case "lower" ->
           value instanceof Value.StringValue string
+              && !string.undefinedBacked()
               && string.value().equals(string.value().toLowerCase(Locale.ROOT));
       case "upper" ->
           value instanceof Value.StringValue string
+              && !string.undefinedBacked()
               && string.value().equals(string.value().toUpperCase(Locale.ROOT));
       case "number" -> JsOperations.numeric(value);
       case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
@@ -1041,8 +1079,18 @@ public final class Interpreter {
       if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       return x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE);
     }
-    if (target instanceof Value.ArrayValue x) return memberIndex(x.values(), p, n.location());
-    if (target instanceof Value.TupleValue x) return memberIndex(x.values(), p, n.location());
+    if (target instanceof Value.ArrayValue x) {
+      if (p instanceof Value.StringValue property
+          && !property.undefinedBacked()
+          && property.value().equals("length")) return new Value.IntegerValue(x.values().size());
+      return memberIndex(x.values(), p, n.location());
+    }
+    if (target instanceof Value.TupleValue x) {
+      if (p instanceof Value.StringValue property
+          && !property.undefinedBacked()
+          && property.value().equals("length")) return new Value.IntegerValue(x.values().size());
+      return memberIndex(x.values(), p, n.location());
+    }
     if (target instanceof Value.StringValue x) {
       if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       if (p instanceof Value.StringValue property) {
@@ -1109,8 +1157,8 @@ public final class Interpreter {
             case "upper" -> new Value.StringValue(receiver.toUpperCase(Locale.ROOT));
             case "lower" -> new Value.StringValue(receiver.toLowerCase(Locale.ROOT));
             case "strip" -> new Value.StringValue(JsOperations.trimEcmaWhitespace(receiver));
-            case "rstrip" -> new Value.StringValue(receiver.replaceFirst("\\s+$", ""));
-            case "lstrip" -> new Value.StringValue(receiver.replaceFirst("^\\s+", ""));
+            case "rstrip" -> new Value.StringValue(JsOperations.trimEndEcmaWhitespace(receiver));
+            case "lstrip" -> new Value.StringValue(JsOperations.trimStartEcmaWhitespace(receiver));
             case "title" -> new Value.StringValue(titleCase(receiver));
             case "capitalize" -> new Value.StringValue(capitalize(receiver));
             case "split" -> stringSplit(receiver, positional, location);
@@ -1138,12 +1186,21 @@ public final class Interpreter {
       max = (int) number.value();
     }
     String[] parts;
-    if (separator instanceof Value.NullValue)
-      parts =
-          receiver.trim().isEmpty()
-              ? new String[0]
-              : receiver.trim().split("\\s+", max < 0 ? 0 : max + 1);
-    else {
+    if (separator instanceof Value.NullValue) {
+      String text = JsOperations.trimStartEcmaWhitespace(receiver);
+      var matches =
+          java.util.regex.Pattern.compile("\\S+", java.util.regex.Pattern.UNICODE_CHARACTER_CLASS)
+              .matcher(text);
+      var result = new ArrayList<String>();
+      while (matches.find()) {
+        if (max >= 0 && result.size() >= max) {
+          result.add(matches.group() + text.substring(matches.end()));
+          break;
+        }
+        result.add(matches.group());
+      }
+      parts = result.toArray(String[]::new);
+    } else {
       String text = ((Value.StringValue) separator).value();
       if (text.isEmpty()) throw filterType("empty separator", location);
       parts = receiver.split(java.util.regex.Pattern.quote(text), max < 0 ? -1 : max + 1);
@@ -1185,7 +1242,9 @@ public final class Interpreter {
       replacements++;
       if (oldValue.isEmpty()) {
         if (position >= value.length()) break;
-        result.append(value.charAt(position++));
+        int next = value.offsetByCodePoints(position, 1);
+        result.append(value, position, next);
+        position = next;
       }
     }
     return result.append(value.substring(position)).toString();
@@ -1218,7 +1277,8 @@ public final class Interpreter {
             case "keys" ->
                 new Value.ArrayValue(
                     object.values().keySet().stream()
-                        .map(key -> (Value) new Value.StringValue((String) key))
+                        .filter(key -> !undefinedBackedKey(key))
+                        .map(key -> (Value) objectKeyValue(key))
                         .toList());
             case "values" -> new Value.ArrayValue(new ArrayList<>(object.values().values()));
             case "dictsort" -> dictSort(object, positional, arguments, location);
@@ -1243,10 +1303,10 @@ public final class Interpreter {
       throw filterType("by must be either 'key' or 'value'", location);
     boolean reverse = reverseValue != null && booleanValue(reverseValue, "reverse", location);
     var entries = new ArrayList<Value>();
-    for (var entry : object.values().entrySet())
-      entries.add(
-          new Value.ArrayValue(
-              List.of(new Value.StringValue((String) entry.getKey()), entry.getValue())));
+    for (var entry : object.values().entrySet()) {
+      if (undefinedBackedKey(entry.getKey())) continue;
+      entries.add(new Value.ArrayValue(List.of(objectKeyValue(entry.getKey()), entry.getValue())));
+    }
     int index = by.equals("key") ? 0 : 1;
     entries.sort(
         (a, b) -> {
@@ -1273,7 +1333,7 @@ public final class Interpreter {
 
   private static int compareValues(
       Value left, Value right, boolean caseSensitive, SourceLocation location) {
-    if (JsOperations.numeric(left) && JsOperations.numeric(right))
+    if (numericLike(left) && numericLike(right))
       return Double.compare(JsOperations.toNumber(left), JsOperations.toNumber(right));
     if (left instanceof Value.StringValue a && right instanceof Value.StringValue b) {
       String aText = caseSensitive ? a.value() : a.value().toLowerCase(Locale.ROOT);
@@ -1285,6 +1345,10 @@ public final class Interpreter {
     if (left instanceof Value.NullValue && right instanceof Value.NullValue) return 0;
     if (left instanceof Value.UndefinedValue && right instanceof Value.UndefinedValue) return 0;
     throw filterType("Cannot compare " + type(left) + " with " + type(right), location);
+  }
+
+  private static boolean numericLike(Value value) {
+    return JsOperations.numeric(value) || value instanceof Value.BooleanValue;
   }
 
   private static Value stringBoundaryTuple(
@@ -1316,13 +1380,19 @@ public final class Interpreter {
   private static Value.ArrayValue itemsOf(Value.ObjectValue object) {
     var pairs = new ArrayList<Value>();
     for (var entry : object.values().entrySet()) {
-      var key =
-          entry.getKey() instanceof Value.StringValue string
-              ? string
-              : new Value.StringValue((String) entry.getKey());
+      if (undefinedBackedKey(entry.getKey())) continue;
+      var key = objectKeyValue(entry.getKey());
       pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
     }
     return new Value.ArrayValue(pairs);
+  }
+
+  private static Value.StringValue objectKeyValue(Object key) {
+    return key instanceof Value.StringValue string ? string : new Value.StringValue((String) key);
+  }
+
+  private static boolean undefinedBackedKey(Object key) {
+    return key instanceof Value.StringValue string && string.undefinedBacked();
   }
 
   private static Value slice(
