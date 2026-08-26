@@ -36,7 +36,7 @@ Running `./gradlew check` also requires exactly Node.js 26.7.0, the pinned oracl
 
 ```kotlin
 dependencies {
-    implementation("se.alipsa:hfjinja:1.0.0")
+    implementation("se.alipsa:hfjinja:0.5.0")
 }
 ```
 
@@ -47,6 +47,13 @@ module example.app {
   requires se.alipsa.hfjinja;
 }
 ```
+
+## Releases
+
+The initial release will be `0.5.0`. This project follows
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html); see the
+[changelog](CHANGELOG.md), which is maintained in the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, for notable changes.
 
 ## Quick start
 

@@ -19,6 +19,15 @@
 - When generating Javadoc manually, write it only under `build/` or a temporary directory; never
   use the repository root as the output directory.
 
+## Releases and changelog
+
+- Maintain [`CHANGELOG.md`](CHANGELOG.md) for every notable user-facing change. Its format is
+  based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), using an `Unreleased` section
+  and the applicable change categories (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, and
+  `Security`).
+- The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The initial
+  release version is `0.5.0`; use ISO 8601 release dates when a version is published.
+
 ## Pull requests
 
 - Create pull requests ready for review by default; use drafts only when explicitly requested.
