@@ -1208,7 +1208,19 @@ public final class Interpreter {
     } else {
       String text = ((Value.StringValue) separator).value();
       if (text.isEmpty()) throw filterType("empty separator", location);
-      parts = receiver.split(java.util.regex.Pattern.quote(text), max < 0 ? -1 : max + 1);
+      var split =
+          new ArrayList<>(
+              java.util.Arrays.asList(
+                  receiver.split(java.util.regex.Pattern.quote(text), max == -1 ? -1 : max + 1)));
+      if (max < -1) {
+        // Upstream splits without a limit, then rejoins the suffix selected by Array.splice(). A
+        // negative splice index is relative to the end, rather than another spelling of unlimited.
+        int joinStart = Math.max(0, split.size() + max);
+        String suffix = String.join(text, split.subList(joinStart, split.size()));
+        split.subList(joinStart, split.size()).clear();
+        split.add(suffix);
+      }
+      parts = split.toArray(String[]::new);
     }
     return new Value.ArrayValue(
         java.util.Arrays.stream(parts).map(Value.StringValue::new).map(x -> (Value) x).toList());

@@ -214,7 +214,9 @@ nodes or stale mapping/no-impact records.
 
 1. Close or explicitly accept every remaining normal-rendering semantic divergence against the
    pinned `@huggingface/jinja` runtime. The current known set includes eager filter-argument
-   evaluation; Java arity caps and unknown-keyword rejection where upstream ignores arguments;
+   evaluation; Java arity caps and unknown-keyword rejection where upstream ignores arguments; and
+   no-argument sequence filters, where upstream reports an unclassified `Unknown …Value filter`
+   error while hfjinja reports `ARITY`;
    macro/call-block `break`/`continue` propagation; and the `tojson(sort_keys=true)` undefined-key
    edge; plus empty `first`/`last`, where the upstream's raw-undefined failure differs from
    hfjinja's rendered undefined behavior. The remaining diagnostic/keyword differences include
@@ -237,6 +239,9 @@ nodes or stale mapping/no-impact records.
 4. Specify the intended error contract per feature. Where exact upstream messages are practical,
    compare them; otherwise retain category-level comparison only after documenting why. In
    particular, resolve or document call-form filter diagnostics such as `safe(...)`/`items(...)`.
+   The pinned upstream's `Unknown …Value filter: …` diagnostics are currently outside the error
+   classifier, so no-argument sequence-filter regressions remain Java-only until that family has a
+   reviewed category mapping.
 5. Re-run the complete pinned upstream test suite through the reviewable converter and make the
    coverage report a release-blocking check. New upstream versions remain a separate reviewed
    sync, not an implicit upgrade.

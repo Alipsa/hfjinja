@@ -1828,6 +1828,68 @@ class InterpreterTest {
   }
 
   @Test
+  void coversRemainingRuntimeArgumentPaths() {
+    assertAll(
+        () ->
+            assertEquals(
+                "[[\"b\", 2], [\"a\", 1]]",
+                Template.parse("{{ {'b': 2, 'a': 1}.dictsort(true, 'value', true) }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[1, undefined]",
+                Template.parse("{{ [{'a':1}, {}]|map(attribute='a') }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[undefined, undefined]",
+                Template.parse("{{ [{'a':[1]}, {'a':[2]}]|map(attribute='a.x') }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[undefined, undefined]",
+                Template.parse("{{ [{},{}]|map(attribute='x')|sort }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "3|2|[3, 1, 2]|[2, 1, 3]",
+                Template.parse(
+                        "{{ (3,1,2)|first }}|{{ (3,1,2)|last }}|{{ (3,1,2)|unique }}|{{ (3,1,2)|reverse }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b,c\"]",
+                Template.parse("{{ 'a,b,c'.split(',', -2) }}").render(Map.of())));
+    assertAll(
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|first(1) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|last(1) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|unique(1) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ {'a': 1}|get(key='a') }}").render(Map.of()))
+                    .category()));
+  }
+
+  @Test
   void matchesPinnedRuntimeEdgesForNewlyPortedFeatures() {
     assertAll(
         () ->
