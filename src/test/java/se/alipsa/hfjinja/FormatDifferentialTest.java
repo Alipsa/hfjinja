@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,19 @@ class FormatDifferentialTest {
       records++;
     }
     assertEquals(countNames(input), records, "golden parser must consume every record");
+  }
+
+  @Test
+  void reparsesAndRendersJavaFormattedOutputForPreviouslyUncoveredShapes() {
+    assertRoundTrip("{% for x in [1] %}{% break %}{% continue %}{% else %}x{% endfor %}", Map.of());
+    assertRoundTrip("{{ (a + b).c }}", Map.of("a", 1, "b", 2));
+    assertRoundTrip("{{ a[1:2:3] }}", Map.of("a", List.of(0, 1, 2, 3)));
+  }
+
+  private static void assertRoundTrip(String source, Map<String, ?> context) {
+    var template = Template.parse(source);
+    assertEquals(
+        template.render(context), Template.parse(template.format()).render(context), source);
   }
 
   private static int countNames(String value) {

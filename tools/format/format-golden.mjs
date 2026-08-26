@@ -19,6 +19,9 @@ function walk(value) {
   else Object.values(value).forEach(walk);
 }
 const output = vectors.map(vector => {
+  if (!['preserves', 'upstream-diverges', 'not-renderable'].includes(vector.roundTrip)) {
+    throw new Error(`Unknown roundTrip expectation for ${vector.name}: ${vector.roundTrip}`);
+  }
   const template = new Template(vector.source);
   const indent = vector.indent.default ? undefined : vector.indent.number ?? vector.indent.string;
   const formatted = indent === undefined ? template.format() : template.format({ indent });

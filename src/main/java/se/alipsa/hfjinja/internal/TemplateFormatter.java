@@ -15,7 +15,12 @@ public final class TemplateFormatter {
     return statements(program.body(), 0, indent).replaceFirst("\\n$", "");
   }
 
-  /** Normalizes a truthy numeric indent before constructing a space string. */
+  /**
+   * Normalizes a truthy numeric indent before constructing a space string.
+   *
+   * <p>Callers must apply JavaScript's NaN/zero defaulting first; this helper intentionally maps
+   * NaN to zero through the same floor conversion used for finite fractional values.
+   */
   public static int validateIndentCount(double value) {
     double count = value < 0 ? Math.ceil(value) : Math.floor(value);
     if (count < 0 || count > MAX_PINNED_NODE_STRING_LENGTH) throw invalidCount(value);
