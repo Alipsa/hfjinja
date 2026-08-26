@@ -140,7 +140,7 @@ final class JsOperations {
         : other instanceof Value.StringValue x && number == stringNumber(x.value());
   }
 
-  private static boolean strictValueEquals(Value left, Value right) {
+  static boolean strictValueEquals(Value left, Value right) {
     if (numeric(left) && numeric(right)) return number(left) == number(right);
     if (left instanceof Value.StringValue a && right instanceof Value.StringValue b)
       return a.undefinedBacked() == b.undefinedBacked() && a.value().equals(b.value());
@@ -210,7 +210,19 @@ final class JsOperations {
     return value.substring(start, end);
   }
 
-  private static boolean isEcmaWhitespace(char value) {
+  static String trimStartEcmaWhitespace(String value) {
+    int start = 0;
+    while (start < value.length() && isEcmaWhitespace(value.charAt(start))) start++;
+    return value.substring(start);
+  }
+
+  static String trimEndEcmaWhitespace(String value) {
+    int end = value.length();
+    while (end > 0 && isEcmaWhitespace(value.charAt(end - 1))) end--;
+    return value.substring(0, end);
+  }
+
+  static boolean isEcmaWhitespace(char value) {
     return Character.getType(value) == Character.SPACE_SEPARATOR
         || value == '\u0009'
         || value == '\u000B'

@@ -25,6 +25,18 @@
       "regex": "^Invalid count value: (?<count>-?\\d+)$",
       "category": "VALUE",
       "comment": "tojson(indent) rejects a negative String.repeat count"
+    },
+    {
+      "regex": "^(?<method>startswith|endswith)\\(\\) requires at least one argument$",
+      "category": "ARITY"
+    },
+    {
+      "regex": "^(?<method>startswith|endswith)\\(\\) argument must be a string or tuple of strings$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^(?<method>startswith|endswith)\\(\\) tuple elements must be strings$",
+      "category": "TYPE"
     }
   ]
 }

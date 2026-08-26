@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -1549,6 +1550,457 @@ class InterpreterTest {
   }
 
   @Test
+  void rendersPrimaryQwen38MlxFixtureWithPinnedGoldens() throws Exception {
+    var template = resource("qwen3.8-27b-4bit.jinja");
+    assertEquals(8952, template.getBytes(StandardCharsets.UTF_8).length);
+    assertEquals(
+        "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041", sha256(template));
+
+    assertEquals(
+        resource("qwen3.8-normal.expected.txt"),
+        Template.parse(template)
+            .render(
+                Map.of(
+                    "add_generation_prompt",
+                    true,
+                    "enable_thinking",
+                    false,
+                    "reasoning_effort",
+                    "medium",
+                    "messages",
+                    java.util.List.of(Map.of("role", "user", "content", "Hello!")))));
+    assertEquals(
+        resource("qwen3.8-vision.expected.txt"),
+        Template.parse(template)
+            .render(
+                Map.of(
+                    "add_generation_prompt", false,
+                    "add_vision_id", true,
+                    "enable_thinking", false,
+                    "messages",
+                        java.util.List.of(
+                            Map.of(
+                                "role",
+                                "user",
+                                "content",
+                                java.util.List.of(
+                                    Map.of("type", "text", "text", "Describe "),
+                                    Map.of("type", "image"),
+                                    Map.of("type", "text", "text", " then "),
+                                    Map.of("type", "video")))))));
+    var tool =
+        orderedMap(
+            "type",
+            "function",
+            "function",
+            orderedMap(
+                "name",
+                "get_weather",
+                "description",
+                "Get weather",
+                "parameters",
+                orderedMap(
+                    "type",
+                    "object",
+                    "properties",
+                    orderedMap("city", orderedMap("type", "string")),
+                    "required",
+                    java.util.List.of("city"))));
+    assertEquals(
+        resource("qwen3.8-tooluse.expected.txt"),
+        Template.parse(template)
+            .render(
+                orderedMap(
+                    "add_generation_prompt",
+                    true,
+                    "enable_thinking",
+                    true,
+                    "reasoning_effort",
+                    "low",
+                    "tools",
+                    java.util.List.of(tool),
+                    "messages",
+                    java.util.List.of(
+                        orderedMap("role", "user", "content", "What is the weather?"),
+                        orderedMap(
+                            "role",
+                            "assistant",
+                            "content",
+                            "Checking",
+                            "tool_calls",
+                            java.util.List.of(
+                                orderedMap(
+                                    "function",
+                                    orderedMap(
+                                        "name",
+                                        "get_weather",
+                                        "arguments",
+                                        orderedMap(
+                                            "city",
+                                            "Paris",
+                                            "units",
+                                            java.util.List.of("metric", "celsius")))))),
+                        orderedMap("role", "tool", "content", "Sunny")))));
+  }
+
+  @Test
+  void supportsQwen38StringBoundariesAndSafeFilter() {
+    assertEquals(
+        "truetruetruetrue",
+        Template.parse(
+                "{{ 'abc'.startswith('a') }}{{ 'abc'.endswith('c') }}"
+                    + "{{ 'abc'.startswith(('a', 'x')) }}{{ 'abc'.endswith(['x', 'c']) }}")
+            .render(Map.of()));
+    assertEquals("[1, 2]", Template.parse("{{ [1, 2] | safe }}").render(Map.of()));
+    var missing =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'.startswith() }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, missing.category());
+    assertEquals("startswith() requires at least one argument", missing.getMessage());
+    var argument =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'.endswith(1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, argument.category());
+    assertEquals("endswith() argument must be a string or tuple of strings", argument.getMessage());
+    var tuple =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'.startswith(('x', 1)) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, tuple.category());
+    assertEquals("startswith() tuple elements must be strings", tuple.getMessage());
+    assertEquals(
+        "Unknown filter: safe",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'abc' | safe(1) }}").render(Map.of()))
+            .getMessage());
+    assertEquals("", Template.parse("{{ 'abc'['xy'[9]] }}").render(Map.of()));
+    assertEquals("3", Template.parse("{{ 'abc'.length }}").render(Map.of()));
+  }
+
+  @Test
+  void validatesItemsFilterArgumentsAndReceiver() {
+    assertEquals("[[\"a\", 1]]", Template.parse("{{ {'a': 1} | items }}").render(Map.of()));
+    var arity =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ {'a': 1} | items(1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, arity.category());
+    var receiver =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [1] | items }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, receiver.category());
+  }
+
+  @Test
+  void supportsRemainingPinnedRuntimeFiltersTestsAndMembers() {
+    var source =
+        "{{ [3,1,2]|first }}|{{ [3,1,2]|last }}|{{ [3,1,2]|reverse }}|"
+            + "{{ [3,1,2]|unique }}|{{ [3,1,2]|sort }}|{{ xs|map(attribute='n', default=0) }}|"
+            + "{{ 'hello world'|title }}|{{ 'hello'|capitalize }}|{{ 'a\\nb'|indent(2) }}|"
+            + "{{ 'abab'|replace('a','x',1) }}|{{ -2|abs }}|{{ true|bool }}|"
+            + "{{ ' a b '.split() }}|{{ 'a-b-c'.replace('-','/',1) }}|{{ o.get('x','d') }}|"
+            + "{{ o.keys() }}|{{ o.values() }}|{{ o.dictsort() }}|{{ 3 is odd }}{{ 4 is even }}"
+            + "{{ 4 is integer }}{{ 'ABC' is upper }}{{ 'abc' is lower }}{{ range is callable }}";
+    assertEquals(
+        "3|2|[2, 1, 3]|[3, 1, 2]|[1, 2, 3]|[2, 0]|Hello World|Hello|a\n  b|xbab|2|true|[\"a\", \"b\"]|a/b-c|d|[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|truetruetruetruetruetrue",
+        Template.parse(source)
+            .render(
+                Map.of(
+                    "xs", java.util.List.of(Map.of("n", 2), Map.of()),
+                    "o", orderedMap("b", 2, "a", 1))));
+  }
+
+  @Test
+  void supportsObjectBuiltinFilterFormsAndValueSort() {
+    assertEquals(
+        "[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|d",
+        Template.parse(
+                "{% set o = {'b': 2, 'a': 1} %}{{ o|keys }}|{{ o|values }}|{{ o|dictsort }}|{{ o|get('x','d') }}")
+            .render(Map.of()));
+    assertEquals(
+        "[[\"b\", 1], [\"a\", 2]]",
+        Template.parse("{{ {'a': 2, 'b': 1}|dictsort(by='value') }}").render(Map.of()));
+  }
+
+  @Test
+  void supportsSequenceAndStringFilterOptions() {
+    assertAll(
+        () -> assertEquals("a\n    b", Template.parse("{{ 'a\\nb'|indent }}").render(Map.of())),
+        () -> assertEquals("2.5", Template.parse("{{ (0.0 - 2.5)|abs }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[[2, 0], [3, 1]]",
+                Template.parse("{{ [[3,1], [2,0]]|sort(attribute='0') }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[3, 4]",
+                Template.parse("{{ [{'a': [2,3]}, {'a': [1,4]}]|map(attribute='a.1') }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b-c\"]", Template.parse("{{ 'a-b-c'.split('-', 1) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[1, 2]", Template.parse("{{ [2,1]|sort(attribute=none) }}").render(Map.of())),
+        () ->
+            assertEquals("[null, null]", Template.parse("{{ [none,none]|sort }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a b \"]", Template.parse("{{ ' a b '.split(none, 0) }}").render(Map.of())),
+        () -> assertEquals("A_b 3d", Template.parse("{{ 'a_b 3d'|title }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "a b|Hello World|Hello",
+                Template.parse(
+                        "{{ ' a b '.strip() }}|{{ 'hello world'.title() }}|{{ 'hello'.capitalize() }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "xbab|xbab",
+                Template.parse(
+                        "{{ 'abab'|replace('a','x',count=1) }}|{{ 'abab'.replace('a','x',count=1) }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "falsefalsefalsefalsefalsefalse",
+                Template.parse(
+                        "{{ 3 is even }}{{ 4 is odd }}{{ 'abc' is upper }}{{ 'ABC' is lower }}"
+                            + "{{ 1.0 is integer }}{{ 1 is callable }}")
+                    .render(Map.of())));
+    var mapReceiver =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [{'a': 1}, 2]|map(attribute='a') }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, mapReceiver.category());
+    assertEquals(
+        "[[2, 0], [3, 1]]",
+        Template.parse("{{ [[3,1], [2,0]]|sort(attribute=0) }}").render(Map.of()));
+    assertAll(
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ 5|keys }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|sort(attribute=true) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ 'a'|replace('a','b','c') }}").render(Map.of()))
+                    .category()));
+  }
+
+  @Test
+  void documentsAcceptedUpstreamDivergences() {
+    // The pinned upstream produces raw TypeErrors for the undefined-key dictsort and undefined
+    // lower-test cases; these assertions pin hfjinja's deliberate contracts described in WP7.
+    assertAll(
+        () -> assertEquals("|", Template.parse("{{ []|first }}|{{ []|last }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[[, 1], [\"z\", 2]]",
+                Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
+                    .render(Map.of())),
+        () -> assertEquals("false", Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())),
+        () -> {
+          var error =
+              assertThrows(
+                  TemplateRenderException.class,
+                  () -> Template.parse("{{ 'ab'|replace('a') }}").render(Map.of()));
+          assertEquals("replace() requires at least two arguments", error.getMessage());
+        },
+        () ->
+            assertEquals(
+                "", Template.parse("{{ {'a': 1}.get('z', default='d') }}").render(Map.of())));
+  }
+
+  @Test
+  void coversRemainingRuntimeArgumentPaths() {
+    assertAll(
+        () ->
+            assertEquals(
+                "[[\"b\", 2], [\"a\", 1]]",
+                Template.parse("{{ {'b': 2, 'a': 1}.dictsort(true, 'value', true) }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[1, undefined]",
+                Template.parse("{{ [{'a':1}, {}]|map(attribute='a') }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[undefined, undefined]",
+                Template.parse("{{ [{'a':[1]}, {'a':[2]}]|map(attribute='a.x') }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[undefined, undefined]",
+                Template.parse("{{ [{},{}]|map(attribute='x')|sort }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "3|2|[3, 1, 2]|[2, 1, 3]",
+                Template.parse(
+                        "{{ (3,1,2)|first }}|{{ (3,1,2)|last }}|{{ (3,1,2)|unique }}|{{ (3,1,2)|reverse }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b,c\"]",
+                Template.parse("{{ 'a,b,c'.split(',', -2) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a b c \"]",
+                Template.parse("{{ ' a b c '.split(none, -2) }}").render(Map.of())));
+    assertAll(
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|first(1) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|last(1) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.ARITY,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ [1]|unique(1) }}").render(Map.of()))
+                    .category()),
+        () ->
+            assertEquals(
+                ErrorCategory.TYPE,
+                assertThrows(
+                        TemplateRenderException.class,
+                        () -> Template.parse("{{ {'a': 1}|get(key='a') }}").render(Map.of()))
+                    .category()));
+  }
+
+  @Test
+  void matchesPinnedRuntimeEdgesForNewlyPortedFeatures() {
+    assertAll(
+        () ->
+            assertEquals(
+                "[0, 1, true]", Template.parse("{{ [1, true, 0] | sort }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "éLan Vital", Template.parse("{{ 'élan vital' | title }}").render(Map.of())),
+        () ->
+            assertEquals("-😀-", Template.parse("{{ '😀' | replace('', '-') }}").render(Map.of())),
+        () ->
+            assertEquals("[\"a\", \"b\"]", Template.parse("{{ 'a b'.split() }}").render(Map.of())),
+        () -> assertEquals("a", Template.parse("{{ 'a  '.rstrip() }}").render(Map.of())),
+        () -> assertEquals("a", Template.parse("{{ '  a'.lstrip() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b \"]", Template.parse("{{ ' a b '.split(none, 1) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[, \"z\"]|2",
+                Template.parse(
+                        "{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.keys() }}|{{ u|items|length }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[[, 1]]",
+                Template.parse("{% set u = {('ab'[9]): 1} %}{{ u.dictsort() }}").render(Map.of())),
+        () -> assertEquals("2", Template.parse("{{ [1,2].length }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "  a\n  b", Template.parse("{{ 'a\\nb'|indent(2, []) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "  a\n  b", Template.parse("{{ 'a\\nb'|indent(2, {}) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "a\n  b\n  \n  c",
+                Template.parse("{{ 'a\\nb\\n\\nc'|indent(2, false, []) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b\"]", Template.parse("{{ 'a\uFEFFb'.split() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\u0085b\"]", Template.parse("{{ 'a\u0085b'.split() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"b\", \"a\", \"A\"]",
+                Template.parse("{{ ['b', 'A', 'a']|sort(case_sensitive=true, reverse=true) }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "  a\n  b", Template.parse("{{ 'a\\nb'|indent(2, true) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "a\n  b\n  \n  c",
+                Template.parse("{{ 'a\\nb\\n\\nc'|indent(2, false, true) }}").render(Map.of())));
+    var negative =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'a\\nb' | indent(-1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.VALUE, negative.category());
+    var bounded =
+        assertThrows(
+            TemplateRenderException.class,
+            () ->
+                Template.parse("{{ 'a\\nb' | indent(400000000) }}")
+                    .render(Map.of(), RenderOptions.builder().maxOutputLength(100).build()));
+    assertEquals(ErrorCategory.RESOURCE_LIMIT, bounded.category());
+    assertEquals(
+        "replace() requires at least two arguments",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'ab' | replace(old='a', new='x') }}").render(Map.of()))
+            .getMessage());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'x'|abs }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 1|bool }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1, 'x']|sort }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'a'.split('') }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ {}.dictsort(by='other') }}").render(Map.of()))
+            .category());
+  }
+
+  @Test
   void evaluateExpressionAssertsUnreachableForParserOnlyExpressionShapes() {
     // Handing one of these three node types directly to evaluateExpression, as this test does,
     // is the only way to reach their arms at all -- see the comment above
@@ -1593,6 +2045,13 @@ class InterpreterTest {
       if (input == null) throw new AssertionError("Missing model template resource: " + name);
       return new String(input.readAllBytes(), StandardCharsets.UTF_8);
     }
+  }
+
+  private static String sha256(String text) throws Exception {
+    var digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+    var hex = new StringBuilder();
+    for (var value : digest) hex.append(String.format("%02x", value));
+    return hex.toString();
   }
 
   private static Map<String, Object> orderedMap(Object... entries) {

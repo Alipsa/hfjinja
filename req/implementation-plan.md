@@ -11,6 +11,10 @@ ordered so that provenance and a repeatable oracle exist before behavior is port
 - Add a differential mismatch as a focused Java regression before changing expected results.
 - Do not add a production dependency to solve parsing, JSON, date formatting, or execution.
 - Keep implementation packages unexported. Only `se.alipsa.hfjinja` is public.
+- Keep Gradle's configuration cache enabled. `upstreamVerify` must resolve project paths during
+  configuration rather than retain Gradle model objects in execution closures. This single-project
+  build uses two forked test JVMs for actual test parallelism; project-level parallel execution is
+  intentionally not enabled. Corpus tasks must declare every resource tree they read as an input.
 
 ## Work packages
 
@@ -145,6 +149,11 @@ coverage, lexer/parser termination properties.
 
 ### WP4 — interpreter core
 
+Status (2026-08-26): the pinned runtime's ordinary rendering feature *inventory* is implemented:
+the formerly absent sequence/string/object filters and members, plus the remaining named tests,
+have Java and Node-oracle coverage. This is not a claim of complete behavioral parity; WP7 records
+the remaining semantic, diagnostic, corpus, and public-API closure work before release.
+
 1. Build a fresh render environment per invocation: scopes, assignment, context/global lookup in
    the M0-derived order, loop state, and break/continue result variants.
 2. Implement expression evaluation, member/index access, truthiness, equality, string/list/object
@@ -152,8 +161,10 @@ coverage, lexer/parser termination properties.
 3. Implement JavaScript double arithmetic under the split integer/float value model, independently
    of host-boundary validation: precision loss, `NaN`, infinity, negative modulo/floor division,
    division result types, and rendering.
-4. Implement all upstream filters/tests as mapped work items. Implement deterministic JSON output
-   locally, including JS-number formatting and `NaN`/infinity becoming `null`.
+4. Implement all upstream filters/tests as mapped work items. The pinned ordinary runtime
+   filter/test/member names are implemented; WP7 owns complete per-operation oracle coverage and
+   semantic closure. Implement deterministic JSON output locally, including JS-number formatting
+   and `NaN`/infinity becoming `null`.
 5. Implement all `RenderBudget` counters. String renders accumulate privately and are atomic;
    streaming renders write progressively and have no rollback after output or I/O failure.
    Do not introduce lazy memoization caches in `Template`; scopes, budgets, conversion state, and
@@ -199,6 +210,46 @@ nodes or stale mapping/no-impact records.
    local tokenizer-config integration example.
 5. Run a clean checkout build, offline verification, dependency review, and release checklist.
 
+### WP7 — pinned-upstream parity closure
+
+1. Close or explicitly accept every remaining normal-rendering semantic divergence against the
+   pinned `@huggingface/jinja` runtime. The current known set includes eager filter-argument
+   evaluation; Java arity caps and unknown-keyword rejection where upstream ignores arguments; and
+   no-argument sequence filters, where upstream reports an unclassified `Unknown …Value filter`
+   error while hfjinja reports `ARITY`;
+   macro/call-block `break`/`continue` propagation; and the `tojson(sort_keys=true)` undefined-key
+   edge; plus empty `first`/`last`, where the upstream's raw-undefined failure differs from
+   hfjinja's rendered undefined behavior. The remaining diagnostic/keyword differences include
+   filter-form `replace` with one positional argument (category matches but the text differs) and
+   `Object.get` with keyword arguments (upstream exposes its keyword bag, while hfjinja returns the
+   normal missing-key default). Raw upstream TypeErrors also remain for `dictsort()` when an
+   undefined-backed key must be compared with another key (hfjinja renders a sorted result), and for
+   `is lower` on an undefined-backed string (hfjinja returns `false`). The one-key undefined-key
+   `dictsort()` corpus case is intentionally retained because it is byte-exact; the two-key case is
+   this documented divergence. Every accepted difference must have a named regression, a rationale,
+   and a documented compatibility contract; every closable difference must have a Node-oracle corpus
+   case before production code changes.
+2. Expand `v1.jsonl` from representative cases to a complete reviewed mapping of all executable,
+   non-model upstream runtime vectors. Add an explicit inventory report that fails when a supported
+   upstream filter, test, member, global, or error family lacks either byte-exact coverage or an
+   approved exclusion. Keep model-template provenance constraints intact.
+3. Decide the public `Template.format()` contract: port the pinned API with oracle coverage, or
+   record an explicit public-API exclusion in the mapping ledger and README. A no-runtime-path note
+   alone is insufficient for a feature-equivalence claim.
+4. Specify the intended error contract per feature. Where exact upstream messages are practical,
+   compare them; otherwise retain category-level comparison only after documenting why. In
+   particular, resolve or document call-form filter diagnostics such as `safe(...)`/`items(...)`.
+   The pinned upstream's `Unknown …Value filter: …` diagnostics are currently outside the error
+   classifier, so no-argument sequence-filter regressions remain Java-only until that family has a
+   reviewed category mapping.
+5. Re-run the complete pinned upstream test suite through the reviewable converter and make the
+   coverage report a release-blocking check. New upstream versions remain a separate reviewed
+   sync, not an implicit upgrade.
+
+Gate: all ordinary rendering behavior in the pinned upstream is byte-exact or has an explicit,
+approved exception; the corpus/mapping inventory is complete; and `Template.format()` is either
+implemented or publicly excluded.
+
 ## Delivery gates
 
 | Gate | Required evidence |
@@ -211,6 +262,7 @@ nodes or stale mapping/no-impact records.
 | G4 | Core corpus plus Llama/Qwen goldens pass under effectively unbounded budgets. |
 | G5 | Full pinned suite, Mistral/tool-use goldens, and complete AST ledger pass. |
 | G6 | Packaging, notices, concurrency, limits, reproducibility, and consumer example pass. |
+| G7 | Pinned-upstream parity closure: complete reviewed runtime/vector inventory, resolved or approved semantic differences, and an explicit `Template.format()` contract. This is the final release gate. |
 
 ## Suggested implementation sequence
 

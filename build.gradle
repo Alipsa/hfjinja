@@ -57,6 +57,9 @@ tasks.register('codenarcBuildScripts', CodeNarc) {
 
 tasks.withType(Test).configureEach {
   useJUnitPlatform()
+  // This is a single-project build, so org.gradle.parallel cannot parallelize project work.
+  // Two forked JVMs provide the intended test-level parallelism without oversubscribing CI hosts.
+  maxParallelForks = 2
   // Gradle runs test outputs on the test classpath, allowing white-box internal.* tests while the
   // published module continues to export only se.alipsa.hfjinja. A future module-path test suite
   // must use --patch-module and qualified opens rather than widening module-info.java.
@@ -114,7 +117,8 @@ tasks.register('nodeCorpusTest', Exec) {
   executable = 'node'
   args '--test', 'tools/corpus/corpus.test.mjs'
   inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/corpus.test.mjs',
-      'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json')
+      'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json',
+      fileTree('src/test/resources/model-templates'))
   outputs.file(nodeCorpusTestMarker).withPropertyName('verifiedMarker')
   doLast {
     nodeCorpusTestMarker.parentFile.mkdirs()
@@ -173,6 +177,7 @@ tasks.named('check') {
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
 def astAllowlistFile = layout.projectDirectory.file('upstream/ast-allowlist.json').asFile
 def mappingFile = layout.projectDirectory.file('upstream/mapping.yml').asFile
+def projectDirectoryFile = layout.projectDirectory.asFile
 def vendorDir = layout.projectDirectory.dir('upstream/vendor').asFile
 def packageMetadataFile = new File(vendorDir, 'package.json')
 def astSourceFile = new File(vendorDir, 'src/ast.ts')
@@ -398,7 +403,7 @@ tasks.register('upstreamVerify') {
           throw new GradleException("Implemented mapping must name Java and test coverage: ${basename}")
         }
         ((entry.java + entry.tests) =~ /(src\/[^,\]\s]+\.java)/).collect { it[1] }.each { declared ->
-          if (!layout.projectDirectory.file(declared).asFile.isFile()) {
+          if (!new File(projectDirectoryFile, declared).isFile()) {
             throw new GradleException("Mapping entry names a missing file: ${basename} -> ${declared}")
           }
         }
@@ -412,7 +417,7 @@ tasks.register('upstreamVerify') {
     mappingEntries.each { basename, entry ->
       def packagePath = plannedPackages[basename]
       if (entry.status == 'planned' && packagePath != null
-          && layout.projectDirectory.dir("src/main/java/se/alipsa/hfjinja/${packagePath}").asFile.isDirectory()) {
+          && new File(projectDirectoryFile, "src/main/java/se/alipsa/hfjinja/${packagePath}").isDirectory()) {
         throw new GradleException("Mapping entry is still 'planned' but its Java package exists: ${basename}")
       }
     }

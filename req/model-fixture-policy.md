@@ -9,6 +9,7 @@ exact model repository, immutable revision, template path, and applicable licens
 | Exact model repository and revision | Current license basis | Repository policy |
 | --- | --- | --- |
 | `Qwen/Qwen2.5-32B-Instruct` at `afb2829595f63efa3548e9d6b13aa66e61aa0f38` | Apache-2.0 | Template text may be retained after recording the template path, Apache-2.0 notice, and model-card attribution. |
+| `mlx-community/Qwen3.8-27B-4bit` at `3e6447f082e89cc7f0bc6e5441afd38dfce760ff` | Apache-2.0 MLX conversion of `Qwen/Qwen3.8-27B` | Template text may be retained after recording the `chat_template.jinja` path, Apache-2.0 notice, upstream-base relationship, and model-card attribution. This is the primary retained Qwen fixture. |
 | `mistralai/Mistral-7B-Instruct-v0.3` at `c170c708c41dac9275d15a8fff4eca08d52bab71` | Apache-2.0 | Template text may be retained after recording the template path, Apache-2.0 notice, and model-card attribution. |
 | `stepfun-ai/step3` at `7bf55112c8b477c47f91ed7c5872a5a80015b099` | Apache-2.0 | Template text and self-authored rendered output may be retained after recording the `chat_template.json` path, Apache-2.0 notice, and model-card attribution. |
 | All other Qwen models, including Qwen2.5 3B and 72B variants | Not preapproved | Do not retain template text or rendered output. A hash-only case is permitted; text or output requires a fixture-specific review. |
@@ -17,12 +18,12 @@ exact model repository, immutable revision, template path, and applicable licens
 
 ## Current fixture set
 
-The retained Mistral-7B-Instruct-v0.3 and Qwen2.5-32B-Instruct template resources are the first
-approved Qwen/Mistral cases. Their pinned source records, Apache-2.0 notices, and model-card
-attribution are recorded in NOTICE in this same change; copied templates and generated output are
-not implicitly covered by the upstream MIT notice. The model-bearing upstream README and e2e fixture
-remain intentionally unvendored. The first Llama case may retain only hash-only metadata,
-self-authored test context, and an error category where applicable.
+The retained Mistral-7B-Instruct-v0.3, Qwen2.5-32B-Instruct, and primary Qwen3.8-27B-4bit MLX
+template resources are approved Qwen/Mistral cases. Their pinned source records, Apache-2.0
+notices, and model-card attribution are recorded in NOTICE in this same change; copied templates
+and generated output are not implicitly covered by the upstream MIT notice. The model-bearing
+upstream README and e2e fixture remain intentionally unvendored. The first Llama case may retain
+only hash-only metadata, self-authored test context, and an error category where applicable.
 
 The retained Step3 resource is the approved macro-heavy fixture. Its pinned source record,
 Apache-2.0 notice, and model-card attribution were added with its first retained copy in NOTICE.
@@ -50,3 +51,13 @@ Reviewed 2026-08-24:
   — §License states that both the code repository and model weights are Apache-2.0; attribution source.
 - [stepfun-ai/step3 chat template at `7bf5511`](https://huggingface.co/stepfun-ai/step3/blob/7bf55112c8b477c47f91ed7c5872a5a80015b099/chat_template.json)
   — immutable retained source; its decoded `chat_template` field was reviewed for fixture intake.
+
+Reviewed 2026-08-26:
+
+- [mlx-community/Qwen3.8-27B-4bit at `3e6447f`](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit/tree/3e6447f082e89cc7f0bc6e5441afd38dfce760ff)
+  — immutable verified commit; the model card metadata declares Apache-2.0 and identifies
+  `Qwen/Qwen3.8-27B` as the base model for this MLX conversion.
+- [mlx-community/Qwen3.8-27B-4bit model card at `3e6447f`](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit/blob/3e6447f082e89cc7f0bc6e5441afd38dfce760ff/README.md)
+  — Apache-2.0 and attribution source.
+- [mlx-community/Qwen3.8-27B-4bit chat template at `3e6447f`](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit/blob/3e6447f082e89cc7f0bc6e5441afd38dfce760ff/chat_template.jinja)
+  — immutable retained source.
