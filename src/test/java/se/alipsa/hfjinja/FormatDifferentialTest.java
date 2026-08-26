@@ -1,6 +1,8 @@
 package se.alipsa.hfjinja;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class FormatDifferentialTest {
   private static final Pattern RECORD =
       Pattern.compile(
-          "\\{\\\"name\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"([^\\\"]+)\\\",\\\"formatted\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"originalRendered\\\":(null|\\\"((?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedRendered\\\":(null|\\\"((?:\\\\.|[^\\\"])*)\\\")\\}");
+          "\\{\\\"name\\\":\\\"(?<name>(?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"(?<source>(?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(?<number>-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"(?<string>(?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"(?<roundTrip>[^\\\"]+)\\\",\\\"formatted\\\":\\\"(?<formatted>(?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"(?<context>(?:\\\\.|[^\\\"])*)\\\",\\\"originalRendered\\\":(?:null|\\\"(?<originalRendered>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedRendered\\\":(?:null|\\\"(?<reformattedRendered>(?:\\\\.|[^\\\"])*)\\\"),\\\"reformattedError\\\":(?:null|\\\"(?<reformattedError>(?:\\\\.|[^\\\"])*)\\\")\\}");
 
   @Test
   void matchesEveryPinnedNodeFormatGolden() throws Exception {
@@ -21,37 +23,61 @@ class FormatDifferentialTest {
     Matcher matcher = RECORD.matcher(input);
     int records = 0;
     while (matcher.find()) {
-      String name = unescape(matcher.group(1));
-      String source = unescape(matcher.group(2));
-      String expected = unescape(matcher.group(6));
+      String name = unescape(matcher.group("name"));
+      String source = unescape(matcher.group("source"));
+      String expected = unescape(matcher.group("formatted"));
       var template = Template.parse(source);
       String actual =
-          matcher.group(3) != null
-              ? template.format(Double.parseDouble(matcher.group(3)))
-              : matcher.group(4) != null
-                  ? template.format(unescape(matcher.group(4)))
+          matcher.group("number") != null
+              ? template.format(Double.parseDouble(matcher.group("number")))
+              : matcher.group("string") != null
+                  ? template.format(unescape(matcher.group("string")))
                   : template.format();
       assertEquals(expected, actual, name);
-      if (!matcher.group(5).equals("not-renderable")) {
-        var context = context(unescape(matcher.group(7)));
+      if (!matcher.group("roundTrip").equals("not-renderable")) {
+        var context = context(unescape(matcher.group("context")));
         assertEquals(
-            unescape(matcher.group(9)), template.render(context), name + " original render");
-        assertEquals(
-            unescape(matcher.group(11)),
-            Template.parse(actual).render(context),
-            name + " formatted render");
+            unescape(required(matcher, "originalRendered")),
+            template.render(context),
+            name + " original render");
+        if (matcher.group("roundTrip").equals("reformat-fails")) {
+          var failure =
+              assertThrows(RuntimeException.class, () -> Template.parse(actual).render(context));
+          assertTrue(
+              failure
+                  .getMessage()
+                  .equals(errorMessage(unescape(required(matcher, "reformattedError")))),
+              name + " formatted error");
+        } else
+          assertEquals(
+              unescape(required(matcher, "reformattedRendered")),
+              Template.parse(actual).render(context),
+              name + " formatted render");
       }
       records++;
     }
     assertEquals(countNames(input), records, "golden parser must consume every record");
   }
 
+  private static String required(Matcher matcher, String group) {
+    var value = matcher.group(group);
+    if (value == null)
+      throw new AssertionError("Missing " + group + " in renderable golden record");
+    return value;
+  }
+
+  private static String errorMessage(String error) {
+    return error.substring(error.indexOf(": ") + 2);
+  }
+
   private static Map<String, ?> context(String json) {
     return switch (json) {
       case "{}" -> Map.of();
       case "{\"a\":true,\"x\":\"x\"}" -> Map.of("a", true, "x", "x");
+      case "{\"a\":true}" -> Map.of("a", true);
       case "{\"a\":false,\"b\":true}" -> Map.of("a", false, "b", true);
       case "{\"a\":1,\"b\":2}" -> Map.of("a", 1, "b", 2);
+      case "{\"c\":true}" -> Map.of("c", true);
       case "{\"a\":[0,1,2,3]}" -> Map.of("a", java.util.List.of(0, 1, 2, 3));
       case "{\"message\":{\"content\":\"<think>x</think>answer\"}}" ->
           Map.of("message", Map.of("content", "<think>x</think>answer"));

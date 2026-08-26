@@ -26,4 +26,9 @@
   {"name":"filter-expression-precedence","source":"{{ (a + b) | string }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":1,"b":2}},
   {"name":"binary-right-associativity","source":"{{ 1 - (2 - 3) }}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"slice-step","source":"{{ a[1:2:3] }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":[0, 1, 2, 3]}}
+  ,{"name":"empty-object","source":"{{ {} }}","indent":{"default":true},"roundTrip":"preserves"}
+  ,{"name":"empty-if-body","source":"{% if a %}{% endif %}","indent":{"default":true},"roundTrip":"preserves","context":{"a":true}}
+  ,{"name":"nested-comment-padding","source":"{% if a %}{# c #}{% endif %}","indent":{"default":true},"roundTrip":"preserves","context":{"a":true}}
+  ,{"name":"test-expression-precedence","source":"{{ (1 + 2) is odd }}","indent":{"default":true},"roundTrip":"reformat-fails"}
+  ,{"name":"select-expression-precedence","source":"{{ ([1] + [2]) if c }}","indent":{"default":true},"roundTrip":"preserves","context":{"c":true}}
 ]

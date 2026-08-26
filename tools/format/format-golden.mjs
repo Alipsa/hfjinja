@@ -19,7 +19,7 @@ function walk(value) {
   else Object.values(value).forEach(walk);
 }
 const output = vectors.map(vector => {
-  if (!['preserves', 'upstream-diverges', 'not-renderable'].includes(vector.roundTrip)) {
+  if (!['preserves', 'upstream-diverges', 'reformat-fails', 'not-renderable'].includes(vector.roundTrip)) {
     throw new Error(`Unknown roundTrip expectation for ${vector.name}: ${vector.roundTrip}`);
   }
   const template = new Template(vector.source);
@@ -28,14 +28,22 @@ const output = vectors.map(vector => {
   walk(parse(tokenize(vector.source, { lstrip_blocks: true, trim_blocks: true })));
   let originalRendered = null;
   let reformattedRendered = null;
+  let reformattedError = null;
   if (vector.roundTrip !== 'not-renderable') {
     originalRendered = template.render(vector.context ?? {});
-    reformattedRendered = new Template(formatted).render(vector.context ?? {});
-    if (vector.roundTrip === 'preserves' && originalRendered !== reformattedRendered) {
+    try {
+      reformattedRendered = new Template(formatted).render(vector.context ?? {});
+    } catch (error) {
+      reformattedError = `${error.name}: ${error.message}`;
+    }
+    if (vector.roundTrip === 'preserves' && (reformattedError !== null || originalRendered !== reformattedRendered)) {
       throw new Error(`Format round trip changed rendering for ${vector.name}`);
     }
-    if (vector.roundTrip === 'upstream-diverges' && originalRendered === reformattedRendered) {
+    if (vector.roundTrip === 'upstream-diverges' && (reformattedError !== null || originalRendered === reformattedRendered)) {
       throw new Error(`Expected upstream round-trip divergence for ${vector.name}`);
+    }
+    if (vector.roundTrip === 'reformat-fails' && reformattedError === null) {
+      throw new Error(`Expected formatted rendering to fail for ${vector.name}`);
     }
   }
   return {
@@ -47,6 +55,7 @@ const output = vectors.map(vector => {
     context: JSON.stringify(vector.context ?? {}),
     originalRendered,
     reformattedRendered,
+    reformattedError,
   };
 });
 const text = JSON.stringify(output) + '\n';
