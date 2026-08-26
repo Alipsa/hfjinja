@@ -42,6 +42,7 @@ const output = vectors.map(vector => {
     indent: vector.indent,
     roundTrip: vector.roundTrip,
     formatted,
+    context: JSON.stringify(vector.context ?? {}),
   };
 });
 const text = JSON.stringify(output) + '\n';

@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -14,7 +13,7 @@ import org.junit.jupiter.api.Test;
 class FormatDifferentialTest {
   private static final Pattern RECORD =
       Pattern.compile(
-          "\\{\\\"name\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"([^\\\"]+)\\\",\\\"formatted\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"\\}");
+          "\\{\\\"name\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"source\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"indent\\\":\\{(?:(?:\\\"default\\\":true)|(?:\\\"number\\\":(-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?))|(?:\\\"string\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"))\\},\\\"roundTrip\\\":\\\"([^\\\"]+)\\\",\\\"formatted\\\":\\\"((?:\\\\.|[^\\\"])*)\\\",\\\"context\\\":\\\"((?:\\\\.|[^\\\"])*)\\\"\\}");
 
   @Test
   void matchesEveryPinnedNodeFormatGolden() throws Exception {
@@ -33,22 +32,26 @@ class FormatDifferentialTest {
                   ? template.format(unescape(matcher.group(4)))
                   : template.format();
       assertEquals(expected, actual, name);
+      if (matcher.group(5).equals("preserves")) {
+        var context = context(unescape(matcher.group(7)));
+        assertEquals(template.render(context), Template.parse(actual).render(context), name);
+      }
       records++;
     }
     assertEquals(countNames(input), records, "golden parser must consume every record");
   }
 
-  @Test
-  void reparsesAndRendersJavaFormattedOutputForPreviouslyUncoveredShapes() {
-    assertRoundTrip("{% for x in [1] %}{% break %}{% continue %}{% else %}x{% endfor %}", Map.of());
-    assertRoundTrip("{{ (a + b).c }}", Map.of("a", 1, "b", 2));
-    assertRoundTrip("{{ a[1:2:3] }}", Map.of("a", List.of(0, 1, 2, 3)));
-  }
-
-  private static void assertRoundTrip(String source, Map<String, ?> context) {
-    var template = Template.parse(source);
-    assertEquals(
-        template.render(context), Template.parse(template.format()).render(context), source);
+  private static Map<String, ?> context(String json) {
+    return switch (json) {
+      case "{}" -> Map.of();
+      case "{\"a\":true,\"x\":\"x\"}" -> Map.of("a", true, "x", "x");
+      case "{\"a\":false,\"b\":true}" -> Map.of("a", false, "b", true);
+      case "{\"a\":1,\"b\":2}" -> Map.of("a", 1, "b", 2);
+      case "{\"a\":[0,1,2,3]}" -> Map.of("a", java.util.List.of(0, 1, 2, 3));
+      case "{\"message\":{\"content\":\"<think>x</think>answer\"}}" ->
+          Map.of("message", Map.of("content", "<think>x</think>answer"));
+      default -> throw new IllegalArgumentException("Unsupported format-vector context: " + json);
+    };
   }
 
   private static int countNames(String value) {

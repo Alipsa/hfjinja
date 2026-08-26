@@ -13,7 +13,7 @@
   {"name":"float-roundtrip-diverges","source":"{{ 1.0 }}|{{ 2.50 }}","indent":{"default":true},"roundTrip":"upstream-diverges"},
   {"name":"macro-call-filter","source":"{% macro f(x) %}{{ x|upper }}{% endmacro %}{% call f('a') %}x{% endcall %}","indent":{"string":"  "},"roundTrip":"preserves"},
   {"name":"collections-members-slice","source":"{{ {'a': [1, 2, 3]}['a'][1:]|join(',') }}","indent":{"default":true},"roundTrip":"preserves"},
-  {"name":"for-break-continue-else","source":"{% for x in [1] %}{% break %}{% continue %}{% else %}x{% endfor %}","indent":{"default":true},"roundTrip":"not-renderable"},
+  {"name":"for-break-continue-else","source":"{% for x in [1] %}{% break %}{% continue %}{% else %}x{% endfor %}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"set-and-endset","source":"{% set x = (1, 2) %}{% set y %}x{% endset %}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"filter-statement","source":"{% filter upper %}x{% endfilter %}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"select-expression","source":"{{ [1, 2] if true }}","indent":{"default":true},"roundTrip":"preserves"},
@@ -22,7 +22,8 @@
   {"name":"elif-chain","source":"{% if a %}a{% elif b %}b{% else %}c{% endif %}","indent":{"default":true},"roundTrip":"preserves","context":{"a":false,"b":true}},
   {"name":"for-select-and-slice","source":"{% for x in [1, 2, 3] if x is odd %}{{ [0, 1, 2][x:2] }}{% endfor %}","indent":{"default":true},"roundTrip":"preserves"},
   {"name":"call-with-caller-arguments","source":"{% macro wrap() %}{{ caller('a', 'b') }}{% endmacro %}{% call(x, y) wrap() %}{{ x }}{{ y }}{% endcall %}","indent":{"default":true},"roundTrip":"preserves"},
-  {"name":"member-object-grouping","source":"{{ (a + b).c }}","indent":{"default":true},"roundTrip":"not-renderable"},
+  {"name":"member-object-grouping","source":"{{ (a + b).c }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":1,"b":2}},
   {"name":"filter-expression-precedence","source":"{{ (a + b) | c }}","indent":{"default":true},"roundTrip":"not-renderable"},
-  {"name":"binary-right-associativity","source":"{{ 1 - (2 - 3) }}","indent":{"default":true},"roundTrip":"preserves"}
+  {"name":"binary-right-associativity","source":"{{ 1 - (2 - 3) }}","indent":{"default":true},"roundTrip":"preserves"},
+  {"name":"slice-step","source":"{{ a[1:2:3] }}","indent":{"default":true},"roundTrip":"preserves","context":{"a":[0, 1, 2, 3]}}
 ]
