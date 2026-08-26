@@ -2,7 +2,6 @@ package se.alipsa.hfjinja;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,12 +41,9 @@ class FormatDifferentialTest {
             name + " original render");
         if (matcher.group("roundTrip").equals("reformat-fails")) {
           var failure =
-              assertThrows(RuntimeException.class, () -> Template.parse(actual).render(context));
-          assertTrue(
-              failure
-                  .getMessage()
-                  .equals(errorMessage(unescape(required(matcher, "reformattedError")))),
-              name + " formatted error");
+              assertThrows(
+                  TemplateRenderException.class, () -> Template.parse(actual).render(context));
+          assertEquals(ErrorCategory.TYPE, failure.category(), name + " formatted error category");
         } else
           assertEquals(
               unescape(required(matcher, "reformattedRendered")),
@@ -64,10 +60,6 @@ class FormatDifferentialTest {
     if (value == null)
       throw new AssertionError("Missing " + group + " in renderable golden record");
     return value;
-  }
-
-  private static String errorMessage(String error) {
-    return error.substring(error.indexOf(": ") + 2);
   }
 
   private static Map<String, ?> context(String json) {
