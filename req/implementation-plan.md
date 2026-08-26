@@ -145,10 +145,10 @@ coverage, lexer/parser termination properties.
 
 ### WP4 — interpreter core
 
-Status (2026-08-26): complete for the pinned runtime's ordinary rendering feature inventory.
-`InterpreterTest` and the Node-oracle corpus test cover the formerly absent sequence/string/object
-filters and members, plus the remaining named tests. Deliberate safety limits and separately
-documented error-shape divergences remain outside byte-for-byte parity outcomes.
+Status (2026-08-26): the pinned runtime's ordinary rendering feature *inventory* is implemented:
+the formerly absent sequence/string/object filters and members, plus the remaining named tests,
+have Java and Node-oracle coverage. This is not a claim of complete behavioral parity; WP7 records
+the remaining semantic, diagnostic, corpus, and public-API closure work before release.
 
 1. Build a fresh render environment per invocation: scopes, assignment, context/global lookup in
    the M0-derived order, loop state, and break/continue result variants.
@@ -205,6 +205,33 @@ nodes or stale mapping/no-impact records.
    local tokenizer-config integration example.
 5. Run a clean checkout build, offline verification, dependency review, and release checklist.
 
+### WP7 — pinned-upstream parity closure
+
+1. Close or explicitly accept every remaining normal-rendering semantic divergence against the
+   pinned `@huggingface/jinja` runtime. The current known set includes eager filter-argument
+   evaluation; Java arity caps and unknown-keyword rejection where upstream ignores arguments;
+   macro/call-block `break`/`continue` propagation; and the `tojson(sort_keys=true)` undefined-key
+   edge. Every accepted difference must have a named regression, a rationale, and a documented
+   compatibility contract; every closable difference must have a Node-oracle corpus case before
+   production code changes.
+2. Expand `v1.jsonl` from representative cases to a complete reviewed mapping of all executable,
+   non-model upstream runtime vectors. Add an explicit inventory report that fails when a supported
+   upstream filter, test, member, global, or error family lacks either byte-exact coverage or an
+   approved exclusion. Keep model-template provenance constraints intact.
+3. Decide the public `Template.format()` contract: port the pinned API with oracle coverage, or
+   record an explicit public-API exclusion in the mapping ledger and README. A no-runtime-path note
+   alone is insufficient for a feature-equivalence claim.
+4. Specify the intended error contract per feature. Where exact upstream messages are practical,
+   compare them; otherwise retain category-level comparison only after documenting why. In
+   particular, resolve or document call-form filter diagnostics such as `safe(...)`/`items(...)`.
+5. Re-run the complete pinned upstream test suite through the reviewable converter and make the
+   coverage report a release-blocking check. New upstream versions remain a separate reviewed
+   sync, not an implicit upgrade.
+
+Gate: all ordinary rendering behavior in the pinned upstream is byte-exact or has an explicit,
+approved exception; the corpus/mapping inventory is complete; and `Template.format()` is either
+implemented or publicly excluded.
+
 ## Delivery gates
 
 | Gate | Required evidence |
@@ -217,6 +244,7 @@ nodes or stale mapping/no-impact records.
 | G4 | Core corpus plus Llama/Qwen goldens pass under effectively unbounded budgets. |
 | G5 | Full pinned suite, Mistral/tool-use goldens, and complete AST ledger pass. |
 | G6 | Packaging, notices, concurrency, limits, reproducibility, and consumer example pass. |
+| G7 | Pinned-upstream parity closure: complete reviewed runtime/vector inventory, resolved or approved semantic differences, and an explicit `Template.format()` contract. This is the final release gate. |
 
 ## Suggested implementation sequence
 
