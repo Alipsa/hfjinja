@@ -10,14 +10,17 @@ import org.junit.jupiter.api.function.Executable;
 
 class TemplateResourceLimitTest {
   @Test
-  void parseTimeLimitsHaveExactBoundaries() {
+  void sourceLengthHasAnExactBoundary() {
     var sourceOptions = TemplateOptions.builder().maxSourceLength(5).build();
     assertEquals("abcde", Template.parse("abcde", sourceOptions).render(Map.of()));
     assertResourceLimit(
         () -> Template.parse("abcde\n", sourceOptions),
         "Source length 6 exceeds the configured limit of 5",
         Optional.empty());
+  }
 
+  @Test
+  void tokenCountHasAnExactBoundary() {
     // {{ a }} is exactly three tokens: OpenExpression, Identifier, CloseExpression.
     var tokenOptions = TemplateOptions.builder().maxTokenCount(3).build();
     assertEquals("", Template.parse("{{ a }}", tokenOptions).render(Map.of()));
@@ -25,7 +28,10 @@ class TemplateResourceLimitTest {
         () -> Template.parse("{{ a }}", TemplateOptions.builder().maxTokenCount(2).build()),
         "Token count exceeds the configured limit of 2",
         location(5, 1, 6));
+  }
 
+  @Test
+  void astDepthHasAnExactBoundary() {
     // The two parenthesized productions in {{ ((1)) }} consume the parser's two nested levels.
     assertEquals(
         "1",
@@ -126,6 +132,36 @@ class TemplateResourceLimitTest {
         22, "<abcdef>", location(48, 1, 49));
   }
 
+  @Test
+  void tojsonOutputGuardsHaveExactBoundaries() {
+    // An empty object at depth zero renders as exactly "{\n}"; this is the renderedLength boundary.
+    var prettyJson = Template.parse("{{ {} | tojson(indent=2) }}");
+    assertEquals(
+        "{\n}", prettyJson.render(Map.of(), RenderOptions.builder().maxOutputLength(3).build()));
+    assertResourceLimit(
+        () -> prettyJson.render(Map.of(), RenderOptions.builder().maxOutputLength(2).build()),
+        "Maximum render output length exceeded",
+        location(3, 1, 4));
+
+    // An empty object's rendered length is 3 regardless of indent, so only jsonIndent prevents
+    // this from allocating the indent before its output is charged.
+    var wideIndent = Template.parse("{{ {} | tojson(indent=5) }}");
+    assertEquals(
+        "{\n}", wideIndent.render(Map.of(), RenderOptions.builder().maxOutputLength(5).build()));
+    assertResourceLimit(
+        () -> wideIndent.render(Map.of(), RenderOptions.builder().maxOutputLength(4).build()),
+        "Maximum render output length exceeded",
+        location(3, 1, 4));
+
+    // A non-empty container lets the renderedLength guard reject its large indent first.
+    assertResourceLimit(
+        () ->
+            Template.parse("{{ [1,2] | tojson(indent=5000000) }}")
+                .render(Map.of(), RenderOptions.builder().maxOutputLength(10).build()),
+        "Maximum render output length exceeded",
+        location(3, 1, 4));
+  }
+
   private static void assertCumulativeOutputBoundary(
       String source,
       int cumulativeLength,
@@ -144,13 +180,12 @@ class TemplateResourceLimitTest {
         failureLocation);
   }
 
-  private static TemplateRenderException assertResourceLimit(
+  private static void assertResourceLimit(
       Executable executable, String message, Optional<SourceLocation> expectedLocation) {
     var error = assertThrows(TemplateRenderException.class, executable);
     assertEquals(ErrorCategory.RESOURCE_LIMIT, error.category());
     assertEquals(message, error.getMessage());
     assertEquals(expectedLocation, error.location());
-    return error;
   }
 
   private static Optional<SourceLocation> location(int offset, int line, int column) {
