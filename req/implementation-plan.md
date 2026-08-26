@@ -219,8 +219,9 @@ nodes or stale mapping/no-impact records.
    `tojson(sort_keys=true)` undefined-key edge, empty `first`/`last`, filter-form `replace` with
    one positional argument, `Object.get` with keyword arguments, `dictsort()` when an
    undefined-backed key must be compared with another key, and `is lower` on an undefined-backed
-   string. The one-key undefined-key `dictsort()` corpus case is byte-exact; the two-key case must
-   become byte-exact as well. Every difference must have a Node-oracle corpus case before
+   string, and function-value rendering through filters such as `safe` and `default()`. The
+   one-key undefined-key `dictsort()` corpus case is byte-exact; the two-key case must become
+   byte-exact as well. Every difference must have a Node-oracle corpus case before
    production code changes, and no normal-rendering semantic or diagnostic difference may be
    accepted as a release exception. Java-only safety limits and host-boundary failures remain
    explicitly outside the Node runtime contract.

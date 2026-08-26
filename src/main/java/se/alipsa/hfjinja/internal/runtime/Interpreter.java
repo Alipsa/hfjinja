@@ -286,54 +286,145 @@ public final class Interpreter {
       Environment env,
       RenderBudget budget,
       SourceLocation location) {
-    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
-    // "Known gaps this slice leaves open" — eager filter-argument evaluation): this evaluates and
-    // validates every filter argument, including spreads, before dispatch on filter.name() below,
-    // whereas upstream evaluates arguments only inside the matching dispatch branch.
-    var filter = namedArguments(filterNode, env, budget, location, "filter");
+    if (filterNode instanceof Expression.Identifier identifier)
+      return applyBareFilter(operand, identifier.value(), location, budget);
+    if (!(filterNode instanceof Expression.CallExpression call)
+        || !(call.callee() instanceof Expression.Identifier identifier))
+      throw filterType("Unknown filter: " + filterNode.getClass().getSimpleName(), location);
+    return applyCallFilter(operand, identifier.value(), call, env, budget, location);
+  }
+
+  private static Value applyBareFilter(
+      Value operand, String name, SourceLocation location, RenderBudget budget) {
+    var filter = new NamedArguments(name, List.of(), Map.of());
     return switch (filter.name()) {
-      // Upstream recognizes `safe` only in its bare-filter form. There is no autoescape or
-      // markup runtime in hfjinja, so preserving the evaluated value is the whole operation.
-      case "safe" -> {
-        if (!(filterNode instanceof Expression.Identifier))
-          throw filterType("Unknown filter: safe", location);
-        yield operand;
-      }
+      case "safe" -> operand;
       case "tojson" -> filterToJson(operand, filter, location, budget);
-      case "default" -> {
-        if (filterNode instanceof Expression.Identifier)
-          throw filterType("`default` filter must be called with parentheses", location);
-        yield filterDefault(operand, filter, location);
-      }
-      case "length" -> filterLength(operand, filter, location);
+      case "default" -> throw unknownBareFilter(filter.name(), operand, location);
+      case "length" -> filterLength(operand, location);
       case "lower" ->
           filterString(operand, filter, location, value -> value.toLowerCase(Locale.ROOT));
       case "upper" ->
           filterString(operand, filter, location, value -> value.toUpperCase(Locale.ROOT));
       case "trim" -> filterString(operand, filter, location, JsOperations::trimEcmaWhitespace);
       case "join" -> filterJoin(operand, filter, location);
-      case "list" -> filterList(operand, filter, location);
-      case "items" -> filterItems(operand, filter, location);
+      case "list" -> filterList(operand, location);
+      case "items" -> filterItems(operand, location);
       case "first" -> filterFirstLast(operand, filter, location, false);
       case "last" -> filterFirstLast(operand, filter, location, true);
       case "reverse" -> filterReverse(operand, filter, location);
       case "unique" -> filterUnique(operand, filter, location);
       case "sort" -> filterSort(operand, filter, location);
-      case "map" -> filterMap(operand, filter, location);
-      case "string" -> filterToString(operand, filter, location);
+      case "map" -> throw unknownBareFilter(filter.name(), operand, location);
+      case "string" -> filterToString(operand, location);
       case "title" -> filterString(operand, filter, location, Interpreter::titleCase);
       case "capitalize" -> filterString(operand, filter, location, Interpreter::capitalize);
       case "abs" -> filterAbs(operand, filter, location);
       case "bool" -> filterBool(operand, filter, location);
       case "indent" -> filterIndent(operand, filter, location, budget);
-      case "replace" -> filterReplace(operand, filter, location);
+      case "replace" -> throw unknownBareFilter(filter.name(), operand, location);
       case "keys", "values", "dictsort", "get" -> filterObjectBuiltin(operand, filter, location);
-      case "selectattr" -> filterSelectAttr(operand, filter, location, true);
-      case "rejectattr" -> filterSelectAttr(operand, filter, location, false);
+      case "selectattr", "rejectattr" -> throw unknownBareFilter(filter.name(), operand, location);
       case "int" -> filterNumber(operand, filter, location, true);
       case "float" -> filterNumber(operand, filter, location, false);
-      default -> throw filterType("Unknown filter: " + filter.name(), location);
+      default -> throw unknownBareFilter(filter.name(), operand, location);
     };
+  }
+
+  private static Value applyCallFilter(
+      Value operand,
+      String name,
+      Expression.CallExpression call,
+      Environment env,
+      RenderBudget budget,
+      SourceLocation location) {
+    return switch (name) {
+      case "tojson" ->
+          filterToJson(operand, filterArguments(name, call, env, budget), location, budget);
+      case "int", "float" -> {
+        var arguments = filterArguments(name, call, env, budget);
+        if (operand instanceof Value.IntegerValue || operand instanceof Value.FloatValue)
+          yield operand;
+        yield filterNumber(operand, arguments, location, name.equals("int"));
+      }
+      case "default" -> filterDefault(operand, filterArguments(name, call, env, budget), location);
+      case "join" -> {
+        if (!(operand instanceof Value.ArrayValue
+            || operand instanceof Value.TupleValue
+            || operand instanceof Value.StringValue)) throw filterReceiver(name, operand, location);
+        yield filterJoin(operand, filterArguments(name, call, env, budget), location);
+      }
+      default -> applyCallFilterByReceiver(operand, name, call, env, budget, location);
+    };
+  }
+
+  private static Value applyCallFilterByReceiver(
+      Value operand,
+      String name,
+      Expression.CallExpression call,
+      Environment env,
+      RenderBudget budget,
+      SourceLocation location) {
+    if (operand instanceof Value.ArrayValue array)
+      return applyArrayCallFilter(array.values(), operand, name, call, env, budget, location);
+    if (operand instanceof Value.TupleValue tuple)
+      return applyArrayCallFilter(tuple.values(), operand, name, call, env, budget, location);
+    if (operand instanceof Value.StringValue)
+      return switch (name) {
+        case "indent" ->
+            filterIndent(operand, filterArguments(name, call, env, budget), location, budget);
+        case "replace" ->
+            filterReplace(operand, filterArguments(name, call, env, budget), location);
+        default -> throw unknownCallFilter(name, operand, location);
+      };
+    if (operand instanceof Value.ObjectValue object) {
+      if (name.equals("get")
+          || name.equals("items")
+          || name.equals("keys")
+          || name.equals("values")
+          || name.equals("dictsort"))
+        return filterObjectBuiltin(object, filterArguments(name, call, env, budget), location);
+      throw unknownCallFilter(name, operand, location);
+    }
+    throw filterReceiver(name, operand, location);
+  }
+
+  private static Value applyArrayCallFilter(
+      List<Value> values,
+      Value operand,
+      String name,
+      Expression.CallExpression call,
+      Environment env,
+      RenderBudget budget,
+      SourceLocation location) {
+    return switch (name) {
+      case "sort" -> filterSort(operand, filterArguments(name, call, env, budget), location);
+      case "map" -> filterMap(operand, filterArguments(name, call, env, budget), location);
+      case "selectattr" -> filterSelectAttrCall(values, name, call, env, budget, location, true);
+      case "rejectattr" -> filterSelectAttrCall(values, name, call, env, budget, location, false);
+      default -> throw unknownCallFilter(name, operand, location);
+    };
+  }
+
+  private static Value filterSelectAttrCall(
+      List<Value> values,
+      String name,
+      Expression.CallExpression call,
+      Environment env,
+      RenderBudget budget,
+      SourceLocation location,
+      boolean select) {
+    if (values.isEmpty() && call.args().isEmpty()) return new Value.ArrayValue(List.of());
+    for (var item : values)
+      if (!(item instanceof Value.ObjectValue))
+        throw filterType("`" + name + "` can only be applied to array of objects", location);
+    return filterSelectAttr(values, filterArguments(name, call, env, budget), location, select);
+  }
+
+  private static NamedArguments filterArguments(
+      String name, Expression.CallExpression call, Environment env, RenderBudget budget) {
+    var evaluated = evaluateArguments(call.args(), env, budget);
+    return new NamedArguments(name, evaluated.positional(), evaluated.keywords());
   }
 
   private static Value test(
@@ -418,8 +509,7 @@ public final class Interpreter {
     return undefinedLike(operand) || flag.value() && !truthy(operand) ? fallback : operand;
   }
 
-  private static Value filterLength(Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
+  private static Value filterLength(Value operand, SourceLocation location) {
     int length;
     if (operand instanceof Value.ArrayValue array) length = array.values().size();
     else if (operand instanceof Value.TupleValue tuple) length = tuple.values().size();
@@ -435,7 +525,6 @@ public final class Interpreter {
       NamedArguments filter,
       SourceLocation location,
       java.util.function.UnaryOperator<String> operation) {
-    requireNoArguments(filter, location);
     if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterReceiver(filter.name(), operand, location);
     return new Value.StringValue(operation.apply(string.value()));
@@ -475,15 +564,13 @@ public final class Interpreter {
             .collect(java.util.stream.Collectors.joining(string.value())));
   }
 
-  private static Value filterList(Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
+  private static Value filterList(Value operand, SourceLocation location) {
     if (operand instanceof Value.ArrayValue array) return array;
     if (operand instanceof Value.TupleValue tuple) return tuple;
     throw filterReceiver("list", operand, location);
   }
 
-  private static Value filterItems(Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
+  private static Value filterItems(Value operand, SourceLocation location) {
     if (!(operand instanceof Value.ObjectValue object))
       throw filterReceiver("items", operand, location);
     return itemsOf(object);
@@ -497,7 +584,6 @@ public final class Interpreter {
 
   private static Value filterFirstLast(
       Value operand, NamedArguments filter, SourceLocation location, boolean last) {
-    requireNoArguments(filter, location);
     var values = sequence(operand, filter.name(), location);
     return values.isEmpty()
         ? Value.UndefinedValue.INSTANCE
@@ -506,14 +592,12 @@ public final class Interpreter {
 
   private static Value filterReverse(
       Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
     var values = new ArrayList<>(sequence(operand, filter.name(), location));
     Collections.reverse(values);
     return new Value.ArrayValue(values);
   }
 
   private static Value filterUnique(Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
     var result = new ArrayList<Value>();
     for (var value : sequence(operand, filter.name(), location))
       if (result.stream().noneMatch(existing -> JsOperations.strictValueEquals(existing, value)))
@@ -522,7 +606,6 @@ public final class Interpreter {
   }
 
   private static Value filterAbs(Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
     if (operand instanceof Value.IntegerValue number)
       return new Value.IntegerValue(Math.abs(number.value()));
     if (operand instanceof Value.FloatValue number)
@@ -552,6 +635,9 @@ public final class Interpreter {
 
   private static Value filterMap(Value operand, NamedArguments filter, SourceLocation location) {
     var attribute = filter.keywords().get("attribute");
+    if (attribute == null)
+      throw filterType(
+          "`map` expressions without `attribute` set are not currently supported.", location);
     if (!(attribute instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterType("attribute must be a string", location);
     Value fallback = filter.keywords().getOrDefault("default", Value.UndefinedValue.INSTANCE);
@@ -645,7 +731,11 @@ public final class Interpreter {
     var arguments = new ArrayList<>(filter.positional());
     if (!filter.keywords().isEmpty())
       arguments.add(new Value.KeywordArgumentsValue(filter.keywords()));
-    return ((Value.CallableValue) objectBuiltin(object, filter.name()))
+    var builtin =
+        filter.name().equals("items")
+            ? objectItemsBuiltin(object)
+            : objectBuiltin(object, filter.name());
+    return ((Value.CallableValue) builtin)
         .callable()
         .invoke(arguments, !filter.keywords().isEmpty(), location, null);
   }
@@ -679,7 +769,6 @@ public final class Interpreter {
   }
 
   private static Value filterBool(Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
     if (operand instanceof Value.BooleanValue) return operand;
     throw filterReceiver(filter.name(), operand, location);
   }
@@ -704,9 +793,7 @@ public final class Interpreter {
     return value.isEmpty() ? value : Character.toUpperCase(value.charAt(0)) + value.substring(1);
   }
 
-  private static Value filterToString(
-      Value operand, NamedArguments filter, SourceLocation location) {
-    requireNoArguments(filter, location);
+  private static Value filterToString(Value operand, SourceLocation location) {
     if (operand instanceof Value.StringValue string) return string;
     if (operand instanceof Value.ArrayValue
         || operand instanceof Value.TupleValue
@@ -717,8 +804,13 @@ public final class Interpreter {
     throw filterReceiver("string", operand, location);
   }
 
+  /**
+   * Applies an attribute filter to values already validated as {@link Value.ObjectValue} by {@link
+   * #filterSelectAttrCall(List, String, Expression.CallExpression, Environment, RenderBudget,
+   * SourceLocation, boolean)}.
+   */
   private static Value filterSelectAttr(
-      Value operand, NamedArguments filter, SourceLocation location, boolean select) {
+      List<Value> values, NamedArguments filter, SourceLocation location, boolean select) {
     if (!filter.keywords().isEmpty())
       throw new TemplateRenderException(
           "`" + filter.name() + "` filter does not accept keyword arguments",
@@ -729,16 +821,6 @@ public final class Interpreter {
           "`" + filter.name() + "` filter requires 1 to 3 arguments",
           ErrorCategory.ARITY,
           location);
-    List<Value> values;
-    if (operand instanceof Value.ArrayValue array) values = array.values();
-    else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
-    else throw filterReceiver(filter.name(), operand, location);
-    for (var item : values)
-      if (!(item instanceof Value.ObjectValue))
-        throw new TemplateRenderException(
-            "`" + filter.name() + "` can only be applied to array of objects",
-            ErrorCategory.TYPE,
-            location);
     var attr = requireFilterString(filter, 0, location);
     String testName =
         filter.positional().size() > 1 ? requireFilterString(filter, 1, location).value() : null;
@@ -892,23 +974,6 @@ public final class Interpreter {
     }
   }
 
-  private static NamedArguments namedArguments(
-      Expression expression,
-      Environment env,
-      RenderBudget budget,
-      SourceLocation location,
-      String kind) {
-    // The bare-identifier fast path targets a parenthesis-less filter like `| join`, distinct
-    // from the CallExpression argument-evaluation loop that evaluateArguments below replaces.
-    if (expression instanceof Expression.Identifier id)
-      return new NamedArguments(id.value(), List.of(), Map.of());
-    if (!(expression instanceof Expression.CallExpression call)
-        || !(call.callee() instanceof Expression.Identifier id))
-      throw filterType("Unknown " + kind + ": " + expression.getClass().getSimpleName(), location);
-    var evaluated = evaluateArguments(call.args(), env, budget);
-    return new NamedArguments(id.value(), evaluated.positional(), evaluated.keywords());
-  }
-
   private record EvaluatedArguments(List<Value> positional, Map<String, Value> keywords) {}
 
   /**
@@ -954,12 +1019,6 @@ public final class Interpreter {
         keywords.isEmpty() ? Map.of() : Collections.unmodifiableMap(keywords));
   }
 
-  private static void requireNoArguments(NamedArguments arguments, SourceLocation location) {
-    if (!arguments.positional().isEmpty() || !arguments.keywords().isEmpty())
-      throw new TemplateRenderException(
-          "`" + arguments.name() + "` filter accepts no arguments", ErrorCategory.ARITY, location);
-  }
-
   private static void requireNoUnknownKeywords(
       NamedArguments arguments, SourceLocation location, String allowed) {
     for (var key : arguments.keywords().keySet())
@@ -972,7 +1031,47 @@ public final class Interpreter {
 
   private static TemplateRenderException filterReceiver(
       String name, Value value, SourceLocation location) {
-    return filterType("Cannot apply filter `" + name + "` to type: " + type(value), location);
+    return filterType("Cannot apply filter \"" + name + "\" to type: " + type(value), location);
+  }
+
+  private static TemplateRenderException unknownBareFilter(
+      String name, Value value, SourceLocation location) {
+    return switch (value) {
+      case Value.ArrayValue ignored -> filterType("Unknown ArrayValue filter: " + name, location);
+      case Value.TupleValue ignored -> filterType("Unknown ArrayValue filter: " + name, location);
+      case Value.StringValue ignored -> filterType("Unknown StringValue filter: " + name, location);
+      case Value.IntegerValue ignored ->
+          filterType("Unknown NumericValue filter: " + name, location);
+      case Value.FloatValue ignored -> filterType("Unknown NumericValue filter: " + name, location);
+      case Value.BooleanValue ignored ->
+          filterType("Unknown BooleanValue filter: " + name, location);
+      case Value.ObjectValue ignored -> filterType("Unknown ObjectValue filter: " + name, location);
+      case Value.NullValue ignored -> filterReceiver(name, value, location);
+      case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
+      case Value.CallableValue ignored -> filterReceiver(name, value, location);
+      case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
+    };
+  }
+
+  private static TemplateRenderException unknownCallFilter(
+      String name, Value value, SourceLocation location) {
+    return switch (value) {
+      case Value.ArrayValue ignored -> filterType("Unknown ArrayValue filter: " + name, location);
+      case Value.TupleValue ignored -> filterType("Unknown ArrayValue filter: " + name, location);
+      case Value.StringValue ignored -> filterType("Unknown StringValue filter: " + name, location);
+      case Value.ObjectValue ignored -> filterType("Unknown ObjectValue filter: " + name, location);
+      case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
+      case Value.IntegerValue ignored -> filterReceiver(name, value, location);
+      case Value.FloatValue ignored -> filterReceiver(name, value, location);
+      case Value.BooleanValue ignored -> filterReceiver(name, value, location);
+      case Value.NullValue ignored -> filterReceiver(name, value, location);
+      case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
+      case Value.CallableValue ignored -> filterReceiver(name, value, location);
+    };
+  }
+
+  private static AssertionError unreachableValue(Value value) {
+    return new AssertionError("unreachable value: " + value.getClass().getSimpleName());
   }
 
   private static TemplateRenderException filterType(String message, SourceLocation location) {

@@ -59,6 +59,16 @@ test('fails loudly for an unmatched upstream error', async () => {
   const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
   const classify = await errorClassifier('tools/corpus/error-patterns-0.5.9.json', `${lock.package}@${lock.version}`);
   assert.equal(classify('Unknown variable: absent'), 'UNDEFINED_OR_ACCESS');
+  for (const type of ['ArrayValue', 'StringValue', 'NumericValue', 'ObjectValue', 'BooleanValue']) {
+    assert.equal(classify(`Unknown ${type} filter: frob`), 'TYPE');
+  }
+  assert.equal(classify('Cannot apply filter "abs" to type: FloatValue'), 'TYPE');
+  assert.equal(classify('`selectattr` can only be applied to array of objects'), 'TYPE');
+  assert.equal(classify('`map` expressions without `attribute` set are not currently supported.'), 'TYPE');
+  assert.throws(() => classify('Unknown FunctionValue filter: frob'), /Unmatched upstream error/);
+  assert.throws(() => classify('Cannot apply filter abs to type: FloatValue'), /Unmatched upstream error/);
+  assert.throws(() => classify('selectattr can only be applied to array of objects'), /Unmatched upstream error/);
+  assert.throws(() => classify('`map` expressions without attribute set are not currently supported.'), /Unmatched upstream error/);
   assert.throws(() => classify('unmapped upstream error'), /Unmatched upstream error/);
   await assert.rejects(
     errorClassifier('tools/corpus/error-patterns-0.5.9.json', '@huggingface/jinja@other'), /does not match/,

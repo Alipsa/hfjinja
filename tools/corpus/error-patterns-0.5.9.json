@@ -45,6 +45,22 @@
     {
       "regex": "^(?<method>startswith|endswith)\\(\\) tuple elements must be strings$",
       "category": "TYPE"
+    },
+    {
+      "regex": "^Unknown (?<type>ArrayValue|StringValue|NumericValue|ObjectValue|BooleanValue) filter: (?<name>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Cannot apply filter \"(?<name>.+)\" to type: (?<type>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^`(?<name>selectattr|rejectattr)` can only be applied to array of objects$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^`map` expressions without `attribute` set are not currently supported\\.$",
+      "category": "TYPE"
     }
   ]
 }

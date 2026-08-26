@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Align call-form filter argument evaluation, error categories, and diagnostics with the pinned
+  upstream runtime.
+
 ## [0.5.0] - TBD
 
 ### Added
