@@ -21,6 +21,8 @@ Running `./gradlew check` also requires exactly Node.js 26.7.0, the pinned oracl
 - Hugging Face Jinja syntax and runtime semantics: expressions, control flow, loops, filters,
   tests, macros, call/filter blocks, slices, keyword/spread arguments, `tojson`, and
   `raise_exception`.
+- Canonical formatting of parsed templates through `Template.format()`, with tab, string, or
+  numeric-space indentation.
 - Byte-exact compatibility corpus generated from the pinned Node package, including whitespace and
   Unicode behavior.
 - Closed host-value boundary: templates cannot reflect over Java objects, call Java methods, or
@@ -71,6 +73,14 @@ overloads buffer output; the latter performs one terminal append after a success
 
 ```java
 template.render(context, writer);
+```
+
+To produce the pinned upstream's canonical template style without rendering it, call `format()`:
+
+```java
+String canonical = template.format();       // tab indentation
+String spaces = template.format(2);         // two spaces per nesting level
+String custom = template.format("  ");      // string indentation unit
 ```
 
 ## Values and safety
@@ -152,6 +162,14 @@ by the normal build and require supplied external fixture material.
 
 Successful compatibility output compares byte-for-byte against the pinned Node package. Error
 comparison uses documented categories only. Python `transformers`/Jinja2 output is not an oracle.
+
+To deliberately refresh the reviewed template-format golden after changing its vectors or the
+pinned upstream, run:
+
+```bash
+node tools/format/format-golden.mjs --vectors src/test/resources/format/vectors.json --update src/test/resources/format/upstream-formatted.json
+./gradlew formatGoldenVerify
+```
 
 ## Project layout
 

@@ -2,6 +2,7 @@ package se.alipsa.hfjinja;
 
 import java.util.Map;
 import java.util.Objects;
+import se.alipsa.hfjinja.internal.TemplateFormatter;
 import se.alipsa.hfjinja.internal.Value;
 import se.alipsa.hfjinja.internal.Values;
 import se.alipsa.hfjinja.internal.ast.Statement;
@@ -38,6 +39,47 @@ public final class Template {
     Objects.requireNonNull(source, "source");
     Objects.requireNonNull(options, "options");
     return new Template(Parser.parse(Lexer.tokenize(source, options), options));
+  }
+
+  /**
+   * Formats this parsed template using the pinned upstream's tab indentation default.
+   *
+   * <p>The result reproduces the pinned upstream's canonical bytes and is not guaranteed to parse
+   * or render equivalently when formatted again.
+   *
+   * @return the canonical template text
+   */
+  public String format() {
+    return TemplateFormatter.format(program, "\t");
+  }
+
+  /**
+   * Formats this parsed template using a string indentation unit; an empty unit selects a tab.
+   *
+   * @param indent the indentation unit
+   * @return the canonical template text
+   * @throws NullPointerException if {@code indent} is null
+   */
+  public String format(String indent) {
+    Objects.requireNonNull(indent, "indent");
+    return TemplateFormatter.format(program, indent.isEmpty() ? "\t" : indent);
+  }
+
+  /**
+   * Formats this parsed template using a numeric space indentation count.
+   *
+   * <p>A character argument such as {@code format('\t')} widens to its numeric code point (nine);
+   * use {@link #format(String)} for a text indentation unit.
+   *
+   * @param indent the requested number of spaces per nesting level
+   * @return the canonical template text
+   * @throws IllegalArgumentException if the normalized count is negative or exceeds the pinned Node
+   *     string-length limit
+   */
+  public String format(double indent) {
+    if (Double.isNaN(indent) || indent == 0d) return format();
+    return TemplateFormatter.format(
+        program, " ".repeat(TemplateFormatter.validateIndentCount(indent)));
   }
 
   /**

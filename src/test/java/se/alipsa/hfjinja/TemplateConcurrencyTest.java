@@ -127,6 +127,21 @@ class TemplateConcurrencyTest {
     assertNotNull(parsedProgram);
   }
 
+  @Test
+  void oneParsedTemplateFormatsIndependentlyAcrossThreads() throws Exception {
+    var template = Template.parse("{% if a %}{{ x }}{% endif %}");
+    var expected = "{%- if a -%}\n  {{- x -}}\n{%- endif -%}";
+    var executor = Executors.newFixedThreadPool(WORKERS, daemonThreadFactory());
+    try {
+      var futures = new ArrayList<Future<?>>();
+      for (var worker = 0; worker < WORKERS; worker++)
+        futures.add(executor.submit(() -> assertEquals(expected, template.format(2))));
+      for (var future : futures) future.get(10, TimeUnit.SECONDS);
+    } finally {
+      shutdown(executor);
+    }
+  }
+
   private static void renderAndAssert(
       Template template,
       RenderOptions options,
