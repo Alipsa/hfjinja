@@ -291,6 +291,13 @@ public final class Interpreter {
     // whereas upstream evaluates arguments only inside the matching dispatch branch.
     var filter = namedArguments(filterNode, env, budget, location, "filter");
     return switch (filter.name()) {
+      // Upstream recognizes `safe` only in its bare-filter form. There is no autoescape or
+      // markup runtime in hfjinja, so preserving the evaluated value is the whole operation.
+      case "safe" -> {
+        if (!(filterNode instanceof Expression.Identifier))
+          throw filterType("Unknown filter: safe", location);
+        yield operand;
+      }
       case "tojson" -> filterToJson(operand, filter, location, budget);
       case "default" -> {
         if (filterNode instanceof Expression.Identifier)
@@ -305,6 +312,7 @@ public final class Interpreter {
       case "trim" -> filterString(operand, filter, location, JsOperations::trimEcmaWhitespace);
       case "join" -> filterJoin(operand, filter, location);
       case "list" -> filterList(operand, filter, location);
+      case "items" -> filterItems(operand, filter, location);
       case "string" -> filterToString(operand, filter, location);
       case "selectattr" -> filterSelectAttr(operand, filter, location, true);
       case "rejectattr" -> filterSelectAttr(operand, filter, location, false);
@@ -460,6 +468,15 @@ public final class Interpreter {
     throw filterReceiver("list", operand, location);
   }
 
+  private static Value filterItems(Value operand, NamedArguments filter, SourceLocation location) {
+    requireNoArguments(filter, location);
+    if (!(operand instanceof Value.ObjectValue object))
+      throw filterReceiver("items", operand, location);
+    return ((Value.CallableValue) objectItemsBuiltin(object))
+        .callable()
+        .invoke(List.of(), false, location, null);
+  }
+
   private static Value filterToString(
       Value operand, NamedArguments filter, SourceLocation location) {
     requireNoArguments(filter, location);
@@ -531,6 +548,8 @@ public final class Interpreter {
       case "defined" -> !undefinedLike(value);
       case "undefined" -> undefinedLike(value);
       case "none" -> value instanceof Value.NullValue;
+      case "true" -> value instanceof Value.BooleanValue booleanValue && booleanValue.value();
+      case "false" -> value instanceof Value.BooleanValue booleanValue && !booleanValue.value();
       case "boolean" -> value instanceof Value.BooleanValue;
       case "number" -> JsOperations.numeric(value);
       case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
@@ -816,7 +835,11 @@ public final class Interpreter {
     if (target instanceof Value.TupleValue x) return memberIndex(x.values(), p, n.location());
     if (target instanceof Value.StringValue x) {
       if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
-      if (p instanceof Value.StringValue) return Value.UndefinedValue.INSTANCE;
+      if (p instanceof Value.StringValue property && !property.undefinedBacked()) {
+        if (property.value().equals("startswith") || property.value().equals("endswith"))
+          return stringBoundaryBuiltin(x.value(), property.value());
+        return Value.UndefinedValue.INSTANCE;
+      }
       if (!(p instanceof Value.IntegerValue))
         throw access(
             "Cannot access property with non-string/non-number: got " + type(p), n.location());
@@ -828,6 +851,42 @@ public final class Interpreter {
     if (!(p instanceof Value.StringValue))
       throw access("Cannot access property with non-string: got " + type(p), n.location());
     return Value.UndefinedValue.INSTANCE;
+  }
+
+  private static Value stringBoundaryBuiltin(String receiver, String name) {
+    return new Value.CallableValue(
+        (arguments, hasKeywords, location, environment) -> {
+          if (arguments.isEmpty())
+            throw new TemplateRenderException(
+                name + "() requires at least one argument", ErrorCategory.ARITY, location);
+          var pattern = arguments.getFirst();
+          if (pattern instanceof Value.StringValue string && !string.undefinedBacked())
+            return new Value.BooleanValue(
+                name.equals("startswith")
+                    ? receiver.startsWith(string.value())
+                    : receiver.endsWith(string.value()));
+          if (pattern instanceof Value.ArrayValue array)
+            return stringBoundaryTuple(receiver, name, array.values(), location);
+          if (pattern instanceof Value.TupleValue tuple)
+            return stringBoundaryTuple(receiver, name, tuple.values(), location);
+          throw new TemplateRenderException(
+              name + "() argument must be a string or tuple of strings",
+              ErrorCategory.TYPE,
+              location);
+        });
+  }
+
+  private static Value stringBoundaryTuple(
+      String receiver, String name, List<Value> patterns, SourceLocation location) {
+    for (var pattern : patterns) {
+      if (!(pattern instanceof Value.StringValue string) || string.undefinedBacked())
+        throw new TemplateRenderException(
+            name + "() tuple elements must be strings", ErrorCategory.TYPE, location);
+      if (name.equals("startswith")
+          ? receiver.startsWith(string.value())
+          : receiver.endsWith(string.value())) return new Value.BooleanValue(true);
+    }
+    return new Value.BooleanValue(false);
   }
 
   private static Value objectItemsBuiltin(Value.ObjectValue object) {

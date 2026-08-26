@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -1549,6 +1550,135 @@ class InterpreterTest {
   }
 
   @Test
+  void rendersPrimaryQwen38MlxFixtureWithPinnedGoldens() throws Exception {
+    var template = resource("qwen3.8-27b-4bit.jinja");
+    assertEquals(8952, template.getBytes(StandardCharsets.UTF_8).length);
+    assertEquals(
+        "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041", sha256(template));
+
+    assertEquals(
+        resource("qwen3.8-normal.expected.txt"),
+        Template.parse(template)
+            .render(
+                Map.of(
+                    "add_generation_prompt",
+                    true,
+                    "enable_thinking",
+                    false,
+                    "reasoning_effort",
+                    "medium",
+                    "messages",
+                    java.util.List.of(Map.of("role", "user", "content", "Hello!")))));
+    assertEquals(
+        resource("qwen3.8-vision.expected.txt"),
+        Template.parse(template)
+            .render(
+                Map.of(
+                    "add_generation_prompt", false,
+                    "add_vision_id", true,
+                    "enable_thinking", false,
+                    "messages",
+                        java.util.List.of(
+                            Map.of(
+                                "role",
+                                "user",
+                                "content",
+                                java.util.List.of(
+                                    Map.of("type", "text", "text", "Describe "),
+                                    Map.of("type", "image"),
+                                    Map.of("type", "text", "text", " then "),
+                                    Map.of("type", "video")))))));
+    var tool =
+        orderedMap(
+            "type",
+            "function",
+            "function",
+            orderedMap(
+                "name",
+                "get_weather",
+                "description",
+                "Get weather",
+                "parameters",
+                orderedMap(
+                    "type",
+                    "object",
+                    "properties",
+                    orderedMap("city", orderedMap("type", "string")),
+                    "required",
+                    java.util.List.of("city"))));
+    assertEquals(
+        resource("qwen3.8-tooluse.expected.txt"),
+        Template.parse(template)
+            .render(
+                orderedMap(
+                    "add_generation_prompt",
+                    true,
+                    "enable_thinking",
+                    true,
+                    "reasoning_effort",
+                    "low",
+                    "tools",
+                    java.util.List.of(tool),
+                    "messages",
+                    java.util.List.of(
+                        orderedMap("role", "user", "content", "What is the weather?"),
+                        orderedMap(
+                            "role",
+                            "assistant",
+                            "content",
+                            "Checking",
+                            "tool_calls",
+                            java.util.List.of(
+                                orderedMap(
+                                    "function",
+                                    orderedMap(
+                                        "name",
+                                        "get_weather",
+                                        "arguments",
+                                        orderedMap(
+                                            "city",
+                                            "Paris",
+                                            "units",
+                                            java.util.List.of("metric", "celsius")))))),
+                        orderedMap("role", "tool", "content", "Sunny")))));
+  }
+
+  @Test
+  void supportsQwen38StringBoundariesAndSafeFilter() {
+    assertEquals(
+        "truetruetruetrue",
+        Template.parse(
+                "{{ 'abc'.startswith('a') }}{{ 'abc'.endswith('c') }}"
+                    + "{{ 'abc'.startswith(('a', 'x')) }}{{ 'abc'.endswith(['x', 'c']) }}")
+            .render(Map.of()));
+    assertEquals("[1, 2]", Template.parse("{{ [1, 2] | safe }}").render(Map.of()));
+    var missing =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'.startswith() }}").render(Map.of()));
+    assertEquals(ErrorCategory.ARITY, missing.category());
+    assertEquals("startswith() requires at least one argument", missing.getMessage());
+    var argument =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'.endswith(1) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, argument.category());
+    assertEquals("endswith() argument must be a string or tuple of strings", argument.getMessage());
+    var tuple =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'.startswith(('x', 1)) }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, tuple.category());
+    assertEquals("startswith() tuple elements must be strings", tuple.getMessage());
+    assertEquals(
+        "Unknown filter: safe",
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'abc' | safe(1) }}").render(Map.of()))
+            .getMessage());
+  }
+
+  @Test
   void evaluateExpressionAssertsUnreachableForParserOnlyExpressionShapes() {
     // Handing one of these three node types directly to evaluateExpression, as this test does,
     // is the only way to reach their arms at all -- see the comment above
@@ -1593,6 +1723,13 @@ class InterpreterTest {
       if (input == null) throw new AssertionError("Missing model template resource: " + name);
       return new String(input.readAllBytes(), StandardCharsets.UTF_8);
     }
+  }
+
+  private static String sha256(String text) throws Exception {
+    var digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+    var hex = new StringBuilder();
+    for (var value : digest) hex.append(String.format("%02x", value));
+    return hex.toString();
   }
 
   private static Map<String, Object> orderedMap(Object... entries) {

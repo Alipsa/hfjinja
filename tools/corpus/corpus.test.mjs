@@ -162,6 +162,56 @@ test('pins the Step3 macro-heavy resource and tool-use golden against the Node o
   assert.match(result.stdout, /PASS step3-macro-heavy-tooluse/);
 });
 
+test('pins the primary Qwen3.8 MLX resource and goldens against the Node oracle', async () => {
+  const template = await readFile('src/test/resources/model-templates/qwen3.8-27b-4bit.jinja', 'utf8');
+  const normal = await readFile('src/test/resources/model-templates/qwen3.8-normal.expected.txt', 'utf8');
+  const vision = await readFile('src/test/resources/model-templates/qwen3.8-vision.expected.txt', 'utf8');
+  const tooluse = await readFile('src/test/resources/model-templates/qwen3.8-tooluse.expected.txt', 'utf8');
+  assert.equal(Buffer.byteLength(template, 'utf8'), 8952);
+  assert.equal(sha256Utf8(template), 'c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041');
+  const tool = {
+    type: 'function', function: {
+      name: 'get_weather', description: 'Get weather', parameters: {
+        type: 'object', properties: {city: {type: 'string'}}, required: ['city'],
+      },
+    },
+  };
+  const result = await runOracle([
+    {
+      id: 'qwen3.8-normal', source: 'self-authored context; retained model resource', template,
+      context: {
+        add_generation_prompt: true, enable_thinking: false, reasoning_effort: 'medium',
+        messages: [{role: 'user', content: 'Hello!'}],
+      }, expected: {text: normal},
+    },
+    {
+      id: 'qwen3.8-vision', source: 'self-authored context; retained model resource', template,
+      context: {
+        add_generation_prompt: false, add_vision_id: true, enable_thinking: false,
+        messages: [{role: 'user', content: [
+          {type: 'text', text: 'Describe '}, {type: 'image'}, {type: 'text', text: ' then '}, {type: 'video'},
+        ]}],
+      }, expected: {text: vision},
+    },
+    {
+      id: 'qwen3.8-tooluse', source: 'self-authored context; retained model resource', template,
+      context: {
+        add_generation_prompt: true, enable_thinking: true, reasoning_effort: 'low', tools: [tool], messages: [
+          {role: 'user', content: 'What is the weather?'},
+          {role: 'assistant', content: 'Checking', tool_calls: [{
+            function: {name: 'get_weather', arguments: {city: 'Paris', units: ['metric', 'celsius']}},
+          }]},
+          {role: 'tool', content: 'Sunny'},
+        ],
+      }, expected: {text: tooluse},
+    },
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /PASS qwen3.8-normal/);
+  assert.match(result.stdout, /PASS qwen3.8-vision/);
+  assert.match(result.stdout, /PASS qwen3.8-tooluse/);
+});
+
 async function runOracle(records, environment = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'hfjinja-corpus-'));
   const corpus = join(directory, 'corpus.jsonl');
