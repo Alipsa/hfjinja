@@ -633,7 +633,9 @@ public final class Interpreter {
   }
 
   private static boolean filterTruthy(Value value, boolean fallback) {
-    return value == null ? fallback : truthy(value);
+    // The upstream indent implementation applies JavaScript's raw !value check, rather than
+    // Jinja's container-aware truthiness. In particular, [] and {} enable indentation here.
+    return value == null ? fallback : JsOperations.rawTruthy(value);
   }
 
   private static Value filterObjectBuiltin(
@@ -1188,16 +1190,19 @@ public final class Interpreter {
     String[] parts;
     if (separator instanceof Value.NullValue) {
       String text = JsOperations.trimStartEcmaWhitespace(receiver);
-      var matches =
-          java.util.regex.Pattern.compile("\\S+", java.util.regex.Pattern.UNICODE_CHARACTER_CLASS)
-              .matcher(text);
       var result = new ArrayList<String>();
-      while (matches.find()) {
+      int index = 0;
+      while (index < text.length()) {
+        while (index < text.length() && JsOperations.isEcmaWhitespace(text.charAt(index))) index++;
+        if (index == text.length()) break;
+        int start = index;
+        while (index < text.length() && !JsOperations.isEcmaWhitespace(text.charAt(index))) index++;
         if (max >= 0 && result.size() >= max) {
-          result.add(matches.group() + text.substring(matches.end()));
+          // Upstream appends the current match plus the otherwise-unsplit suffix.
+          result.add(text.substring(start));
           break;
         }
-        result.add(matches.group());
+        result.add(text.substring(start, index));
       }
       parts = result.toArray(String[]::new);
     } else {
@@ -1277,7 +1282,6 @@ public final class Interpreter {
             case "keys" ->
                 new Value.ArrayValue(
                     object.values().keySet().stream()
-                        .filter(key -> !undefinedBackedKey(key))
                         .map(key -> (Value) objectKeyValue(key))
                         .toList());
             case "values" -> new Value.ArrayValue(new ArrayList<>(object.values().values()));
@@ -1304,7 +1308,6 @@ public final class Interpreter {
     boolean reverse = reverseValue != null && booleanValue(reverseValue, "reverse", location);
     var entries = new ArrayList<Value>();
     for (var entry : object.values().entrySet()) {
-      if (undefinedBackedKey(entry.getKey())) continue;
       entries.add(new Value.ArrayValue(List.of(objectKeyValue(entry.getKey()), entry.getValue())));
     }
     int index = by.equals("key") ? 0 : 1;
@@ -1380,7 +1383,6 @@ public final class Interpreter {
   private static Value.ArrayValue itemsOf(Value.ObjectValue object) {
     var pairs = new ArrayList<Value>();
     for (var entry : object.values().entrySet()) {
-      if (undefinedBackedKey(entry.getKey())) continue;
       var key = objectKeyValue(entry.getKey());
       pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
     }
@@ -1389,10 +1391,6 @@ public final class Interpreter {
 
   private static Value.StringValue objectKeyValue(Object key) {
     return key instanceof Value.StringValue string ? string : new Value.StringValue((String) key);
-  }
-
-  private static boolean undefinedBackedKey(Object key) {
-    return key instanceof Value.StringValue string && string.undefinedBacked();
   }
 
   private static Value slice(

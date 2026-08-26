@@ -222,7 +222,7 @@ final class JsOperations {
     return value.substring(0, end);
   }
 
-  private static boolean isEcmaWhitespace(char value) {
+  static boolean isEcmaWhitespace(char value) {
     return Character.getType(value) == Character.SPACE_SEPARATOR
         || value == '\u0009'
         || value == '\u000B'

@@ -1734,10 +1734,43 @@ class InterpreterTest {
                 "[\"a\", \"b \"]", Template.parse("{{ ' a b '.split(none, 1) }}").render(Map.of())),
         () ->
             assertEquals(
-                "[]|[]",
-                Template.parse("{% set u = {('ab'[9]): 1} %}{{ u.keys() }}|{{ u.dictsort() }}")
+                "[, \"z\"]|2",
+                Template.parse(
+                        "{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.keys() }}|{{ u|items|length }}")
                     .render(Map.of())),
-        () -> assertEquals("2", Template.parse("{{ [1,2].length }}").render(Map.of())));
+        () ->
+            assertEquals(
+                "[[, 1]]",
+                Template.parse("{% set u = {('ab'[9]): 1} %}{{ u.dictsort() }}").render(Map.of())),
+        () -> assertEquals("2", Template.parse("{{ [1,2].length }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "  a\n  b", Template.parse("{{ 'a\\nb'|indent(2, []) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "  a\n  b", Template.parse("{{ 'a\\nb'|indent(2, {}) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "a\n  b\n  \n  c",
+                Template.parse("{{ 'a\\nb\\n\\nc'|indent(2, false, []) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b\"]", Template.parse("{{ 'a\uFEFFb'.split() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\u0085b\"]", Template.parse("{{ 'a\u0085b'.split() }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"b\", \"a\", \"A\"]",
+                Template.parse("{{ ['b', 'A', 'a']|sort(case_sensitive=true, reverse=true) }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "  a\n  b", Template.parse("{{ 'a\\nb'|indent(2, true) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "a\n  b\n  \n  c",
+                Template.parse("{{ 'a\\nb\\n\\nc'|indent(2, false, true) }}").render(Map.of())));
     var negative =
         assertThrows(
             TemplateRenderException.class,
@@ -1756,6 +1789,36 @@ class InterpreterTest {
                 TemplateRenderException.class,
                 () -> Template.parse("{{ 'ab' | replace(old='a', new='x') }}").render(Map.of()))
             .getMessage());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'x'|abs }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 1|bool }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ [1, 'x']|sort }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'a'.split('') }}").render(Map.of()))
+            .category());
+    assertEquals(
+        ErrorCategory.TYPE,
+        assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ {}.dictsort(by='other') }}").render(Map.of()))
+            .category());
   }
 
   @Test
