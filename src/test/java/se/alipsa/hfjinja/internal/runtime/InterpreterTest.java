@@ -1698,20 +1698,62 @@ class InterpreterTest {
   @Test
   void supportsRemainingPinnedRuntimeFiltersTestsAndMembers() {
     var source =
-        "{{ [3,1,3]|first }}|{{ [3,1,3]|last }}|{{ [3,1,3]|reverse }}|"
-            + "{{ [3,1,3]|unique }}|{{ [3,1,2]|sort }}|{{ xs|map(attribute='n', default=0) }}|"
+        "{{ [3,1,2]|first }}|{{ [3,1,2]|last }}|{{ [3,1,2]|reverse }}|"
+            + "{{ [3,1,2]|unique }}|{{ [3,1,2]|sort }}|{{ xs|map(attribute='n', default=0) }}|"
             + "{{ 'hello world'|title }}|{{ 'hello'|capitalize }}|{{ 'a\\nb'|indent(2) }}|"
             + "{{ 'abab'|replace('a','x',1) }}|{{ -2|abs }}|{{ true|bool }}|"
             + "{{ ' a b '.split() }}|{{ 'a-b-c'.replace('-','/',1) }}|{{ o.get('x','d') }}|"
             + "{{ o.keys() }}|{{ o.values() }}|{{ o.dictsort() }}|{{ 3 is odd }}{{ 4 is even }}"
-            + "{{ 4 is integer }}{{ 'ABC' is upper }}{{ 'abc' is lower }}";
+            + "{{ 4 is integer }}{{ 'ABC' is upper }}{{ 'abc' is lower }}{{ range is callable }}";
     assertEquals(
-        "3|3|[3, 1, 3]|[3, 1]|[1, 2, 3]|[2, 0]|Hello World|Hello|a\n  b|xbab|2|true|[\"a\", \"b\"]|a/b-c|d|[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|truetruetruetruetrue",
+        "3|2|[2, 1, 3]|[3, 1, 2]|[1, 2, 3]|[2, 0]|Hello World|Hello|a\n  b|xbab|2|true|[\"a\", \"b\"]|a/b-c|d|[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|truetruetruetruetruetrue",
         Template.parse(source)
             .render(
                 Map.of(
                     "xs", java.util.List.of(Map.of("n", 2), Map.of()),
                     "o", orderedMap("b", 2, "a", 1))));
+  }
+
+  @Test
+  void supportsObjectBuiltinFilterFormsAndValueSort() {
+    assertEquals(
+        "[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|d",
+        Template.parse(
+                "{% set o = {'b': 2, 'a': 1} %}{{ o|keys }}|{{ o|values }}|{{ o|dictsort }}|{{ o|get('x','d') }}")
+            .render(Map.of()));
+    assertEquals(
+        "[[\"b\", 1], [\"a\", 2]]",
+        Template.parse("{{ {'a': 2, 'b': 1}|dictsort(by='value') }}").render(Map.of()));
+  }
+
+  @Test
+  void supportsSequenceAndStringFilterOptions() {
+    assertAll(
+        () -> assertEquals("a\n    b", Template.parse("{{ 'a\\nb'|indent }}").render(Map.of())),
+        () -> assertEquals("2.5", Template.parse("{{ (0.0 - 2.5)|abs }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[[2, 0], [3, 1]]",
+                Template.parse("{{ [[3,1], [2,0]]|sort(attribute='0') }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[3, 4]",
+                Template.parse("{{ [{'a': [2,3]}, {'a': [1,4]}]|map(attribute='a.1') }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a\", \"b-c\"]", Template.parse("{{ 'a-b-c'.split('-', 1) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[1, 2]", Template.parse("{{ [2,1]|sort(attribute=none) }}").render(Map.of())));
+    var mapReceiver =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ [{'a': 1}, 2]|map(attribute='a') }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, mapReceiver.category());
+    assertEquals(
+        "[[2, 0], [3, 1]]",
+        Template.parse("{{ [[3,1], [2,0]]|sort(attribute=0) }}").render(Map.of()));
   }
 
   @Test

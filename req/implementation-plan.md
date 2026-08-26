@@ -216,7 +216,11 @@ nodes or stale mapping/no-impact records.
    hfjinja's rendered undefined behavior. The remaining diagnostic/keyword differences include
    filter-form `replace` with one positional argument (category matches but the text differs) and
    `Object.get` with keyword arguments (upstream exposes its keyword bag, while hfjinja returns the
-   normal missing-key default). Every accepted difference must have a named regression, a rationale,
+   normal missing-key default). Raw upstream TypeErrors also remain for `dictsort()` when an
+   undefined-backed key must be compared with another key (hfjinja renders a sorted result), and for
+   `is lower` on an undefined-backed string (hfjinja returns `false`). The one-key undefined-key
+   `dictsort()` corpus case is intentionally retained because it is byte-exact; the two-key case is
+   this documented divergence. Every accepted difference must have a named regression, a rationale,
    and a documented compatibility contract; every closable difference must have a Node-oracle corpus
    case before production code changes.
 2. Expand `v1.jsonl` from representative cases to a complete reviewed mapping of all executable,
