@@ -1857,7 +1857,11 @@ class InterpreterTest {
         () ->
             assertEquals(
                 "[\"a\", \"b,c\"]",
-                Template.parse("{{ 'a,b,c'.split(',', -2) }}").render(Map.of())));
+                Template.parse("{{ 'a,b,c'.split(',', -2) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "[\"a b c \"]",
+                Template.parse("{{ ' a b c '.split(none, -2) }}").render(Map.of())));
     assertAll(
         () ->
             assertEquals(

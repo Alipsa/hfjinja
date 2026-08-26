@@ -1197,7 +1197,7 @@ public final class Interpreter {
         if (index == text.length()) break;
         int start = index;
         while (index < text.length() && !JsOperations.isEcmaWhitespace(text.charAt(index))) index++;
-        if (max >= 0 && result.size() >= max) {
+        if (max != -1 && result.size() >= max) {
           // Upstream appends the current match plus the otherwise-unsplit suffix.
           result.add(text.substring(start));
           break;
