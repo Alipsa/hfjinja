@@ -38,7 +38,7 @@ const output = vectors.map(vector => {
       reformattedRendered = new Template(formatted).render(vector.context ?? {});
     } catch (error) {
       reformattedError = `${error.name}: ${error.message}`;
-      reformattedCategory = classifyError(error.message);
+      if (vector.roundTrip === 'reformat-fails') reformattedCategory = classifyError(error.message);
     }
     if (vector.roundTrip === 'preserves' && (reformattedError !== null || originalRendered !== reformattedRendered)) {
       throw new Error(`Format round trip changed rendering for ${vector.name}`);
