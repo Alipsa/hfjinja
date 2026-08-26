@@ -212,7 +212,8 @@ nodes or stale mapping/no-impact records.
    pinned `@huggingface/jinja` runtime. The current known set includes eager filter-argument
    evaluation; Java arity caps and unknown-keyword rejection where upstream ignores arguments;
    macro/call-block `break`/`continue` propagation; and the `tojson(sort_keys=true)` undefined-key
-   edge. Every accepted difference must have a named regression, a rationale, and a documented
+   edge; plus empty `first`/`last`, where the upstream's raw-undefined failure differs from
+   hfjinja's rendered undefined behavior. Every accepted difference must have a named regression, a rationale, and a documented
    compatibility contract; every closable difference must have a Node-oracle corpus case before
    production code changes.
 2. Expand `v1.jsonl` from representative cases to a complete reviewed mapping of all executable,
