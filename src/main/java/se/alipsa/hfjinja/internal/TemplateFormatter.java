@@ -11,6 +11,13 @@ public final class TemplateFormatter {
 
   private TemplateFormatter() {}
 
+  /**
+   * Serializes a parsed program using an already validated indentation unit.
+   *
+   * @param program the parsed template program
+   * @param indent the indentation unit
+   * @return canonical template text
+   */
   public static String format(Statement.Program program, String indent) {
     return statements(program.body(), 0, indent).replaceFirst("\\n$", "");
   }
@@ -20,6 +27,10 @@ public final class TemplateFormatter {
    *
    * <p>Callers must apply JavaScript's NaN/zero defaulting first; this helper intentionally maps
    * NaN to zero through the same floor conversion used for finite fractional values.
+   *
+   * @param value the requested numeric count
+   * @return the normalized nonnegative count
+   * @throws IllegalArgumentException if the normalized count is too large or negative
    */
   public static int validateIndentCount(double value) {
     double count = value < 0 ? Math.ceil(value) : Math.floor(value);
