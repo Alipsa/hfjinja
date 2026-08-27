@@ -378,6 +378,21 @@ class LexerTest {
     }
 
     @Test
+    void mapsCrlfLocationsUsingTheScannerModel() {
+      var mapped =
+          assertThrows(
+              TemplateSyntaxException.class,
+              () -> Lexer.tokenize("{#}|\r\n1\n", TemplateOptions.DEFAULT));
+      var unmodified =
+          assertThrows(
+              TemplateSyntaxException.class,
+              () -> Lexer.tokenize("{#}|\r\n1", TemplateOptions.DEFAULT));
+
+      assertEquals(new SourceLocation(5, 2, 1), mapped.location().orElseThrow());
+      assertEquals(unmodified.location(), mapped.location());
+    }
+
+    @Test
     void mapsLocationsBackThroughTrimmedBlockNewlines() {
       var tokens = Lexer.tokenize("{% set a = 1 %}\n{{ nope() }}", TemplateOptions.DEFAULT);
       assertEquals(new SourceLocation(19, 2, 4), identifierStart(tokens, "nope"));
@@ -432,6 +447,17 @@ class LexerTest {
               TemplateSyntaxException.class, () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
       assertEquals("Unexpected end of input", error.getMessage());
       assertEquals(new SourceLocation(29, 4, 6), error.location().orElseThrow());
+    }
+
+    @Test
+    void mapsLocationsPastEndOfMalformedInputAfterPreprocessing() {
+      // The trailing newline creates an origin map while the scanner still overshoots the source.
+      var source = "{\uD83D\uDE00\n\r\n{\0}[{{('\0!!!()('\r\n{{%\"\n";
+      var error =
+          assertThrows(
+              TemplateSyntaxException.class, () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+      assertEquals("Unexpected end of input", error.getMessage());
+      assertEquals(new SourceLocation(30, 5, 2), error.location().orElseThrow());
     }
 
     @Test

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removals (`trim_blocks`, `lstrip_blocks`, the trailing newline strip, and `{% generation %}`
   tag stripping) no longer shift the locations of later diagnostics
   ([#27](https://github.com/Alipsa/hfjinja/issues/27)).
+- Keep preprocessing location mapping linear for templates with many whitespace-control removals,
+  and preserve scanner-consistent locations at CRLF boundaries.
 - Propagate macro and call-block `break`/`continue` control to an enclosing loop like the pinned
   upstream runtime.
 - Align call-form filter argument evaluation, error categories, and diagnostics with the pinned

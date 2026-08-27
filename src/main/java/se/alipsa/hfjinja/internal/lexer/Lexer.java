@@ -17,8 +17,8 @@ import se.alipsa.hfjinja.TemplateSyntaxException;
  *
  * <p>Reported {@link SourceLocation}s refer to the caller's original string. Preprocessing (the
  * trailing newline strip and, when enabled, {@code trim_blocks}/{@code lstrip_blocks}/the {@code
- * generation} tag strip) records every removal in a per-character origin map, and scanner positions
- * are mapped back through it before a location is constructed.
+ * generation} tag strip) records every removal in a compact origin map, and scanner positions are
+ * mapped back through it before a location is constructed.
  */
 public final class Lexer {
   /**
@@ -164,8 +164,8 @@ public final class Lexer {
       }
     }
     return originalRemovals == null
-        ? new PreprocessedSource(text, null, null)
-        : new PreprocessedSource(text, new OriginMap(originalRemovals), lineStarts(source));
+        ? new PreprocessedSource(text, null, null, null)
+        : new PreprocessedSource(text, new OriginMap(originalRemovals), source, lineStarts(source));
   }
 
   private static String removeRanges(String source, List<int[]> ranges) {
@@ -180,43 +180,49 @@ public final class Lexer {
 
   /**
    * Converts {@code ranges} from current-text coordinates to original-source coordinates and merges
-   * them with the removals already recorded there.
+   * them with the removals already recorded there. Both inputs are ascending, so mapping and
+   * merging use a shared walking cursor.
    */
   private static List<int[]> addOriginalRemovals(List<int[]> existing, List<int[]> ranges) {
-    var result = existing == null ? new ArrayList<int[]>() : new ArrayList<>(existing);
+    var mappedRanges = new ArrayList<int[]>(ranges.size());
+    var existingIndex = 0;
+    var cumulativeShift = 0;
     for (var range : ranges) {
-      result.add(
-          new int[] {
-            mapToOriginalOffset(range[0], existing), mapToOriginalOffset(range[1], existing)
-          });
+      while (existing != null
+          && existingIndex < existing.size()
+          && range[0] >= existing.get(existingIndex)[0] - cumulativeShift) {
+        var removal = existing.get(existingIndex++);
+        cumulativeShift += removal[1] - removal[0];
+      }
+      var start = range[0] + cumulativeShift;
+      while (existing != null
+          && existingIndex < existing.size()
+          && range[1] >= existing.get(existingIndex)[0] - cumulativeShift) {
+        var removal = existing.get(existingIndex++);
+        cumulativeShift += removal[1] - removal[0];
+      }
+      mappedRanges.add(new int[] {start, range[1] + cumulativeShift});
     }
-    result.sort((left, right) -> Integer.compare(left[0], right[0]));
+
     var merged = new ArrayList<int[]>();
-    for (var range : result) {
+    var existingRange = 0;
+    var mappedRange = 0;
+    while ((existing != null && existingRange < existing.size())
+        || mappedRange < mappedRanges.size()) {
+      var range =
+          mappedRange == mappedRanges.size()
+                  || (existing != null
+                      && existingRange < existing.size()
+                      && existing.get(existingRange)[0] <= mappedRanges.get(mappedRange)[0])
+              ? existing.get(existingRange++)
+              : mappedRanges.get(mappedRange++);
       if (!merged.isEmpty() && range[0] <= merged.getLast()[1]) {
         merged.getLast()[1] = Math.max(merged.getLast()[1], range[1]);
       } else {
-        merged.add(range);
+        merged.add(new int[] {range[0], range[1]});
       }
     }
     return merged;
-  }
-
-  private static int mapToOriginalOffset(int position, List<int[]> removals) {
-    if (removals == null) {
-      return position;
-    }
-    var originalOffset = position;
-    var cumulativeShift = 0;
-    for (var removal : removals) {
-      var preprocessedPosition = removal[0] - cumulativeShift;
-      if (position < preprocessedPosition) {
-        break;
-      }
-      cumulativeShift += removal[1] - removal[0];
-      originalOffset += removal[1] - removal[0];
-    }
-    return originalOffset;
   }
 
   /**
@@ -284,15 +290,27 @@ public final class Lexer {
    *
    * @param text the text the scanner works on, after all preprocessing removals
    * @param originMap compact mapping from preprocessed offsets to original-source offsets
+   * @param source caller-provided source before preprocessing
    * @param lineStarts original-source offsets at which each line begins
    */
-  private record PreprocessedSource(String text, OriginMap originMap, int[] lineStarts) {
+  private record PreprocessedSource(
+      String text, OriginMap originMap, String source, int[] lineStarts) {
 
     SourceLocation locationAt(int preprocessedPosition) {
       var offset = originMap.originalOffsetAt(preprocessedPosition);
-      var insertion = Arrays.binarySearch(lineStarts, offset);
-      var lineIndex = insertion >= 0 ? insertion : -insertion - 2;
+      if (offset > 0
+          && offset < source.length()
+          && source.charAt(offset) == '\n'
+          && source.charAt(offset - 1) == '\r') {
+        return new SourceLocation(offset, lineAt(offset + 1) + 1, 1);
+      }
+      var lineIndex = lineAt(offset);
       return new SourceLocation(offset, lineIndex + 1, offset - lineStarts[lineIndex] + 1);
+    }
+
+    private int lineAt(int offset) {
+      var insertion = Arrays.binarySearch(lineStarts, offset);
+      return insertion >= 0 ? insertion : -insertion - 2;
     }
   }
 
@@ -317,11 +335,6 @@ public final class Lexer {
       var index = Arrays.binarySearch(preprocessedBreakpoints, preprocessedPosition);
       if (index < 0) {
         index = -index - 2;
-      } else {
-        while (index + 1 < preprocessedBreakpoints.length
-            && preprocessedBreakpoints[index + 1] == preprocessedPosition) {
-          index++;
-        }
       }
       return preprocessedPosition + (index < 0 ? 0 : cumulativeShifts[index]);
     }
