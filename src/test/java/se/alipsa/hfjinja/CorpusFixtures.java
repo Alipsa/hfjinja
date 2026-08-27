@@ -27,6 +27,7 @@ final class CorpusFixtures {
           "id",
           "source",
           "template",
+          "templateOptions",
           "templateSha256",
           "modelRepo",
           "modelRevision",
@@ -106,6 +107,9 @@ final class CorpusFixtures {
     if (hashOnly) validateHashOnly(value, label);
     if (text && hasAny(value, "modelRepo", "modelRevision", "templatePath"))
       throw failure(label, "text records must not include hash-only provenance metadata");
+    boolean hasTemplateOptions = value.containsKey("templateOptions");
+    Map<String, Boolean> templateOptions =
+        validateTemplateOptions(value.get("templateOptions"), label);
     if (value.containsKey("globals"))
       throw failure(label, "record globals are not supported by the pinned Template API");
     boolean hasInstant = value.containsKey("instant");
@@ -127,6 +131,8 @@ final class CorpusFixtures {
         id,
         source,
         text ? (String) value.get("template") : null,
+        templateOptions,
+        hasTemplateOptions,
         immutableMap(typedContext),
         instant,
         zone,
@@ -161,6 +167,20 @@ final class CorpusFixtures {
         && expected.get("sha256") instanceof String hash
         && SHA256.matcher(hash).matches()) return new Expected(null, null);
     throw failure(label, "expected outcome does not match fixture form");
+  }
+
+  private static Map<String, Boolean> validateTemplateOptions(Object raw, String label) {
+    if (raw == null) return Map.of();
+    if (!(raw instanceof Map<?, ?> map)) throw failure(label, "templateOptions must be an object");
+    Map<String, Object> options = castMap(map, label);
+    unknownKeys(options, Set.of("trimBlocks", "lstripBlocks"), label);
+    var result = new LinkedHashMap<String, Boolean>();
+    for (var entry : options.entrySet()) {
+      if (!(entry.getValue() instanceof Boolean enabled))
+        throw failure(label, "templateOptions." + entry.getKey() + " must be boolean");
+      result.put(entry.getKey(), enabled);
+    }
+    return Collections.unmodifiableMap(result);
   }
 
   private static Instant parseInstant(Object value, String label) {
@@ -267,6 +287,8 @@ final class CorpusFixtures {
       String id,
       String source,
       String template,
+      Map<String, Boolean> templateOptions,
+      boolean hasTemplateOptions,
       Map<String, Object> context,
       Instant instant,
       ZoneId zone,

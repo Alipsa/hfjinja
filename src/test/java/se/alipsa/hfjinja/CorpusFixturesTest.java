@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.ZoneId;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** Focused schema and JSON coverage for the test-only corpus reader. */
@@ -54,6 +55,26 @@ class CorpusFixturesTest {
                     + nonAsciiUnicode
                     + "\",\"context\":{},\"expected\":{\"text\":\"x\"}}",
                 "unicode.jsonl"));
+  }
+
+  @Test
+  void validatesTemplateOptions() {
+    var record =
+        CorpusFixtures.readContent(
+                record("\"templateOptions\":{\"trimBlocks\":false,\"lstripBlocks\":false}"),
+                "options.jsonl")
+            .getFirst();
+    assertEquals(Map.of("trimBlocks", false, "lstripBlocks", false), record.templateOptions());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            CorpusFixtures.readContent(
+                record("\"templateOptions\":{\"unknown\":true}"), "options.jsonl"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            CorpusFixtures.readContent(
+                record("\"templateOptions\":{\"trimBlocks\":1}"), "options.jsonl"));
   }
 
   @Test

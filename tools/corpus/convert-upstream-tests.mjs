@@ -5,34 +5,77 @@ import vm from 'node:vm';
 import { readCorpus, validateCorpus, validateRecord } from './corpus.mjs';
 
 const sourcePath = 'upstream/vendor/test/templates.test.js';
+const interpreterSourcePath = 'upstream/vendor/test/interpreter.test.js';
 const corpusPath = 'src/test/resources/corpus/v1.jsonl';
 const lockPath = 'upstream/upstream-lock.json';
-const selected = new Map([
-  ['NO_TEMPLATE', 'templates.no-template'],
-  ['FOR_LOOP', 'templates.for-loop'],
-  ['FILTER_OPERATOR_2', 'templates.filter-operator-2'],
+const sourceInventoryPath = 'upstream/corpus-source-inventory.json';
+// These upstream fixtures inject JavaScript functions through the render context. The public
+// differential-corpus schema intentionally does not serialize functions: its `globals` field is
+// reserved until the pinned Template API can inject non-built-in globals. Keep the exclusions
+// named here, rather than silently dropping them, so the coverage report remains reviewable.
+const unsupportedContextFixtures = new Map([
+  ['NUMBERS', 'context supplies the add JavaScript function'],
+  ['FUNCTIONS', 'context supplies JavaScript functions'],
+  ['OBJ_METHODS', 'context supplies JavaScript methods'],
+  ['IS_OPERATOR_4', 'context supplies the custom testFunction JavaScript function'],
 ]);
 const options = new Set(process.argv.slice(2));
-if (![...options].every((option) => option === '--check' || option.startsWith('--report='))) {
-  throw new Error('Usage: convert-upstream-tests.mjs --check [--report=<path>]');
+if (![...options].every((option) => option === '--check' || option === '--write' || option.startsWith('--report='))) {
+  throw new Error('Usage: convert-upstream-tests.mjs --check [--write] [--report=<path>]');
 }
-if (!options.has('--check')) throw new Error('Usage: convert-upstream-tests.mjs --check [--report=<path>]');
+if (!options.has('--check') && !options.has('--write')) {
+  throw new Error('Usage: convert-upstream-tests.mjs --check [--write] [--report=<path>]');
+}
 
 const source = await readFile(sourcePath, 'utf8');
 const capture = extractConstants(source);
 const upstreamFixtureCount = Object.keys(capture.templates).length;
+const functionContextFixtures = new Set(
+  Object.entries(capture.contexts)
+    .filter(([, context]) => containsFunction(context))
+    .map(([name]) => name),
+);
+const declaredExclusions = new Set(unsupportedContextFixtures.keys());
+if (!sameSet(functionContextFixtures, declaredExclusions)) {
+  throw new Error(
+    `Function-context exclusions differ from upstream: expected ${[...functionContextFixtures].join(', ') || '(none)'}, `
+      + `declared ${[...declaredExclusions].join(', ') || '(none)'}`,
+  );
+}
 const templateStringsEnd = source.indexOf('\nconst TEST_PARSED', source.indexOf('const TEST_STRINGS = {'));
 if (templateStringsEnd < 0) throw new Error(`Could not locate TEST_STRINGS boundary in ${sourcePath}`);
-const generated = [...selected].map(([upstreamName, id]) => ({
-  id,
-  source: `${sourcePath}:${propertyLine(source, upstreamName, templateStringsEnd)}`,
-  template: capture.templates[upstreamName],
-  context: capture.contexts[upstreamName],
-  expected: {text: capture.outputs[upstreamName]},
-}));
+const generated = Object.keys(capture.templates)
+  .filter((name) => !unsupportedContextFixtures.has(name))
+  .map((upstreamName) => ({
+    id: `templates.${fixtureId(upstreamName)}`,
+    source: `${sourcePath}:${propertyLine(source, upstreamName, templateStringsEnd)}`,
+    template: capture.templates[upstreamName],
+    context: capture.contexts[upstreamName],
+    expected: {text: capture.outputs[upstreamName]},
+  }));
+const interpreterGenerated = extractWhitespaceCases(await readFile(interpreterSourcePath, 'utf8')).map(
+  (test, index) => ({
+    id: `interpreter.whitespace-control-${index + 1}`,
+    source: `${interpreterSourcePath}:8`,
+    template: test.template,
+    templateOptions: {
+      ...(test.options.trim_blocks === undefined ? {} : {trimBlocks: test.options.trim_blocks}),
+      ...(test.options.lstrip_blocks === undefined ? {} : {lstripBlocks: test.options.lstrip_blocks}),
+    },
+    context: test.data,
+    expected: {text: test.target},
+  }),
+);
+generated.push(...interpreterGenerated);
 for (const record of generated) validateRecord(record, record.id);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
+
+if (options.has('--write')) {
+  const retained = records.filter(
+    (record) => !record.id.startsWith('templates.') && !record.id.startsWith('interpreter.'));
+  await writeFile(corpusPath, [...generated, ...retained].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+}
 
 if (options.has('--check')) {
   const actual = new Map(records.map((record) => [record.id, record]));
@@ -43,7 +86,8 @@ if (options.has('--check')) {
     }
   }
   const generatedIds = new Set(generated.map((record) => record.id));
-  const staleIds = [...actual.keys()].filter((id) => id.startsWith('templates.') && !generatedIds.has(id));
+  const staleIds = [...actual.keys()].filter(
+    (id) => (id.startsWith('templates.') || id.startsWith('interpreter.')) && !generatedIds.has(id));
   if (staleIds.length) throw new Error(`${corpusPath}: stale extracted fixtures: ${staleIds.join(', ')}`);
 }
 
@@ -65,6 +109,25 @@ function extractConstants(source) {
     throw new Error(`Could not extract corpus constants from ${sourcePath}`);
   }
   return {templates: capture.TEST_STRINGS, contexts: capture.TEST_CONTEXT, outputs: capture.EXPECTED_OUTPUTS};
+}
+
+function extractWhitespaceCases(source) {
+  const executable = source
+    .replace(/^(?:import[\s\S]*?;\s*)+/, '')
+    .replace(
+      'for (const test of TESTS) {',
+      'globalThis.captureWhitespace = TESTS; return; for (const test of TESTS) {',
+    );
+  const context = {describe: (_, callback) => callback(), it: (_, callback) => callback()};
+  try {
+    vm.runInNewContext(executable, context, {filename: interpreterSourcePath});
+  } catch (error) {
+    throw new Error(`Could not extract whitespace fixtures from ${interpreterSourcePath}: ${error.message}`);
+  }
+  if (!Array.isArray(context.captureWhitespace)) {
+    throw new Error(`Could not extract whitespace fixtures from ${interpreterSourcePath}`);
+  }
+  return context.captureWhitespace;
 }
 
 function propertyLine(source, name, end) {
@@ -90,26 +153,67 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+function fixtureId(name) {
+  return name.toLowerCase().replaceAll('_', '-');
+}
+
+function containsFunction(value) {
+  if (typeof value === 'function') return true;
+  if (Array.isArray(value)) return value.some(containsFunction);
+  return value !== null && typeof value === 'object' && Object.values(value).some(containsFunction);
+}
+
+function sameSet(left, right) {
+  return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
 async function writeCoverage(path, generated, upstreamFixtureCount, committedRecords) {
   const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+  const inventory = JSON.parse(await readFile(sourceInventoryPath, 'utf8'));
   const committedTemplateRecords = committedRecords.filter((record) => typeof record.template === 'string').length;
   const testFiles = await testSources('upstream/vendor/test');
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
+  validateSourceInventory(inventory, testFiles, excludedTestFiles);
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
     `Vendored template fixture definitions: ${upstreamFixtureCount}`,
-    `Automatically extracted fixture definitions: ${generated.length}`,
+    `Automatically extracted fixture definitions: ${generated.length} (${interpreterGenerated.length} interpreter whitespace vectors)`,
+    `Schema-excluded fixture definitions: ${unsupportedContextFixtures.size}`,
     `Committed template-bearing corpus records: ${committedTemplateRecords} (executed by both the pinned Node oracle and Java differential runner)`,
     `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',
     '## Extracted fixtures', '', '| Corpus id | Upstream source |', '| --- | --- |',
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
-    'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription; committed-record execution does not complete that inventory.', '',
+    '## Schema exclusions', '', '| Upstream fixture | Reason |', '| --- | --- |',
+    ...[...unsupportedContextFixtures].map(([name, reason]) => `| \`${name}\` | ${reason} |`), '',
+    '## Source inventory', '', '| Upstream source | Coverage | Evidence |', '| --- | --- |',
+    ...Object.entries(inventory.sources).map(([source, entry]) => `| \`${source}\` | ${entry.coverage} | ${entry.evidence ?? entry.reason} |`), '',
+    'Every vendored unit source and every policy-excluded test source is represented above.', '',
   ];
   const reportPath = resolve(path);
   await mkdir(dirname(reportPath), {recursive: true});
   await writeFile(reportPath, lines.join('\n'), 'utf8');
+}
+
+function validateSourceInventory(inventory, testFiles, excludedTestFiles) {
+  if (inventory?.version !== 1 || inventory.sources === null || typeof inventory.sources !== 'object') {
+    throw new Error(`Invalid corpus source inventory: ${sourceInventoryPath}`);
+  }
+  const expected = new Set([...testFiles.map((file) => `test/${file}`), ...excludedTestFiles]);
+  const actual = new Set(Object.keys(inventory.sources));
+  if (!sameSet(expected, actual)) {
+    throw new Error(
+      `Corpus source inventory differs from vendored tests: expected ${[...expected].sort().join(', ')}, `
+        + `actual ${[...actual].sort().join(', ')}`,
+    );
+  }
+  for (const [source, entry] of Object.entries(inventory.sources)) {
+    if (!['differential-corpus', 'format-golden', 'direct-unit', 'policy-excluded'].includes(entry?.coverage)
+        || typeof entry.reason !== 'string' || entry.reason.length === 0) {
+      throw new Error(`Invalid corpus source inventory entry: ${source}`);
+    }
+  }
 }
 
 async function testSources(directory, relative = '', seen = new Set()) {

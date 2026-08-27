@@ -7,7 +7,7 @@ const categories = new Set([
 ]);
 const recordKeys = new Set([
   'id', 'source', 'template', 'templateSha256', 'modelRepo', 'modelRevision', 'templatePath',
-  'context', 'instant', 'zone', 'globals', 'expected',
+  'context', 'templateOptions', 'instant', 'zone', 'globals', 'expected',
 ]);
 const lineNumber = Symbol('lineNumber');
 const instantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(\d{1,3}))?Z$/;
@@ -66,6 +66,7 @@ export function validateRecord(record, label = 'record') {
   if (text && ['modelRepo', 'modelRevision', 'templatePath'].some((field) => record[field] !== undefined)) {
     throw new Error(`${label}: text records must not include hash-only provenance metadata`);
   }
+  validateTemplateOptions(record.templateOptions, label);
   if (record.instant !== undefined && record.zone === undefined) {
     throw new Error(`${label}: instant requires an explicit zone`);
   }
@@ -113,6 +114,17 @@ export async function errorClassifier(path, expectedVersion) {
 function validateGlobals(globals, label) {
   if (globals === undefined) return;
   throw new Error(`${label}: record globals are not supported by the pinned Template API`);
+}
+
+function validateTemplateOptions(options, label) {
+  if (options === undefined) return;
+  if (!isObject(options)) throw new Error(`${label}: templateOptions must be an object`);
+  const allowed = new Set(['trimBlocks', 'lstripBlocks']);
+  const unknown = Object.keys(options).filter((key) => !allowed.has(key));
+  if (unknown.length) throw new Error(`${label}: unknown templateOptions fields: ${unknown.join(', ')}`);
+  for (const [key, value] of Object.entries(options)) {
+    if (typeof value !== 'boolean') throw new Error(`${label}: templateOptions.${key} must be boolean`);
+  }
 }
 
 function validateZone(zone, label) {

@@ -71,7 +71,7 @@ test('fails loudly for an unmatched upstream error', async () => {
   const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
   const classify = await errorClassifier('tools/corpus/error-patterns-0.5.9.json', `${lock.package}@${lock.version}`);
   assert.equal(classify('Unknown variable: absent'), 'UNDEFINED_OR_ACCESS');
-  for (const type of ['ArrayValue', 'StringValue', 'NumericValue', 'ObjectValue', 'BooleanValue']) {
+  for (const type of ['ArrayValue', 'StringValue', 'NumericValue', 'ObjectValue', 'BooleanValue', 'FunctionValue']) {
     assert.equal(classify(`Unknown ${type} filter: frob`), 'TYPE');
   }
   assert.equal(classify('Cannot apply filter "abs" to type: FloatValue'), 'TYPE');
@@ -87,7 +87,9 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('replace() requires at least two arguments'), 'TYPE');
   assert.equal(classify('Object key must be a string: got KeywordArgumentsValue'), 'TYPE');
   assert.equal(classify('Positional arguments must come before keyword arguments'), 'SYNTAX');
-  assert.throws(() => classify('Unknown FunctionValue filter: frob'), /Unmatched upstream error/);
+  assert.equal(classify(''), 'SYNTAX');
+  assert.equal(classify("Cannot read properties of undefined (reading 'toLowerCase')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'type')"), 'TYPE');
   assert.throws(() => classify('Cannot apply filter abs to type: FloatValue'), /Unmatched upstream error/);
   assert.throws(() => classify('selectattr can only be applied to array of objects'), /Unmatched upstream error/);
   assert.throws(() => classify('`map` expressions without attribute set are not currently supported.'), /Unmatched upstream error/);

@@ -59,7 +59,8 @@ class CorpusDifferentialTest {
       try {
         assertEquals(
             record.expected().text(),
-            Template.parse(record.template()).render(record.context(), options),
+            Template.parse(record.template(), templateOptions(record))
+                .render(record.context(), options),
             label);
       } catch (HfJinjaException error) {
         throw new AssertionError(
@@ -71,7 +72,9 @@ class CorpusDifferentialTest {
     HfJinjaException error =
         assertThrows(
             HfJinjaException.class,
-            () -> Template.parse(record.template()).render(record.context(), options),
+            () ->
+                Template.parse(record.template(), templateOptions(record))
+                    .render(record.context(), options),
             label);
     assertEquals(
         record.expected().errorCategory(),
@@ -85,6 +88,15 @@ class CorpusDifferentialTest {
             + error.getMessage());
   }
 
+  private static TemplateOptions templateOptions(CorpusFixtures.Record record) {
+    return TemplateOptions.builder()
+        .trimBlocks(
+            record.templateOptions().getOrDefault("trimBlocks", !record.hasTemplateOptions()))
+        .lstripBlocks(
+            record.templateOptions().getOrDefault("lstripBlocks", !record.hasTemplateOptions()))
+        .build();
+  }
+
   @Test
   void rejectsMismatchedOutcomesAndIncorrectDefaultTimeBindings() {
     var text =
@@ -92,6 +104,8 @@ class CorpusDifferentialTest {
             "wrong-text",
             "synthetic",
             "x",
+            java.util.Map.of(),
+            false,
             java.util.Map.of(),
             null,
             null,
@@ -107,6 +121,8 @@ class CorpusDifferentialTest {
             "synthetic",
             "x",
             java.util.Map.of(),
+            false,
+            java.util.Map.of(),
             null,
             null,
             new CorpusFixtures.Expected(null, ErrorCategory.SYNTAX),
@@ -120,6 +136,8 @@ class CorpusDifferentialTest {
             "default-time",
             "synthetic",
             "{{ strftime_now('%Y-%m-%d %H:%M') }}",
+            java.util.Map.of(),
+            false,
             java.util.Map.of(),
             null,
             null,

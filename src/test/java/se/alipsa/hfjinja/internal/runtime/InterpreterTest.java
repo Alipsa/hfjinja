@@ -1200,9 +1200,9 @@ class InterpreterTest {
   }
 
   @Test
-  void macroBareBreak_isKnownDivergenceFromUpstream() {
-    // Upstream throws raw blank-message BreakControl here, which cannot enter v1.jsonl without a
-    // catch-all classifier. WP7 Slice 4 documents Java's stable SYNTAX safety contract instead.
+  void macroBareBreak_hasCorpusComparableSyntaxContract() {
+    // The pinned upstream exposes a raw blank-message BreakControl; the versioned classifier maps
+    // that diagnostic family to SYNTAX, which makes this Java contract corpus-comparable.
     var source = "{% macro f() %}{% break %}{% endmacro %}{{ f() }}";
     var error =
         assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
@@ -1295,7 +1295,7 @@ class InterpreterTest {
 
   @Test
   void callBlockBareBreak_isKnownDivergenceFromUpstream() {
-    // See macroBareBreak_isKnownDivergenceFromUpstream and WP7 Slice 4's raw-control note.
+    // See macroBareBreak_hasCorpusComparableSyntaxContract.
     var source =
         "{% macro f() %}[{{ caller() }}]{% endmacro %}" + "{% call f() %}{% break %}{% endcall %}";
     var error =
@@ -2211,17 +2211,22 @@ class InterpreterTest {
   }
 
   @Test
-  void documentsAcceptedUpstreamDivergences() {
-    // The pinned upstream produces raw TypeErrors for the undefined-key dictsort and undefined
-    // lower-test cases; these assertions pin hfjinja's deliberate contracts described in WP7.
+  void matchesUpstreamUndefinedBackedFailures() {
     assertAll(
-        () -> assertEquals("|", Template.parse("{{ []|first }}|{{ []|last }}").render(Map.of())),
         () ->
-            assertEquals(
-                "[[, 1], [\"z\", 2]]",
-                Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
-                    .render(Map.of())),
-        () -> assertEquals("false", Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())));
+            assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ []|first }}|{{ []|last }}").render(Map.of())),
+        () ->
+            assertThrows(
+                TemplateRenderException.class,
+                () ->
+                    Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
+                        .render(Map.of())),
+        () ->
+            assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())));
   }
 
   @Test

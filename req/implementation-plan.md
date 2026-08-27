@@ -237,9 +237,8 @@ nodes or stale mapping/no-impact records.
 4. Specify the intended error contract per feature. Where exact upstream messages are practical,
    compare them; otherwise retain category-level comparison only after documenting why. In
    particular, resolve or document call-form filter diagnostics such as `safe(...)`/`items(...)`.
-   The pinned upstream's `Unknown …Value filter: …` diagnostics are currently outside the error
-   classifier, so no-argument sequence-filter regressions remain Java-only until that family has a
-   reviewed category mapping.
+   The pinned upstream's `Unknown …Value filter: …` diagnostics, including `FunctionValue`, map
+   explicitly to `TYPE`, so no-argument sequence-filter regressions are corpus-comparable.
 5. Re-run the complete pinned upstream test suite through the reviewable converter and make the
    coverage report a release-blocking check. New upstream versions remain a separate reviewed
    sync, not an implicit upgrade.

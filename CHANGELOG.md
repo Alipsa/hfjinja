@@ -11,9 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Run every checked-in template-bearing differential-corpus record against hfjinja's public Java
   API as well as the pinned Node oracle.
+- Extract all serializable upstream `templates.test.js` rendering fixtures into the differential
+  corpus, with the four JavaScript-function-context cases explicitly reported as schema
+  exclusions.
+- Represent parse-time whitespace options in corpus records and extract the upstream interpreter
+  whitespace-control vectors through both runtimes.
+- Require an explicit coverage or policy decision for every vendored upstream test source.
 
 ### Fixed
 
+- Classify the pinned runtime's `Unknown FunctionValue filter` diagnostics as `TYPE` in the
+  differential oracle.
+- Compare raw upstream macro/call-block `break` and `continue` diagnostics by their documented
+  `SYNTAX` category.
+- Match upstream `TYPE` failures for empty `first`/`last` and undefined-backed `dictsort` and
+  `is lower` inputs.
 - Report `SourceLocation`s in terms of the caller's original template string: preprocessing
   removals (`trim_blocks`, `lstrip_blocks`, the trailing newline strip, and `{% generation %}`
   tag stripping) no longer shift the locations of later diagnostics, mapping stays linear for

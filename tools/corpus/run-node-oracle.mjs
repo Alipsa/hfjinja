@@ -23,7 +23,7 @@ const lock = JSON.parse(await readFile(lockPath, 'utf8'));
 if (process.version !== lock.nodeVersion) {
   throw new Error(`Node oracle version ${process.version} does not match lock ${lock.nodeVersion}`);
 }
-const { Template } = await import(pathToFileURL(resolve('upstream/vendor/dist/index.js')).href);
+const upstream = await import(pathToFileURL(resolve('upstream/vendor/dist/index.js')).href);
 const classifyError = await errorClassifier(patternsPath, `${lock.package}@${lock.version}`);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
@@ -42,7 +42,7 @@ for (const [index, record] of records.entries()) {
   }
   executed++;
   try {
-    const output = render(record, Template);
+    const output = render(record, upstream);
     if (Object.hasOwn(record.expected, 'errorCategory')) {
       fail(label, `expected error=${record.expected.errorCategory}, got output=${JSON.stringify(output)}`);
     } else if (output !== record.expected.text) {
@@ -77,7 +77,7 @@ function fail(label, message) {
   console.error(`FAIL ${label}: ${message}`);
 }
 
-function render(record, TemplateClass) {
+function render(record, upstreamRuntime) {
   const nativeDate = globalThis.Date;
   const nativeDateTimeFormat = Intl.DateTimeFormat;
   const nativeLocaleCompare = String.prototype.localeCompare;
@@ -95,7 +95,20 @@ function render(record, TemplateClass) {
       return nativeLocaleCompare.call(this, other, locales ?? defaultLocale, options);
     };
     process.env.TZ = record.zone ?? defaultZone;
-    return new TemplateClass(record.template).render(record.context);
+    if (record.templateOptions === undefined) {
+      return new upstreamRuntime.Template(record.template).render(record.context);
+    }
+    const environment = new upstreamRuntime.Environment();
+    // interpreter.test.js constructs its environment directly and binds only this global.
+    environment.set('True', true);
+    for (const [key, value] of Object.entries(record.context)) environment.set(key, value);
+    return new upstreamRuntime.Interpreter(environment)
+      .run(
+        upstreamRuntime.parse(
+          upstreamRuntime.tokenize(record.template, nodeTemplateOptions(record.templateOptions)),
+        ),
+      )
+      .value;
   } finally {
     globalThis.Date = nativeDate;
     Intl.DateTimeFormat = nativeDateTimeFormat;
@@ -103,4 +116,12 @@ function render(record, TemplateClass) {
     if (nativeZone === undefined) delete process.env.TZ;
     else process.env.TZ = nativeZone;
   }
+}
+
+function nodeTemplateOptions(options) {
+  if (options === undefined) return undefined;
+  return {
+    ...(options.trimBlocks === undefined ? {} : {trim_blocks: options.trimBlocks}),
+    ...(options.lstripBlocks === undefined ? {} : {lstrip_blocks: options.lstripBlocks}),
+  };
 }
