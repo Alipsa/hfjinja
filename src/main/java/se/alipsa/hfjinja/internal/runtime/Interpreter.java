@@ -26,6 +26,26 @@ import se.alipsa.hfjinja.internal.util.PosixStrftime;
 public final class Interpreter {
   private Interpreter() {}
 
+  /** Private transport for loop control crossing a template callable boundary. */
+  private static final class LoopControl extends RuntimeException {
+    private final ExecResult result;
+    private final SourceLocation location;
+
+    LoopControl(ExecResult result, SourceLocation location) {
+      super(null, null, false, false);
+      this.result = result;
+      this.location = location;
+    }
+
+    ExecResult result() {
+      return result;
+    }
+
+    SourceLocation location() {
+      return location;
+    }
+  }
+
   /**
    * Renders a parsed program using the supplied context and options.
    *
@@ -52,6 +72,9 @@ public final class Interpreter {
     ExecResult result;
     try {
       result = evaluateBlock(program.body(), env, budget);
+    } catch (LoopControl control) {
+      throw new TemplateRenderException(
+          "break or continue outside a for loop", ErrorCategory.SYNTAX, control.location());
     } catch (StackOverflowError overflow) {
       // RenderBudget.maxMacroDepth bounds macro/call-block *invocation* count, not total
       // interpreter recursion depth: a recursive macro whose body itself nests control-flow
@@ -1536,6 +1559,11 @@ public final class Interpreter {
     return v instanceof Value.CallableValue ? "FunctionValue" : v.getClass().getSimpleName();
   }
 
+  private static Value callableBodyResult(ExecResult result, SourceLocation location) {
+    if (result instanceof ExecResult.Normal normal) return new Value.StringValue(normal.output());
+    throw new LoopControl(result, location);
+  }
+
   private static ExecResult evaluateMacro(Statement.Macro n, Environment e, RenderBudget b) {
     e.setVariable(
         n.name().value(),
@@ -1594,16 +1622,7 @@ public final class Interpreter {
                         nodeArg.location());
                   }
                 }
-                var result = evaluateBlock(n.body(), macroScope, b);
-                if (!(result instanceof ExecResult.Normal normal))
-                  // Known gap (see
-                  // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md,
-                  // "Known gaps this slice leaves open"): upstream bleeds a bare break/continue
-                  // through
-                  // this call boundary into the caller's enclosing loop; we reject it here instead.
-                  throw new TemplateRenderException(
-                      "break or continue outside a for loop", ErrorCategory.SYNTAX, l);
-                return new Value.StringValue(normal.output());
+                return callableBodyResult(evaluateBlock(n.body(), macroScope, b), l);
               } finally {
                 b.exitMacro();
               }
@@ -1639,16 +1658,7 @@ public final class Interpreter {
               // below decrement a call that never incremented.
               b.enterMacro(l);
               try {
-                var result = evaluateBlock(n.body(), callBlockEnv, b);
-                if (!(result instanceof ExecResult.Normal normal))
-                  // Known gap (see
-                  // docs/superpowers/plans/2026-08-24-wp5-slice3-macros-call-and-filter-blocks.md,
-                  // "Known gaps this slice leaves open"): upstream bleeds a bare break/continue
-                  // through this call boundary into the caller's enclosing loop; we reject it here
-                  // instead.
-                  throw new TemplateRenderException(
-                      "break or continue outside a for loop", ErrorCategory.SYNTAX, l);
-                return new Value.StringValue(normal.output());
+                return callableBodyResult(evaluateBlock(n.body(), callBlockEnv, b), l);
               } finally {
                 b.exitMacro();
               }
@@ -1827,7 +1837,12 @@ public final class Interpreter {
       loop.put("nextitem", i + 1 < items.size() ? items.get(i + 1) : Value.UndefinedValue.INSTANCE);
       scope.setVariable("loop", new Value.ObjectValue(loop));
       bind(n.loopVariable(), items.get(i), scope, n.location());
-      var r = evaluateBlock(n.body(), scope, b);
+      ExecResult r;
+      try {
+        r = evaluateBlock(n.body(), scope, b);
+      } catch (LoopControl control) {
+        r = control.result();
+      }
       if (r instanceof ExecResult.Break) break;
       if (r instanceof ExecResult.Continue) continue;
       none = false;
