@@ -594,9 +594,16 @@ public final class Interpreter {
   private static Value filterFirstLast(
       Value operand, NamedArguments filter, SourceLocation location, boolean last) {
     var values = sequence(operand, filter.name(), location);
-    return values.isEmpty()
-        ? Value.UndefinedValue.INSTANCE
-        : values.get(last ? values.size() - 1 : 0);
+    if (values.isEmpty())
+      throw filterType("Cannot read properties of undefined (reading 'type')", location);
+    return values.get(last ? values.size() - 1 : 0);
+  }
+
+  private static boolean lowerTest(Value value, SourceLocation location) {
+    if (!(value instanceof Value.StringValue string)) return false;
+    if (string.undefinedBacked())
+      throw filterType("Cannot read properties of undefined (reading 'toLowerCase')", location);
+    return string.value().equals(string.value().toLowerCase(Locale.ROOT));
   }
 
   private static Value filterReverse(
@@ -852,10 +859,7 @@ public final class Interpreter {
       case "odd" -> integerTest(value, true, location);
       case "even" -> integerTest(value, false, location);
       case "integer" -> value instanceof Value.IntegerValue;
-      case "lower" ->
-          value instanceof Value.StringValue string
-              && !string.undefinedBacked()
-              && string.value().equals(string.value().toLowerCase(Locale.ROOT));
+      case "lower" -> lowerTest(value, location);
       case "upper" ->
           value instanceof Value.StringValue string
               && !string.undefinedBacked()
@@ -1419,6 +1423,8 @@ public final class Interpreter {
     if (numericLike(left) && numericLike(right))
       return Double.compare(JsOperations.toNumber(left), JsOperations.toNumber(right));
     if (left instanceof Value.StringValue a && right instanceof Value.StringValue b) {
+      if (a.undefinedBacked() || b.undefinedBacked())
+        throw filterType("Cannot read properties of undefined (reading 'toLowerCase')", location);
       String aText = caseSensitive ? a.value() : a.value().toLowerCase(Locale.ROOT);
       String bText = caseSensitive ? b.value() : b.value().toLowerCase(Locale.ROOT);
       return aText.compareTo(bText);
