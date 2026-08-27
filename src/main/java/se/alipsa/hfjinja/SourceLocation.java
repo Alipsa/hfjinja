@@ -7,7 +7,8 @@ import java.io.Serializable;
  * string, before any preprocessing (the trailing newline strip and, when enabled, {@code
  * trim_blocks}/{@code lstrip_blocks}/the {@code generation} tag strip).
  *
- * @param offset zero-based character offset from the start of the source
+ * @param offset zero-based character offset from the start of the source; end-of-input diagnostics
+ *     may point just past its final character
  * @param line one-based line number
  * @param column one-based column number within {@code line}
  */

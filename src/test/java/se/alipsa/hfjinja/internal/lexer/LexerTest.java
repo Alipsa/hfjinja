@@ -427,8 +427,21 @@ class LexerTest {
       // Regression case from the parser fuzz corpus: Scanner may advance beyond the final source
       // character while diagnosing an incomplete tag.
       var source = "{\uD83D\uDE00\n\r\n{\0}[{{('\0!!!()('\r\n{{%\"";
-      assertThrows(
-          TemplateSyntaxException.class, () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+      var error =
+          assertThrows(
+              TemplateSyntaxException.class, () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+      assertEquals("Unexpected end of input", error.getMessage());
+      assertEquals(new SourceLocation(29, 4, 6), error.location().orElseThrow());
+    }
+
+    @Test
+    void mapsEndOfInputToTheOriginalEndAfterTrailingNewlineStrip() {
+      var error =
+          assertThrows(
+              TemplateSyntaxException.class,
+              () -> Lexer.tokenize("{{ 'abc\n", TemplateOptions.DEFAULT));
+      assertEquals("Unexpected end of input", error.getMessage());
+      assertEquals(new SourceLocation(8, 2, 1), error.location().orElseThrow());
     }
   }
 

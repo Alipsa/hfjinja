@@ -117,72 +117,106 @@ public final class Lexer {
   }
 
   private static PreprocessedSource preprocess(String source, TemplateOptions options) {
-    var offsets = new int[source.length() + 1];
-    for (var i = 0; i <= source.length(); i++) {
-      offsets[i] = i;
+    var text = source;
+    List<int[]> originalRemovals = null;
+    if (text.endsWith("\n")) {
+      originalRemovals = new ArrayList<>();
+      originalRemovals.add(new int[] {text.length() - 1, text.length()});
+      text = text.substring(0, text.length() - 1);
     }
-    var length = source.length();
-    if (length > 0 && source.charAt(length - 1) == '\n') {
-      length--;
-    }
-    var text = buildText(source, offsets, length);
     if (options.lstripBlocks()) {
       var matcher = LSTRIP_BLOCKS_PATTERN.matcher(text);
-      var ranges = new ArrayList<int[]>();
+      List<int[]> ranges = null;
       while (matcher.find()) {
-        ranges.add(new int[] {matcher.start(), matcher.start(1)});
+        if (matcher.start() != matcher.start(1)) {
+          if (ranges == null) {
+            ranges = new ArrayList<>();
+          }
+          ranges.add(new int[] {matcher.start(), matcher.start(1)});
+        }
       }
-      if (!ranges.isEmpty()) {
-        length = removeRanges(offsets, length, ranges);
-        text = buildText(source, offsets, length);
+      if (ranges != null) {
+        originalRemovals = addOriginalRemovals(originalRemovals, ranges);
+        text = removeRanges(text, ranges);
       }
     }
     if (options.trimBlocks()) {
       var matcher = TRIM_BLOCKS_PATTERN.matcher(text);
-      var ranges = new ArrayList<int[]>();
+      List<int[]> ranges = null;
       while (matcher.find()) {
-        ranges.add(new int[] {matcher.end(1), matcher.end()});
+        if (matcher.end(1) != matcher.end()) {
+          if (ranges == null) {
+            ranges = new ArrayList<>();
+          }
+          ranges.add(new int[] {matcher.end(1), matcher.end()});
+        }
       }
-      if (!ranges.isEmpty()) {
-        length = removeRanges(offsets, length, ranges);
-        text = buildText(source, offsets, length);
+      if (ranges != null) {
+        originalRemovals = addOriginalRemovals(originalRemovals, ranges);
+        text = removeRanges(text, ranges);
       }
     }
     if (text.indexOf("generation") >= 0) {
       var ranges = generationRemovalRanges(text);
       if (!ranges.isEmpty()) {
-        length = removeRanges(offsets, length, ranges);
-        text = buildText(source, offsets, length);
+        originalRemovals = addOriginalRemovals(originalRemovals, ranges);
+        text = removeRanges(text, ranges);
       }
     }
-    offsets[length] = length > 0 ? offsets[length - 1] + 1 : 0;
-    return new PreprocessedSource(text, Arrays.copyOf(offsets, length + 1), lineStarts(source));
+    return originalRemovals == null
+        ? new PreprocessedSource(text, null, null)
+        : new PreprocessedSource(text, new OriginMap(originalRemovals), lineStarts(source));
   }
 
-  private static String buildText(String source, int[] offsets, int length) {
-    var text = new StringBuilder(length);
-    for (var i = 0; i < length; i++) {
-      text.append(source.charAt(offsets[i]));
+  private static String removeRanges(String source, List<int[]> ranges) {
+    var text = new StringBuilder(source.length());
+    var copyPosition = 0;
+    for (var range : ranges) {
+      text.append(source, copyPosition, range[0]);
+      copyPosition = range[1];
     }
-    return text.toString();
+    return text.append(source, copyPosition, source.length()).toString();
   }
 
   /**
-   * Removes {@code ranges} — ascending, non-overlapping {@code [start, end)} pairs in current-text
-   * coordinates — from the kept-offsets array, returning the new logical length.
+   * Converts {@code ranges} from current-text coordinates to original-source coordinates and merges
+   * them with the removals already recorded there.
    */
-  private static int removeRanges(int[] offsets, int length, List<int[]> ranges) {
-    var write = 0;
-    var rangeIndex = 0;
-    for (var read = 0; read < length; read++) {
-      while (rangeIndex < ranges.size() && read >= ranges.get(rangeIndex)[1]) {
-        rangeIndex++;
-      }
-      if (rangeIndex >= ranges.size() || read < ranges.get(rangeIndex)[0]) {
-        offsets[write++] = offsets[read];
+  private static List<int[]> addOriginalRemovals(List<int[]> existing, List<int[]> ranges) {
+    var result = existing == null ? new ArrayList<int[]>() : new ArrayList<>(existing);
+    for (var range : ranges) {
+      result.add(
+          new int[] {
+            mapToOriginalOffset(range[0], existing), mapToOriginalOffset(range[1], existing)
+          });
+    }
+    result.sort((left, right) -> Integer.compare(left[0], right[0]));
+    var merged = new ArrayList<int[]>();
+    for (var range : result) {
+      if (!merged.isEmpty() && range[0] <= merged.getLast()[1]) {
+        merged.getLast()[1] = Math.max(merged.getLast()[1], range[1]);
+      } else {
+        merged.add(range);
       }
     }
-    return write;
+    return merged;
+  }
+
+  private static int mapToOriginalOffset(int position, List<int[]> removals) {
+    if (removals == null) {
+      return position;
+    }
+    var originalOffset = position;
+    var cumulativeShift = 0;
+    for (var removal : removals) {
+      var preprocessedPosition = removal[0] - cumulativeShift;
+      if (position < preprocessedPosition) {
+        break;
+      }
+      cumulativeShift += removal[1] - removal[0];
+      originalOffset += removal[1] - removal[0];
+    }
+    return originalOffset;
   }
 
   /**
@@ -222,18 +256,22 @@ public final class Lexer {
    * line-terminator rules: LF, CR, LS, and PS each end a line, and CRLF counts as one break.
    */
   private static int[] lineStarts(String source) {
-    var starts = new ArrayList<Integer>();
-    starts.add(0);
+    var starts = new int[Math.min(source.length() + 1, 16)];
+    var size = 1;
+    starts[0] = 0;
     for (var i = 0; i < source.length(); i++) {
       var c = source.charAt(i);
       if (isLineTerminator(c)) {
         if (c == '\r' && i + 1 < source.length() && source.charAt(i + 1) == '\n') {
           i++;
         }
-        starts.add(i + 1);
+        if (size == starts.length) {
+          starts = Arrays.copyOf(starts, starts.length * 2);
+        }
+        starts[size++] = i + 1;
       }
     }
-    return starts.stream().mapToInt(Integer::intValue).toArray();
+    return Arrays.copyOf(starts, size);
   }
 
   private static boolean isLineTerminator(char c) {
@@ -245,26 +283,47 @@ public final class Lexer {
    * original string.
    *
    * @param text the text the scanner works on, after all preprocessing removals
-   * @param originalOffsets {@code originalOffsets[p]} is the original-source offset of the
-   *     character at preprocessed position {@code p}; the entry at {@code text.length()} is a
-   *     sentinel holding the original offset just past the last kept character, so end-of-input
-   *     locations also map
+   * @param originMap compact mapping from preprocessed offsets to original-source offsets
    * @param lineStarts original-source offsets at which each line begins
    */
-  private record PreprocessedSource(String text, int[] originalOffsets, int[] lineStarts) {
+  private record PreprocessedSource(String text, OriginMap originMap, int[] lineStarts) {
 
     SourceLocation locationAt(int preprocessedPosition) {
-      // The scanner may advance past end of input while diagnosing malformed constructs. Preserve
-      // that behavior by extending locations beyond the mapped input rather than indexing past the
-      // origin map's end sentinel.
-      var lastPosition = originalOffsets.length - 1;
-      var offset =
-          preprocessedPosition <= lastPosition
-              ? originalOffsets[preprocessedPosition]
-              : originalOffsets[lastPosition] + preprocessedPosition - lastPosition;
+      var offset = originMap.originalOffsetAt(preprocessedPosition);
       var insertion = Arrays.binarySearch(lineStarts, offset);
       var lineIndex = insertion >= 0 ? insertion : -insertion - 2;
       return new SourceLocation(offset, lineIndex + 1, offset - lineStarts[lineIndex] + 1);
+    }
+  }
+
+  /** A compact map from preprocessed offsets to original offsets, represented by removals. */
+  private static final class OriginMap {
+    private final int[] preprocessedBreakpoints;
+    private final int[] cumulativeShifts;
+
+    OriginMap(List<int[]> removals) {
+      preprocessedBreakpoints = new int[removals.size()];
+      cumulativeShifts = new int[removals.size()];
+      var shift = 0;
+      for (var i = 0; i < removals.size(); i++) {
+        var removal = removals.get(i);
+        preprocessedBreakpoints[i] = removal[0] - shift;
+        shift += removal[1] - removal[0];
+        cumulativeShifts[i] = shift;
+      }
+    }
+
+    int originalOffsetAt(int preprocessedPosition) {
+      var index = Arrays.binarySearch(preprocessedBreakpoints, preprocessedPosition);
+      if (index < 0) {
+        index = -index - 2;
+      } else {
+        while (index + 1 < preprocessedBreakpoints.length
+            && preprocessedBreakpoints[index + 1] == preprocessedPosition) {
+          index++;
+        }
+      }
+      return preprocessedPosition + (index < 0 ? 0 : cumulativeShifts[index]);
     }
   }
 
@@ -308,6 +367,8 @@ public final class Lexer {
     private final TemplateOptions options;
     private final List<Token> tokens = new ArrayList<>();
     private int cursorPosition;
+    private int line = 1;
+    private int column = 1;
     private int curlyBracketDepth;
 
     Scanner(String source, TemplateOptions options) {
@@ -492,6 +553,15 @@ public final class Lexer {
     }
 
     private void advance() {
+      var current = charAt(cursorPosition);
+      if (isLineTerminator(current)) {
+        if (current != '\n' || charAt(cursorPosition - 1) != '\r') {
+          line++;
+          column = 1;
+        }
+      } else {
+        column++;
+      }
       cursorPosition++;
     }
 
@@ -502,7 +572,9 @@ public final class Lexer {
     }
 
     private SourceLocation currentLocation() {
-      return preprocessed.locationAt(cursorPosition);
+      return preprocessed.originMap() == null
+          ? new SourceLocation(cursorPosition, line, column)
+          : preprocessed.locationAt(cursorPosition);
     }
 
     /**
