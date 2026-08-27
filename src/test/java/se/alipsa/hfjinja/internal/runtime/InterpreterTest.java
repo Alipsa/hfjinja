@@ -1282,6 +1282,18 @@ class InterpreterTest {
   }
 
   @Test
+  void reportsOriginalSourceLocationThroughDefaultPreprocessing() {
+    // https://github.com/Alipsa/hfjinja/issues/27 — trim_blocks removes the newline after %}, so
+    // the preprocessed position of `nope` drifts one character and one line from the original.
+    var error =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% set a = 1 %}\n{{ nope() }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, error.category());
+    assertEquals(new SourceLocation(19, 2, 4), error.location().orElseThrow());
+  }
+
+  @Test
   void callBlockBareBreak_isKnownDivergenceFromUpstream() {
     // See macroBareBreak_isKnownDivergenceFromUpstream and WP7 Slice 4's raw-control note.
     var source =

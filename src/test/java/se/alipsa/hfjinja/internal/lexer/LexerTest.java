@@ -376,6 +376,68 @@ class LexerTest {
               () -> Lexer.tokenize("A\r\nB\rC\u2028D\u2029{{ ! }}", TemplateOptions.DEFAULT));
       assertEquals(new SourceLocation(12, 5, 4), error.location().orElseThrow());
     }
+
+    @Test
+    void mapsLocationsBackThroughTrimmedBlockNewlines() {
+      var tokens = Lexer.tokenize("{% set a = 1 %}\n{{ nope() }}", TemplateOptions.DEFAULT);
+      assertEquals(new SourceLocation(19, 2, 4), identifierStart(tokens, "nope"));
+    }
+
+    @Test
+    void mapsLocationsBackThroughLstrippedAndTrimmedBlocks() {
+      var tokens = Lexer.tokenize("  {% set a = 1 %}\n{{ nope() }}", TemplateOptions.DEFAULT);
+      assertEquals(new SourceLocation(21, 2, 4), identifierStart(tokens, "nope"));
+    }
+
+    @Test
+    void accumulatesMappingsAcrossMultipleBlockLines() {
+      var tokens =
+          Lexer.tokenize(
+              "{% set a = 1 %}\n{% set b = 2 %}\n{% set c = 3 %}\n{{ nope() }}",
+              TemplateOptions.DEFAULT);
+      assertEquals(new SourceLocation(51, 4, 4), identifierStart(tokens, "nope"));
+    }
+
+    @Test
+    void reportsIdenticalLocationsWhenPreprocessingRemovesNothing() {
+      for (var options : List.of(TemplateOptions.DEFAULT, RAW)) {
+        var tokens = Lexer.tokenize("a\nb\n{{ nope() }}", options);
+        assertEquals(new SourceLocation(7, 3, 4), identifierStart(tokens, "nope"));
+      }
+    }
+
+    @Test
+    void mapsLocationsBackThroughStrippedGenerationTags() {
+      var tokens = Lexer.tokenize("A {%- generation -%}\n\n{{ x }}", TemplateOptions.DEFAULT);
+      assertEquals(new SourceLocation(25, 3, 4), identifierStart(tokens, "x"));
+    }
+
+    @Test
+    void mapsEndOfInputBackThroughATrimmedNewline() {
+      var error =
+          assertThrows(
+              TemplateSyntaxException.class,
+              () -> Lexer.tokenize("{% if x %}\n{{ 'abc", TemplateOptions.DEFAULT));
+      assertEquals("Unexpected end of input", error.getMessage());
+      assertEquals(new SourceLocation(18, 2, 8), error.location().orElseThrow());
+    }
+
+    @Test
+    void mapsLocationsPastEndOfMalformedInput() {
+      // Regression case from the parser fuzz corpus: Scanner may advance beyond the final source
+      // character while diagnosing an incomplete tag.
+      var source = "{\uD83D\uDE00\n\r\n{\0}[{{('\0!!!()('\r\n{{%\"";
+      assertThrows(
+          TemplateSyntaxException.class, () -> Lexer.tokenize(source, TemplateOptions.DEFAULT));
+    }
+  }
+
+  private static SourceLocation identifierStart(List<Token> tokens, String value) {
+    return tokens.stream()
+        .filter(token -> token.type() == TokenType.Identifier && token.value().equals(value))
+        .findFirst()
+        .orElseThrow()
+        .start();
   }
 
   private record TokenShape(TokenType type, String value) {}
