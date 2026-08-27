@@ -10,6 +10,10 @@ const recordKeys = new Set([
   'context', 'instant', 'zone', 'globals', 'expected',
 ]);
 const lineNumber = Symbol('lineNumber');
+const instantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(\d{1,3}))?Z$/;
+const canonicalZones = new Set(
+  (await readFile(new URL('./iana-time-zones.txt', import.meta.url), 'utf8')).trim().split('\n'),
+);
 
 export async function readCorpus(path) {
   const content = await readFile(path, 'utf8');
@@ -68,8 +72,7 @@ export function validateRecord(record, label = 'record') {
   if (record.zone !== undefined && record.instant === undefined) {
     throw new Error(`${label}: zone requires an explicit instant`);
   }
-  if (record.instant !== undefined && (!(typeof record.instant === 'string' && /^\d{4}-\d{2}-\d{2}T.*Z$/.test(record.instant))
-      || Number.isNaN(Date.parse(record.instant)))) {
+  if (record.instant !== undefined && !validInstant(record.instant)) {
     throw new Error(`${label}: instant must be an ISO-8601 instant`);
   }
   if (record.zone !== undefined) validateZone(record.zone, label);
@@ -113,12 +116,20 @@ function validateGlobals(globals, label) {
 }
 
 function validateZone(zone, label) {
-  if (!nonBlank(zone)) throw new Error(`${label}: zone must be non-blank`);
-  try {
-    new Intl.DateTimeFormat('en-US', {timeZone: zone});
-  } catch {
+  if (!nonBlank(zone) || (zone !== 'UTC' && !canonicalZones.has(zone))) {
     throw new Error(`${label}: zone must be an IANA time-zone identifier`);
   }
+}
+
+function validInstant(instant) {
+  const match = instantPattern.exec(instant);
+  if (match === null) return false;
+  const parsed = new Date(instant);
+  const canonical = instant.replace(
+    /(?:\.(\d{1,3}))?Z$/,
+    (_, fraction) => `.${(fraction ?? '').padEnd(3, '0')}Z`,
+  );
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === canonical;
 }
 
 function validateExpected(expected, hashOnly, label) {

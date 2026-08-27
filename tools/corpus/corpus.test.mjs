@@ -6,6 +6,11 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { corpusLine, errorClassifier, readCorpus, sha256Utf8, validateCorpus, validateRecord } from './corpus.mjs';
 
+test('pins canonical IANA zones to the Node runtime', async () => {
+  const zones = (await readFile(new URL('./iana-time-zones.txt', import.meta.url), 'utf8')).trim().split('\n');
+  assert.deepEqual(zones, Intl.supportedValuesOf('timeZone'));
+});
+
 test('accepts text and hash-only record forms', () => {
   validateRecord({
     id: 'text', source: 'test', template: 'hello', context: {}, expected: {text: 'hello'},
@@ -29,6 +34,13 @@ test('rejects duplicate ids and malformed deterministic-time fields', () => {
   assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z'}), /requires an explicit zone/);
   assert.throws(() => validateRecord({...record, zone: 'UTC'}), /requires an explicit instant/);
   assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z', zone: 'not a zone'}), /IANA/);
+  assert.throws(() => validateRecord({...record, instant: '2000-01-02T03:04Z', zone: 'UTC'}), /ISO-8601/);
+  assert.throws(() => validateRecord({...record, instant: '2000-02-30T00:00:00Z', zone: 'UTC'}), /ISO-8601/);
+  assert.throws(() => validateRecord({...record, instant: '2000-01-01T24:00:00Z', zone: 'UTC'}), /ISO-8601/);
+  validateRecord({...record, instant: '2000-01-02T03:04:05.12Z', zone: 'UTC'});
+  validateRecord({...record, instant: '2000-01-02T03:04:05Z', zone: 'Africa/Abidjan'});
+  assert.throws(() => validateRecord({...record, instant: '2000-01-02T03:04:05Z', zone: 'utc'}), /IANA/);
+  assert.throws(() => validateRecord({...record, instant: '2000-01-02T03:04:05Z', zone: 'GMT+5'}), /IANA/);
   assert.throws(() => validateRecord({...record, globals: {strftime_now: {kind: 'strftime_now'}}}), /not supported/);
 });
 

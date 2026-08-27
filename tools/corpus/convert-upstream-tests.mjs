@@ -31,10 +31,10 @@ const generated = [...selected].map(([upstreamName, id]) => ({
   expected: {text: capture.outputs[upstreamName]},
 }));
 for (const record of generated) validateRecord(record, record.id);
+const records = await readCorpus(corpusPath);
+validateCorpus(records, corpusPath);
 
 if (options.has('--check')) {
-  const records = await readCorpus(corpusPath);
-  validateCorpus(records, corpusPath);
   const actual = new Map(records.map((record) => [record.id, record]));
   for (const record of generated) {
     const committed = actual.get(record.id);
@@ -48,7 +48,7 @@ if (options.has('--check')) {
 }
 
 const reportOption = [...options].find((option) => option.startsWith('--report='));
-if (reportOption) await writeCoverage(reportOption.slice('--report='.length), generated, upstreamFixtureCount);
+if (reportOption) await writeCoverage(reportOption.slice('--report='.length), generated, upstreamFixtureCount, records);
 
 function extractConstants(source) {
   const executable = source.replace(/^(?:import[\s\S]*?;\s*)+/, '');
@@ -90,8 +90,9 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
-async function writeCoverage(path, generated, upstreamFixtureCount) {
+async function writeCoverage(path, generated, upstreamFixtureCount, committedRecords) {
   const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+  const committedTemplateRecords = committedRecords.filter((record) => typeof record.template === 'string').length;
   const testFiles = await testSources('upstream/vendor/test');
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
@@ -100,10 +101,11 @@ async function writeCoverage(path, generated, upstreamFixtureCount) {
     `Vendored non-model unit sources: ${testFiles.length}`,
     `Vendored template fixture definitions: ${upstreamFixtureCount}`,
     `Automatically extracted fixture definitions: ${generated.length}`,
+    `Committed template-bearing corpus records: ${committedTemplateRecords} (executed by both the pinned Node oracle and Java differential runner)`,
     `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',
     '## Extracted fixtures', '', '| Corpus id | Upstream source |', '| --- | --- |',
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
-    'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription.', '',
+    'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription; committed-record execution does not complete that inventory.', '',
   ];
   const reportPath = resolve(path);
   await mkdir(dirname(reportPath), {recursive: true});
