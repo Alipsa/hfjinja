@@ -1,6 +1,7 @@
 package se.alipsa.hfjinja.internal.lexer;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -14,12 +15,10 @@ import se.alipsa.hfjinja.TemplateSyntaxException;
 /**
  * Scanner ported from upstream {@code lexer.ts}: whitespace controls, tokens, and source spans.
  *
- * <p>Reported {@link SourceLocation}s are relative to the preprocessed source (after the trailing
- * newline strip and, when enabled, {@code trim_blocks}/{@code lstrip_blocks}/the {@code generation}
- * tag strip), not the caller's original string. This is exact whenever {@code trim_blocks} and
- * {@code lstrip_blocks} are both off and no {@code generation} tag is present. Remapping locations
- * back through those content-dependent rewrites is a known v1 limitation, deferred until a concrete
- * need arises.
+ * <p>Reported {@link SourceLocation}s refer to the caller's original string. Preprocessing (the
+ * trailing newline strip and, when enabled, {@code trim_blocks}/{@code lstrip_blocks}/the {@code
+ * generation} tag strip) records every removal in a compact origin map, and scanner positions are
+ * mapped back through it before a location is constructed.
  */
 public final class Lexer {
   /**
@@ -117,23 +116,125 @@ public final class Lexer {
     return new Scanner(source, options).scan();
   }
 
-  private static String preprocess(String source, TemplateOptions options) {
-    var template = source;
-    if (template.endsWith("\n")) {
-      template = template.substring(0, template.length() - 1);
+  private static PreprocessedSource preprocess(String source, TemplateOptions options) {
+    var text = source;
+    List<int[]> originalRemovals = null;
+    if (text.endsWith("\n")) {
+      originalRemovals = new ArrayList<>();
+      originalRemovals.add(new int[] {text.length() - 1, text.length()});
+      text = text.substring(0, text.length() - 1);
     }
     if (options.lstripBlocks()) {
-      template = LSTRIP_BLOCKS_PATTERN.matcher(template).replaceAll("$1");
+      var matcher = LSTRIP_BLOCKS_PATTERN.matcher(text);
+      List<int[]> ranges = null;
+      while (matcher.find()) {
+        if (matcher.start() != matcher.start(1)) {
+          if (ranges == null) {
+            ranges = new ArrayList<>();
+          }
+          ranges.add(new int[] {matcher.start(), matcher.start(1)});
+        }
+      }
+      if (ranges != null) {
+        originalRemovals = addOriginalRemovals(originalRemovals, ranges);
+        text = removeRanges(text, ranges);
+      }
     }
     if (options.trimBlocks()) {
-      template = TRIM_BLOCKS_PATTERN.matcher(template).replaceAll("$1");
+      var matcher = TRIM_BLOCKS_PATTERN.matcher(text);
+      List<int[]> ranges = null;
+      while (matcher.find()) {
+        if (matcher.end(1) != matcher.end()) {
+          if (ranges == null) {
+            ranges = new ArrayList<>();
+          }
+          ranges.add(new int[] {matcher.end(1), matcher.end()});
+        }
+      }
+      if (ranges != null) {
+        originalRemovals = addOriginalRemovals(originalRemovals, ranges);
+        text = removeRanges(text, ranges);
+      }
     }
-    return template.indexOf("generation") < 0 ? template : stripGenerationTags(template);
+    if (text.indexOf("generation") >= 0) {
+      var ranges = generationRemovalRanges(text);
+      if (!ranges.isEmpty()) {
+        originalRemovals = addOriginalRemovals(originalRemovals, ranges);
+        text = removeRanges(text, ranges);
+      }
+    }
+    return originalRemovals == null
+        ? new PreprocessedSource(text, null, null, null)
+        : new PreprocessedSource(text, new OriginMap(originalRemovals), source, lineStarts(source));
   }
 
-  private static String stripGenerationTags(String template) {
+  private static String removeRanges(String source, List<int[]> ranges) {
+    var text = new StringBuilder(source.length());
+    var copyPosition = 0;
+    for (var range : ranges) {
+      text.append(source, copyPosition, range[0]);
+      copyPosition = range[1];
+    }
+    return text.append(source, copyPosition, source.length()).toString();
+  }
+
+  /**
+   * Converts {@code ranges} from current-text coordinates to original-source coordinates and merges
+   * them with the removals already recorded there. Both inputs are ascending, so mapping and
+   * merging use a shared walking cursor.
+   */
+  private static List<int[]> addOriginalRemovals(List<int[]> existing, List<int[]> ranges) {
+    var mappedRanges = new ArrayList<int[]>(ranges.size());
+    var existingIndex = 0;
+    var cumulativeShift = 0;
+    for (var range : ranges) {
+      while (existing != null
+          && existingIndex < existing.size()
+          && range[0] >= existing.get(existingIndex)[0] - cumulativeShift) {
+        var removal = existing.get(existingIndex++);
+        cumulativeShift += removal[1] - removal[0];
+      }
+      var start = range[0] + cumulativeShift;
+      while (existing != null
+          && existingIndex < existing.size()
+          && range[1] >= existing.get(existingIndex)[0] - cumulativeShift) {
+        var removal = existing.get(existingIndex++);
+        cumulativeShift += removal[1] - removal[0];
+      }
+      mappedRanges.add(new int[] {start, range[1] + cumulativeShift});
+    }
+
+    var merged = new ArrayList<int[]>();
+    var existingRange = 0;
+    var mappedRange = 0;
+    while ((existing != null && existingRange < existing.size())
+        || mappedRange < mappedRanges.size()) {
+      var range =
+          mappedRange == mappedRanges.size()
+                  || (existing != null
+                      && existingRange < existing.size()
+                      && existing.get(existingRange)[0] <= mappedRanges.get(mappedRange)[0])
+              ? existing.get(existingRange++)
+              : mappedRanges.get(mappedRange++);
+      if (!merged.isEmpty() && range[0] <= merged.getLast()[1]) {
+        merged.getLast()[1] = Math.max(merged.getLast()[1], range[1]);
+      } else {
+        merged.add(new int[] {range[0], range[1]});
+      }
+    }
+    return merged;
+  }
+
+  /**
+   * Computes the character ranges removed by the {@code generation}-tag strip, in {@code template}
+   * coordinates. The tag itself is always removed; the surrounding JS-whitespace runs are removed
+   * only on the sides carrying a {@code -} modifier. {@code copyPosition} bounds each whitespace
+   * scan to the region after the previous match, so the returned ranges are ascending and
+   * non-overlapping.
+   */
+  private static List<int[]> generationRemovalRanges(String template) {
     var matcher = GENERATION_TAG_PATTERN.matcher(template);
-    var result = new StringBuilder(template.length());
+    var ranges = new ArrayList<int[]>();
     var copyPosition = 0;
     while (matcher.find()) {
       var whitespaceBefore = matcher.start();
@@ -146,16 +247,97 @@ public final class Lexer {
           && isJsWhitespace(template.charAt(whitespaceAfter))) {
         whitespaceAfter++;
       }
-      result.append(template, copyPosition, whitespaceBefore);
-      if (matcher.group(1).isEmpty()) {
-        result.append(template, whitespaceBefore, matcher.start());
-      }
-      if (matcher.group(2).isEmpty()) {
-        result.append(template, matcher.end(), whitespaceAfter);
-      }
+      ranges.add(
+          new int[] {
+            matcher.group(1).isEmpty() ? matcher.start() : whitespaceBefore,
+            matcher.group(2).isEmpty() ? matcher.end() : whitespaceAfter
+          });
       copyPosition = whitespaceAfter;
     }
-    return result.append(template, copyPosition, template.length()).toString();
+    return ranges;
+  }
+
+  /**
+   * Computes the original-source offsets at which each line begins, using the scanner's
+   * line-terminator rules: LF, CR, LS, and PS each end a line, and CRLF counts as one break.
+   */
+  private static int[] lineStarts(String source) {
+    var starts = new int[Math.min(source.length() + 1, 16)];
+    var size = 1;
+    starts[0] = 0;
+    for (var i = 0; i < source.length(); i++) {
+      var c = source.charAt(i);
+      if (isLineTerminator(c)) {
+        if (c == '\r' && i + 1 < source.length() && source.charAt(i + 1) == '\n') {
+          i++;
+        }
+        if (size == starts.length) {
+          starts = Arrays.copyOf(starts, starts.length * 2);
+        }
+        starts[size++] = i + 1;
+      }
+    }
+    return Arrays.copyOf(starts, size);
+  }
+
+  private static boolean isLineTerminator(char c) {
+    return c == '\n' || c == '\r' || c == '\u2028' || c == '\u2029';
+  }
+
+  /**
+   * The preprocessed template text plus the data needed to map positions in it back to the caller's
+   * original string.
+   *
+   * @param text the text the scanner works on, after all preprocessing removals
+   * @param originMap compact mapping from preprocessed offsets to original-source offsets
+   * @param source caller-provided source before preprocessing
+   * @param lineStarts original-source offsets at which each line begins
+   */
+  private record PreprocessedSource(
+      String text, OriginMap originMap, String source, int[] lineStarts) {
+
+    SourceLocation locationAt(int preprocessedPosition) {
+      var offset = originMap.originalOffsetAt(preprocessedPosition);
+      if (offset > 0
+          && offset < source.length()
+          && source.charAt(offset) == '\n'
+          && source.charAt(offset - 1) == '\r') {
+        return new SourceLocation(offset, lineAt(offset + 1) + 1, 1);
+      }
+      var lineIndex = lineAt(offset);
+      return new SourceLocation(offset, lineIndex + 1, offset - lineStarts[lineIndex] + 1);
+    }
+
+    private int lineAt(int offset) {
+      var insertion = Arrays.binarySearch(lineStarts, offset);
+      return insertion >= 0 ? insertion : -insertion - 2;
+    }
+  }
+
+  /** A compact map from preprocessed offsets to original offsets, represented by removals. */
+  private static final class OriginMap {
+    private final int[] preprocessedBreakpoints;
+    private final int[] cumulativeShifts;
+
+    OriginMap(List<int[]> removals) {
+      preprocessedBreakpoints = new int[removals.size()];
+      cumulativeShifts = new int[removals.size()];
+      var shift = 0;
+      for (var i = 0; i < removals.size(); i++) {
+        var removal = removals.get(i);
+        preprocessedBreakpoints[i] = removal[0] - shift;
+        shift += removal[1] - removal[0];
+        cumulativeShifts[i] = shift;
+      }
+    }
+
+    int originalOffsetAt(int preprocessedPosition) {
+      var index = Arrays.binarySearch(preprocessedBreakpoints, preprocessedPosition);
+      if (index < 0) {
+        index = -index - 2;
+      }
+      return preprocessedPosition + (index < 0 ? 0 : cumulativeShifts[index]);
+    }
   }
 
   private static boolean isWordChar(char c) {
@@ -193,6 +375,7 @@ public final class Lexer {
   }
 
   private static final class Scanner {
+    private final PreprocessedSource preprocessed;
     private final String src;
     private final TemplateOptions options;
     private final List<Token> tokens = new ArrayList<>();
@@ -202,7 +385,8 @@ public final class Lexer {
     private int curlyBracketDepth;
 
     Scanner(String source, TemplateOptions options) {
-      this.src = preprocess(source, options);
+      this.preprocessed = preprocess(source, options);
+      this.src = preprocessed.text();
       this.options = options;
     }
 
@@ -401,11 +585,9 @@ public final class Lexer {
     }
 
     private SourceLocation currentLocation() {
-      return new SourceLocation(cursorPosition, line, column);
-    }
-
-    private static boolean isLineTerminator(char c) {
-      return c == '\n' || c == '\r' || c == '\u2028' || c == '\u2029';
+      return preprocessed.originMap() == null
+          ? new SourceLocation(cursorPosition, line, column)
+          : preprocessed.locationAt(cursorPosition);
     }
 
     /**
