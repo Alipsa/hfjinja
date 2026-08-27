@@ -45,6 +45,15 @@ class CorpusFixturesTest {
                     + invalidUnicode
                     + "\",\"context\":{},\"expected\":{\"text\":\"x\"}}",
                 "unicode.jsonl"));
+    String nonAsciiUnicode = new String(new char[] {'\\', 'u', '\u0660', '\u0660', '\u0664', '1'});
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            CorpusFixtures.readContent(
+                "{\"id\":\"unicode-non-ascii\",\"source\":\"test\",\"template\":\""
+                    + nonAsciiUnicode
+                    + "\",\"context\":{},\"expected\":{\"text\":\"x\"}}",
+                "unicode.jsonl"));
   }
 
   @Test

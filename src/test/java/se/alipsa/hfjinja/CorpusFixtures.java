@@ -253,10 +253,8 @@ final class CorpusFixtures {
   }
 
   private static Set<String> canonicalZones() {
-    String configuredPath = System.getProperty("hfjinja.canonicalIanaZones");
-    if (configuredPath == null)
-      throw new IllegalStateException(
-          "hfjinja.canonicalIanaZones system property is not configured");
+    String configuredPath =
+        System.getProperty("hfjinja.canonicalIanaZones", "tools/corpus/iana-time-zones.txt");
     try {
       return Set.copyOf(Files.readAllLines(Path.of(configuredPath), StandardCharsets.UTF_8));
     } catch (IOException error) {
@@ -389,11 +387,17 @@ final class CorpusFixtures {
       index += 4;
       int value = 0;
       for (int character = 0; character < hex.length(); character++) {
-        int digit = Character.digit(hex.charAt(character), 16);
+        int digit = asciiHexDigit(hex.charAt(character));
         if (digit < 0) throw error("invalid unicode escape");
         value = value * 16 + digit;
       }
       return (char) value;
+    }
+
+    private int asciiHexDigit(char character) {
+      if (character >= '0' && character <= '9') return character - '0';
+      char lower = (char) (character | 0x20);
+      return lower >= 'a' && lower <= 'f' ? lower - 'a' + 10 : -1;
     }
 
     private Object literal(String expected, Object value) {

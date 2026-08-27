@@ -39,7 +39,7 @@ class CorpusDifferentialTest {
     assertEquals(
         expectedExecutions,
         tests.size(),
-        "every template-bearing record must become one dynamic test");
+        "every non-hash-only record must become one dynamic test");
     return tests;
   }
 
