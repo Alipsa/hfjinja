@@ -17,11 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Represent parse-time whitespace options in corpus records and extract the upstream interpreter
   whitespace-control vectors through both runtimes.
 - Require an explicit coverage or policy decision for every vendored upstream test source.
+- Add pinned-oracle vectors for runtime filters and object members, including `reverse`, `bool`,
+  `abs`, `keys`, `values`, and `dictsort`.
 
 ### Fixed
 
 - Classify the pinned runtime's `Unknown FunctionValue filter` diagnostics as `TYPE` in the
   differential oracle.
+- Classify the pinned runtime's undefined `value` access diagnostic as `TYPE`, covering the
+  `equalto` and `eq` test aliases when invoked without their required comparison value.
 - Compare raw upstream macro/call-block `break` and `continue` diagnostics by their documented
   `SYNTAX` category.
 - Match upstream `TYPE` failures for empty `first`/`last` and undefined-backed `dictsort` and

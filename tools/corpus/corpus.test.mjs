@@ -90,6 +90,7 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify(''), 'SYNTAX');
   assert.equal(classify("Cannot read properties of undefined (reading 'toLowerCase')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'type')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'value')"), 'TYPE');
   assert.equal(classify('format2.replace is not a function'), 'TYPE');
   assert.throws(() => classify('Cannot apply filter abs to type: FloatValue'), /Unmatched upstream error/);
   assert.throws(() => classify('selectattr can only be applied to array of objects'), /Unmatched upstream error/);

@@ -104,7 +104,7 @@
       "comment": "Raw BreakControl/ContinueControl escaping an upstream macro or call block outside a loop"
     },
     {
-      "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|type)'\\)$",
+      "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|type|value)'\\)$",
       "category": "TYPE"
     },
     {

@@ -308,3 +308,6 @@
 {"id":"wp7.strftime-missing-format","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ strftime_now() }}","context":{},"expected":{"errorCategory":"TYPE"}}
 {"id":"wp7.strftime-keyword-format","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ strftime_now(fmt='%Y') }}","context":{},"expected":{"errorCategory":"TYPE"}}
 {"id":"wp7.strftime-namespace-format","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ strftime_now(namespace(a=1)) }}","context":{},"expected":{"errorCategory":"TYPE"}}
+{"id":"wp7.runtime-filter-and-member-surface","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ [3,1,2]|reverse }}|{{ true|bool }}|{{ -2|abs }}|{{ {'b':2,'a':1}|keys }}|{{ {'b':2,'a':1}|values }}|{{ {'b':2,'a':1}|dictsort }}|{{ ' A '.strip() }}","context":{},"expected":{"text":"[2, 1, 3]|true|2|[\"b\", \"a\"]|[2, 1]|[[\"a\", 1], [\"b\", 2]]|A"}}
+{"id":"wp7.runtime-test-aliases-require-arguments","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ 1 is equalto }}","context":{},"expected":{"errorCategory":"TYPE"}}
+{"id":"wp7.runtime-test-eq-alias-requires-arguments","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ 1 is eq }}","context":{},"expected":{"errorCategory":"TYPE"}}
