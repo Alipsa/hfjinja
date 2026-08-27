@@ -2024,7 +2024,7 @@ public final class Interpreter {
     // signature project-wide, which is out of proportion to this edge case.
     if (a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue)
       throw new TemplateRenderException(
-          "strftime_now() expected one string argument", ErrorCategory.ARITY, l);
+          "strftime_now() expected one string argument", ErrorCategory.TYPE, l);
     var format = argument(a, 0);
     // Upstream's convertToRuntimeValues unwraps every argument shape to its raw .value before
     // calling strftime_now, so an absent/undefined-backed argument and an explicit `none` both

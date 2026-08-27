@@ -493,7 +493,7 @@ class InterpreterTest {
   }
 
   @Test
-  void strftimeNowRejectsMissingOrKeywordOnlyFormatWithArity() {
+  void strftimeNowRejectsMissingOrKeywordOnlyFormatWithType() {
     // {{ strftime_now() }}: no arguments at all, so `a.isEmpty()` is true and the
     // `a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue` guard in
     // Interpreter.strftime throws directly -- argument(a, 0) is never called for this case.
@@ -501,7 +501,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ strftime_now() }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, missingArgumentError.category());
+    assertEquals(ErrorCategory.TYPE, missingArgumentError.category());
     assertEquals("strftime_now() expected one string argument", missingArgumentError.getMessage());
 
     // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement appends a
@@ -513,7 +513,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{% call strftime_now() %}{% endcall %}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, callBlockError.category());
+    assertEquals(ErrorCategory.TYPE, callBlockError.category());
     assertEquals("strftime_now() expected one string argument", callBlockError.getMessage());
 
     // strftime_now(fmt='%Y'): a keyword-only call expression. evaluateCallExpression's `call()`
@@ -524,7 +524,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ strftime_now(fmt='%Y') }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, keywordOnlyError.category());
+    assertEquals(ErrorCategory.TYPE, keywordOnlyError.category());
     assertEquals("strftime_now() expected one string argument", keywordOnlyError.getMessage());
   }
 
@@ -541,7 +541,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ strftime_now(namespace(a=1)) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, namespaceWithKeywordsError.category());
+    assertEquals(ErrorCategory.TYPE, namespaceWithKeywordsError.category());
     assertEquals(
         "strftime_now() expected one string argument", namespaceWithKeywordsError.getMessage());
 

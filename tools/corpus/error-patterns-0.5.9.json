@@ -106,6 +106,10 @@
     {
       "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|type)'\\)$",
       "category": "TYPE"
+    },
+    {
+      "regex": "^(?:format2\\.replace is not a function|Cannot read properties of undefined \\(reading 'replace'\\))$",
+      "category": "TYPE"
     }
   ]
 }

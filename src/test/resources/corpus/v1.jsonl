@@ -305,3 +305,6 @@
 {"id":"wp7.empty-first-last","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ []|first }}|{{ []|last }}","context":{},"expected":{"errorCategory":"TYPE"}}
 {"id":"wp7.dictsort-undefined-key-with-peer","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}","context":{},"expected":{"errorCategory":"TYPE"}}
 {"id":"wp7.lower-undefined-backed-string","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ 'ab'[9] is lower }}","context":{},"expected":{"errorCategory":"TYPE"}}
+{"id":"wp7.strftime-missing-format","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ strftime_now() }}","context":{},"expected":{"errorCategory":"TYPE"}}
+{"id":"wp7.strftime-keyword-format","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ strftime_now(fmt='%Y') }}","context":{},"expected":{"errorCategory":"TYPE"}}
+{"id":"wp7.strftime-namespace-format","source":"self-authored; verified against @huggingface/jinja 0.5.9","template":"{{ strftime_now(namespace(a=1)) }}","context":{},"expected":{"errorCategory":"TYPE"}}
