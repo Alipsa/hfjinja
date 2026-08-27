@@ -529,14 +529,13 @@ class InterpreterTest {
   }
 
   @Test
-  void strftimeNowArityGuardHasAcceptedFalsePositiveForNamespaceValues() {
+  void strftimeNowMissingFormatGuardNormalizesNamespaceValuesToType() {
     // `namespace` returns its keyword bag verbatim when given keywords (Environment.namespace),
     // so `strftime_now(namespace(a=1))` reaches Interpreter.strftime as `a=[KeywordArgumentsValue],
     // k=false` -- structurally identical to `{% call strftime_now() %}` even though a real
-    // positional argument was supplied. The ARITY guard cannot tell these apart (see the comment
-    // above Interpreter.strftime's guard) and resolves the ambiguity toward ARITY rather than
-    // TYPE. This test pins that accepted, documented false positive so a future refactor of the
-    // guard changes it deliberately rather than by accident.
+    // positional argument was supplied. The missing-format guard cannot tell these apart (see the
+    // comment above Interpreter.strftime's guard), and normalizes the ambiguity to TYPE to match
+    // upstream's TypeError family. This test pins that intentional category decision.
     var namespaceWithKeywordsError =
         assertThrows(
             TemplateRenderException.class,
@@ -605,10 +604,10 @@ class InterpreterTest {
   }
 
   // The message "strftime_now() format must be a string" is deliberately distinct from the
-  // ARITY message ("strftime_now() expected one string argument") asserted above: a
+  // missing-format message ("strftime_now() expected one string argument") asserted above: a
   // message-based assertion -- such as `getMessage()` and `raisedMessage(...)` here -- can only
-  // tell TYPE and ARITY failures apart if their texts differ, not merely their ErrorCategory.
-  // `none` and an undefined-backed value like `x.missing` both pass the ARITY guard (`a` is
+  // distinguish the two TYPE branches if their texts differ, not merely their ErrorCategory.
+  // `none` and an undefined-backed value like `x.missing` both pass the missing-format guard (`a` is
   // non-empty and `a.get(0)` is not a KeywordArgumentsValue) but then fail the
   // `instanceof Value.StringValue` check in Interpreter.strftime, so both land on the TYPE
   // branch below.
