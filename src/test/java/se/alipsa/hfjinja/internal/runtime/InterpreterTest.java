@@ -381,6 +381,15 @@ class InterpreterTest {
         Template.parse(
                 "{% for i in [1,2,3] %}{% break %}{% else %}D{{ loop.index }}{{ i }}{% endfor %}")
             .render(Map.of()));
+    assertEquals(
+        "23",
+        Template.parse(
+                "{% for i in [1,2,3] %}{% if i == 1 %}{% continue %}{% endif %}{{ i }}{% endfor %}")
+            .render(Map.of()));
+    assertEquals(
+        "D",
+        Template.parse("{% for i in [1,2,3] %}{% continue %}{% else %}D{% endfor %}")
+            .render(Map.of()));
   }
 
   @Test
@@ -1040,15 +1049,178 @@ class InterpreterTest {
   }
 
   @Test
+  void wp7Slice4MacroAndCallControlFlowParity() {
+    assertAll(
+        () ->
+            assertEquals(
+                "23",
+                Template.parse(
+                        "{% macro f(i) %}{% if i == 1 %}{% continue %}{% endif %}{% endmacro %}"
+                            + "{% for i in [1,2,3] %}{{ i }}{{ f(i) }}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-continue-crosses-call-boundary"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f(i) %}{% if i == 1 %}{% break %}{% endif %}{% endmacro %}"
+                            + "{% for i in [1,2,3] %}{{ i }}{{ f(i) }}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-crosses-call-boundary"),
+        () ->
+            assertEquals(
+                "23",
+                Template.parse(
+                        "{% macro f() %}{{ caller() }}{% endmacro %}"
+                            + "{% for i in [1,2,3] %}{{ i }}{% call f() %}"
+                            + "{% if i == 1 %}{% continue %}{% endif %}{% endcall %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.call-block-continue-crosses-caller-boundary"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f() %}{{ caller() }}{% endmacro %}"
+                            + "{% for i in [1,2,3] %}{{ i }}{% call f() %}"
+                            + "{% if i == 1 %}{% break %}{% endif %}{% endcall %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.call-block-break-crosses-caller-boundary"),
+        () ->
+            assertEquals(
+                "1M",
+                Template.parse(
+                        "{% macro f(i) %}M{% if i == 2 %}{% break %}{% endif %}{% endmacro %}"
+                            + "{% for i in [1,2,3] %}{{ i }}{{ f(i) }}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-preserves-prior-iterations"),
+        () ->
+            assertEquals(
+                "E",
+                Template.parse(
+                        "{% macro f() %}{% break %}{% endmacro %}"
+                            + "{% for i in [1,2] %}{{ f() }}{% else %}E{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-loop-else"),
+        () ->
+            assertEquals(
+                "E",
+                Template.parse(
+                        "{% macro f() %}{% continue %}{% endmacro %}"
+                            + "{% for i in [1,2] %}{{ f() }}{% else %}E{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-continue-loop-else"),
+        () ->
+            assertEquals(
+                "AZAZ",
+                Template.parse(
+                        "{% macro g(z) %}{% if z == 1 %}{% break %}{% endif %}{% endmacro %}"
+                            + "{% macro f() %}{% for z in [1,2] %}{{ z }}{{ g(z) }}{% endfor %}Z{% endmacro %}"
+                            + "{% for i in ['A','A'] %}{{ i }}{{ f() }}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-stops-at-inner-loop"),
+        () ->
+            assertEquals(
+                "A2ZA2Z",
+                Template.parse(
+                        "{% macro g(z) %}{% if z == 1 %}{% continue %}{% endif %}{% endmacro %}"
+                            + "{% macro f() %}{% for z in [1,2] %}{{ z }}{{ g(z) }}{% endfor %}Z{% endmacro %}"
+                            + "{% for i in ['A','A'] %}{{ i }}{{ f() }}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-continue-stops-at-inner-loop"),
+        () ->
+            assertEquals(
+                "AZAZ",
+                Template.parse(
+                        "{% macro g() %}{% break %}{% endmacro %}"
+                            + "{% macro f() %}{% for z in [1,2] %}{{ caller(z) }}{% endfor %}Z{% endmacro %}"
+                            + "{% for i in ['A','A'] %}{{ i }}{% call(z) f() %}{{ z }}{{ g() }}{% endcall %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.call-block-break-stops-at-inner-loop"),
+        () ->
+            assertEquals(
+                "A2ZA2Z",
+                Template.parse(
+                        "{% macro g(z) %}{% if z == 1 %}{% continue %}{% endif %}{% endmacro %}"
+                            + "{% macro f() %}{% for z in [1,2] %}{{ caller(z) }}{% endfor %}Z{% endmacro %}"
+                            + "{% for i in ['A','A'] %}{{ i }}{% call(z) f() %}{{ z }}{{ g(z) }}{% endcall %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.call-block-continue-stops-at-inner-loop"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f() %}{% break %}{% endmacro %}"
+                            + "{% for i in [1,2] %}{% filter upper %}{{ i }}{{ f() }}{% endfilter %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-crosses-filter-block"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f() %}{% break %}{% endmacro %}"
+                            + "{% for i in [1,2] %}{% set x %}{{ i }}{{ f() }}{% endset %}[{{ x }}]{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-crosses-set-capture"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f() %}{% break %}{% endmacro %}"
+                            + "{% for i in [1,2] %}{{ i }}{% call f() %}x{% endcall %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.call-block-callee-break-crosses-call-boundary"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f() %}{% break %}{% endmacro %}"
+                            + "{% for o in [1,2] %}O{% for i in [1,2] if f() %}{{ i }}{% endfor %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-in-for-predicate"),
+        () ->
+            assertEquals(
+                "",
+                Template.parse(
+                        "{% macro f() %}{% break %}{% endmacro %}"
+                            + "{% for o in [1,2] %}O{% for i in [] %}{% else %}{{ f() }}{% endfor %}{% endfor %}")
+                    .render(Map.of()),
+                "wp7.macro-break-in-for-else"),
+        () -> {
+          var template =
+              Template.parse(
+                  "{% macro g(i) %}{% if i == 1 %}{% continue %}{% endif %}{% endmacro %}"
+                      + "{% macro f(i,a=g(i)) %}{{ i }}{% endmacro %}"
+                      + "{% for i in [1,2] %}{{ f(i) }}{% endfor %}");
+          assertEquals("2", template.render(Map.of()), "wp7.macro-default-control-balances-depth");
+          assertEquals(
+              "2",
+              template.render(Map.of(), RenderOptions.builder().maxMacroDepth(2).build()),
+              "wp7.macro-default-control-balances-depth maxMacroDepth=2");
+        });
+  }
+
+  @Test
   void macroBareBreak_isKnownDivergenceFromUpstream() {
+    // Upstream throws raw blank-message BreakControl here, which cannot enter v1.jsonl without a
+    // catch-all classifier. WP7 Slice 4 documents Java's stable SYNTAX safety contract instead.
+    var source = "{% macro f() %}{% break %}{% endmacro %}{{ f() }}";
     var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () ->
-                Template.parse("{% macro f() %}{% break %}{% endmacro %}{{ f() }}")
-                    .render(Map.of()));
+        assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
+    var call = source.indexOf("{{ f() }}") + 3;
     assertEquals(ErrorCategory.SYNTAX, error.category());
     assertEquals("break or continue outside a for loop", error.getMessage());
+    assertEquals(new SourceLocation(call, 1, call + 1), error.location().orElseThrow());
+  }
+
+  @Test
+  void macroBareContinue_isKnownDivergenceFromUpstream() {
+    var source = "{% macro f() %}{% continue %}{% endmacro %}{{ f() }}";
+    var error =
+        assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
+    var call = source.indexOf("{{ f() }}") + 3;
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("break or continue outside a for loop", error.getMessage());
+    assertEquals(new SourceLocation(call, 1, call + 1), error.location().orElseThrow());
   }
 
   @Test
@@ -1111,21 +1283,38 @@ class InterpreterTest {
 
   @Test
   void callBlockBareBreak_isKnownDivergenceFromUpstream() {
+    // See macroBareBreak_isKnownDivergenceFromUpstream and WP7 Slice 4's raw-control note.
+    var source =
+        "{% macro f() %}[{{ caller() }}]{% endmacro %}" + "{% call f() %}{% break %}{% endcall %}";
     var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () ->
-                Template.parse(
-                        "{% macro f() %}[{{ caller() }}]{% endmacro %}"
-                            + "{% call f() %}{% break %}{% endcall %}")
-                    .render(Map.of()));
+        assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
+    var call = source.indexOf("{{ caller() }}") + 3;
     assertEquals(ErrorCategory.SYNTAX, error.category());
     assertEquals("break or continue outside a for loop", error.getMessage());
+    assertEquals(new SourceLocation(call, 1, call + 1), error.location().orElseThrow());
+  }
+
+  @Test
+  void callBlockBareContinue_isKnownDivergenceFromUpstream() {
+    var source =
+        "{% macro f() %}[{{ caller() }}]{% endmacro %}"
+            + "{% call f() %}{% continue %}{% endcall %}";
+    var error =
+        assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
+    var call = source.indexOf("{{ caller() }}") + 3;
+    assertEquals(ErrorCategory.SYNTAX, error.category());
+    assertEquals("break or continue outside a for loop", error.getMessage());
+    assertEquals(new SourceLocation(call, 1, call + 1), error.location().orElseThrow());
   }
 
   @Test
   void callBlockPushesKeywordArgumentsBagUnconditionallyForNonMacroCallees() {
     assertEquals("[]", Template.parse("{% call range(3) %}x{% endcall %}").render(Map.of()));
+    assertEquals(
+        "1[]2[]",
+        Template.parse(
+                "{% for i in [1,2] %}{{ i }}{% call range(2) %}{% break %}{% endcall %}{% endfor %}")
+            .render(Map.of()));
     var error =
         assertThrows(
             TemplateRenderException.class,
