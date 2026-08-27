@@ -9,6 +9,7 @@ const interpreterSourcePath = 'upstream/vendor/test/interpreter.test.js';
 const corpusPath = 'src/test/resources/corpus/v1.jsonl';
 const lockPath = 'upstream/upstream-lock.json';
 const sourceInventoryPath = 'upstream/corpus-source-inventory.json';
+const runtimeSourcePath = 'upstream/vendor/src/runtime.ts';
 // These upstream fixtures inject JavaScript functions through the render context. The public
 // differential-corpus schema intentionally does not serialize functions: its `globals` field is
 // reserved until the pinned Template API can inject non-built-in globals. Keep the exclusions
@@ -175,6 +176,7 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
   validateSourceInventory(inventory, testFiles, excludedTestFiles);
+  runtimeSurfaceCoverage(await readFile(runtimeSourcePath, 'utf8'), committedRecords);
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
@@ -214,6 +216,46 @@ function validateSourceInventory(inventory, testFiles, excludedTestFiles) {
       throw new Error(`Invalid corpus source inventory entry: ${source}`);
     }
   }
+}
+
+function runtimeSurfaceCoverage(runtimeSource, records) {
+  const between = (start, end) => {
+    const from = runtimeSource.indexOf(start);
+    const to = runtimeSource.indexOf(end, from);
+    if (from < 0 || to < 0) throw new Error('Could not extract pinned runtime surface');
+    return runtimeSource.slice(from, to);
+  };
+  const mapEntries = (source) => [...source.matchAll(/\[\s*"([^"]+)"\s*,/g)].map((match) => match[1]);
+  const cases = (source) => [...source.matchAll(/case "([^"]+)"/g)].map((match) => match[1]);
+  const unique = (names) => [...new Set(names)].sort();
+  const tests = unique(mapEntries(between('private static readonly TESTS', 'tests: ReadonlyMap')));
+  const globals = unique([...between('export function setupGlobals', '/**\n * Helper function').matchAll(/env\.set\("([^"]+)"/g)]
+    .map((match) => match[1]));
+  const stringMembers = unique(mapEntries(between('export class StringValue', 'export class BooleanValue')));
+  const objectMembers = unique(mapEntries(between('export class ObjectValue', '\n\titems():')));
+  const arrayMembers = unique(mapEntries(between('export class ArrayValue', 'export class TupleValue')));
+  const filtersSource = between('private applyFilter', 'private evaluateFilterExpression');
+  const filters = unique([
+    ...cases(filtersSource),
+    ...[...filtersSource.matchAll(/filter(?:Name|\.value) === "([^"]+)"/g)].map((match) => match[1]),
+    ...objectMembers,
+  ]);
+  const surfaces = [
+    ['filter', filters], ['test', tests], ['string member', stringMembers],
+    ['object member', objectMembers], ['array member', arrayMembers], ['global', globals],
+  ];
+  for (const [surface, names] of surfaces) {
+    for (const name of names) {
+      const usage = new RegExp('(?:\\||\\.|\\bis\\s+|\\b)' + escapeRegex(name) + '(?:\\b|\\(|\\s)');
+      if (!records.some((record) => typeof record.template === 'string' && usage.test(record.template))) {
+        throw new Error('Pinned runtime ' + surface + ' lacks differential-corpus coverage: ' + name);
+      }
+    }
+  }
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&');
 }
 
 async function testSources(directory, relative = '', seen = new Set()) {

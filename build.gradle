@@ -185,6 +185,7 @@ tasks.register('corpusCoverage', Exec) {
   args 'tools/corpus/convert-upstream-tests.mjs', '--check', "--report=${corpusCoverageReport.absolutePath}"
   inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs', 'tools/corpus/iana-time-zones.txt',
       'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json', 'upstream/corpus-source-inventory.json',
+      'upstream/vendor/src/runtime.ts',
       fileTree('upstream/vendor/test') { include '**/*.test.js' })
   outputs.file(corpusCoverageReport)
 }
