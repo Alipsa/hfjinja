@@ -418,6 +418,10 @@ public final class Interpreter {
     for (var item : values)
       if (!(item instanceof Value.ObjectValue))
         throw filterType("`" + name + "` can only be applied to array of objects", location);
+    for (var argument : call.args())
+      if (!(argument instanceof Expression.StringLiteral))
+        throw new TemplateRenderException(
+            "arguments of `" + name + "` must be strings", ErrorCategory.TYPE, location);
     return filterSelectAttr(values, filterArguments(name, call, env, budget), location, select);
   }
 
@@ -487,15 +491,6 @@ public final class Interpreter {
 
   private static Value filterDefault(
       Value operand, NamedArguments filter, SourceLocation location) {
-    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
-    // "Known gaps this slice leaves open" — strict unknown-keyword rejection): upstream silently
-    // ignores keywords outside "boolean" instead of throwing.
-    requireNoUnknownKeywords(filter, location, "boolean");
-    // Known gap (same doc, "per-filter arity caps"): upstream ignores extra positional arguments
-    // past two instead of throwing.
-    if (filter.positional().size() > 2)
-      throw new TemplateRenderException(
-          "`default` filter accepts at most two arguments", ErrorCategory.ARITY, location);
     var fallback =
         filter.positional().isEmpty() ? new Value.StringValue("") : filter.positional().get(0);
     Value booleanFlag =
@@ -531,15 +526,6 @@ public final class Interpreter {
   }
 
   private static Value filterJoin(Value operand, NamedArguments filter, SourceLocation location) {
-    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
-    // "Known gaps this slice leaves open" — strict unknown-keyword rejection): upstream silently
-    // ignores keywords outside "separator" instead of throwing.
-    requireNoUnknownKeywords(filter, location, "separator");
-    // Known gap (same doc, "per-filter arity caps"): upstream ignores extra positional arguments
-    // past one instead of throwing.
-    if (filter.positional().size() > 1)
-      throw new TemplateRenderException(
-          "`join` filter accepts at most one argument", ErrorCategory.ARITY, location);
     Value separator =
         filter.positional().isEmpty()
             ? filter.keywords().get("separator")
@@ -681,27 +667,11 @@ public final class Interpreter {
       Value operand, NamedArguments filter, SourceLocation location) {
     if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterReceiver(filter.name(), operand, location);
-    if (filter.positional().size() < 2)
-      throw filterType("replace() requires at least two arguments", location);
-    Value old = filter.positional().isEmpty() ? null : filter.positional().getFirst();
-    Value replacement = filter.positional().size() < 2 ? null : filter.positional().get(1);
-    if (!(old instanceof Value.StringValue oldString)
-        || !(replacement instanceof Value.StringValue newString))
-      throw filterType("replace() arguments must be strings", location);
-    Value count =
-        filter.positional().size() > 2
-            ? filter.positional().get(2)
-            : filter.keywords().get("count");
-    if (count != null
-        && !(count instanceof Value.IntegerValue)
-        && !(count instanceof Value.NullValue))
-      throw filterType("replace() count argument must be a number or null", location);
-    return new Value.StringValue(
-        replace(
-            string.value(),
-            oldString.value(),
-            newString.value(),
-            count instanceof Value.IntegerValue number ? (int) number.value() : -1));
+    var arguments = new ArrayList<>(filter.positional());
+    // Filter calls always append their keyword bag, including an empty one. The bag is an ordinary
+    // upstream argument slot, so it can be observed as the replacement value.
+    arguments.add(new Value.KeywordArgumentsValue(filter.keywords()));
+    return stringReplace(string.value(), arguments, location);
   }
 
   private static Value filterArgument(NamedArguments filter, int index, String key) {
@@ -811,14 +781,9 @@ public final class Interpreter {
    */
   private static Value filterSelectAttr(
       List<Value> values, NamedArguments filter, SourceLocation location, boolean select) {
-    if (!filter.keywords().isEmpty())
+    if (filter.positional().isEmpty())
       throw new TemplateRenderException(
-          "`" + filter.name() + "` filter does not accept keyword arguments",
-          ErrorCategory.ARITY,
-          location);
-    if (filter.positional().isEmpty() || filter.positional().size() > 3)
-      throw new TemplateRenderException(
-          "`" + filter.name() + "` filter requires 1 to 3 arguments",
+          "`" + filter.name() + "` filter requires at least one argument",
           ErrorCategory.ARITY,
           location);
     var attr = requireFilterString(filter, 0, location);
@@ -914,17 +879,6 @@ public final class Interpreter {
 
   private static Value filterNumber(
       Value operand, NamedArguments filter, SourceLocation location, boolean integer) {
-    // Known gap (see docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md,
-    // "Known gaps this slice leaves open" — strict unknown-keyword rejection): upstream silently
-    // ignores keywords outside "default" instead of throwing.
-    requireNoUnknownKeywords(filter, location, "default");
-    // Known gap (same doc, "per-filter arity caps"): upstream ignores extra positional arguments
-    // past one instead of throwing.
-    if (filter.positional().size() > 1)
-      throw new TemplateRenderException(
-          "`" + filter.name() + "` filter accepts at most one argument",
-          ErrorCategory.ARITY,
-          location);
     var fallback =
         filter.positional().isEmpty()
             ? filter.keywords().get("default")
@@ -986,7 +940,7 @@ public final class Interpreter {
       List<Expression> args, Environment env, RenderBudget budget) {
     var positional = new ArrayList<Value>();
     // LinkedHashMap preserves source insertion order so error reporting stays deterministic; the
-    // returned map wraps this local unmodifiable rather than copying it via an order-agnostic Map
+    // returned map wraps this local unmodifiable rather than copying it via an order-agnostic
     // factory — see this plan's Step 2 source guard in
     // docs/superpowers/plans/2026-08-23-wp5-slice2-spread-call-arguments.md. keywords never
     // escapes this method otherwise, so wrapping it directly is safe.
@@ -1008,7 +962,7 @@ public final class Interpreter {
       } else {
         if (sawKeyword)
           throw new TemplateRenderException(
-              "Positional arguments cannot follow keyword arguments",
+              "Positional arguments must come before keyword arguments",
               ErrorCategory.SYNTAX,
               argument.location());
         positional.add(evaluateExpression(argument, env, budget));
@@ -1017,16 +971,6 @@ public final class Interpreter {
     return new EvaluatedArguments(
         List.copyOf(positional),
         keywords.isEmpty() ? Map.of() : Collections.unmodifiableMap(keywords));
-  }
-
-  private static void requireNoUnknownKeywords(
-      NamedArguments arguments, SourceLocation location, String allowed) {
-    for (var key : arguments.keywords().keySet())
-      if (!key.equals(allowed))
-        throw new TemplateRenderException(
-            "Unknown `" + arguments.name() + "` filter argument: " + key,
-            ErrorCategory.VALUE,
-            location);
   }
 
   private static TemplateRenderException filterReceiver(
@@ -1253,7 +1197,6 @@ public final class Interpreter {
   private static Value stringBuiltin(String receiver, String name) {
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
-          var positional = positional(arguments);
           return switch (name) {
             case "upper" -> new Value.StringValue(receiver.toUpperCase(Locale.ROOT));
             case "lower" -> new Value.StringValue(receiver.toLowerCase(Locale.ROOT));
@@ -1262,8 +1205,8 @@ public final class Interpreter {
             case "lstrip" -> new Value.StringValue(JsOperations.trimStartEcmaWhitespace(receiver));
             case "title" -> new Value.StringValue(titleCase(receiver));
             case "capitalize" -> new Value.StringValue(capitalize(receiver));
-            case "split" -> stringSplit(receiver, positional, location);
-            case "replace" -> stringReplace(receiver, positional, arguments, location);
+            case "split" -> stringSplit(receiver, arguments, location);
+            case "replace" -> stringReplace(receiver, arguments, location);
             default -> throw new AssertionError(name);
           };
         });
@@ -1326,13 +1269,16 @@ public final class Interpreter {
   }
 
   private static Value stringReplace(
-      String receiver, List<Value> positional, List<Value> arguments, SourceLocation location) {
-    if (positional.size() < 2)
+      String receiver, List<Value> arguments, SourceLocation location) {
+    if (arguments.size() < 2)
       throw filterType("replace() requires at least two arguments", location);
-    if (!(positional.get(0) instanceof Value.StringValue oldValue)
-        || !(positional.get(1) instanceof Value.StringValue newValue))
+    if (!(arguments.get(0) instanceof Value.StringValue oldValue)
+        || !(arguments.get(1) instanceof Value.StringValue newValue))
       throw filterType("replace() arguments must be strings", location);
-    Value count = positional.size() > 2 ? positional.get(2) : keyword(arguments, "count");
+    Value count =
+        arguments.size() > 2 && !(arguments.get(2) instanceof Value.KeywordArgumentsValue)
+            ? arguments.get(2)
+            : keyword(arguments, "count");
     if (count != null
         && !(count instanceof Value.IntegerValue)
         && !(count instanceof Value.NullValue))
@@ -1379,16 +1325,16 @@ public final class Interpreter {
           var positional = positional(arguments);
           return switch (name) {
             case "get" -> {
-              if (positional.isEmpty() || !(positional.getFirst() instanceof Value.StringValue key))
+              if (arguments.isEmpty() || !(arguments.getFirst() instanceof Value.StringValue key))
                 throw filterType(
                     "Object key must be a string: got "
-                        + (positional.isEmpty() ? "UndefinedValue" : type(positional.getFirst())),
+                        + (arguments.isEmpty() ? "UndefinedValue" : type(arguments.getFirst())),
                     location);
               yield object
                   .values()
                   .getOrDefault(
                       key.value(),
-                      positional.size() > 1 ? positional.get(1) : Value.NullValue.INSTANCE);
+                      arguments.size() > 1 ? arguments.get(1) : Value.NullValue.INSTANCE);
             }
             case "keys" ->
                 new Value.ArrayValue(
