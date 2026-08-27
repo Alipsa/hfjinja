@@ -607,7 +607,8 @@ class InterpreterTest {
   // missing-format message ("strftime_now() expected one string argument") asserted above: a
   // message-based assertion -- such as `getMessage()` and `raisedMessage(...)` here -- can only
   // distinguish the two TYPE branches if their texts differ, not merely their ErrorCategory.
-  // `none` and an undefined-backed value like `x.missing` both pass the missing-format guard (`a` is
+  // `none` and an undefined-backed value like `x.missing` both pass the missing-format guard (`a`
+  // is
   // non-empty and `a.get(0)` is not a KeywordArgumentsValue) but then fail the
   // `instanceof Value.StringValue` check in Interpreter.strftime, so both land on the TYPE
   // branch below.
