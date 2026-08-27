@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Run every checked-in template-bearing differential-corpus record against hfjinja's public Java
+  API as well as the pinned Node oracle.
+
 ### Fixed
 
 - Report `SourceLocation`s in terms of the caller's original template string: preprocessing

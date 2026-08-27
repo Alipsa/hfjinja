@@ -29,6 +29,12 @@ test('rejects duplicate ids and malformed deterministic-time fields', () => {
   assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z'}), /requires an explicit zone/);
   assert.throws(() => validateRecord({...record, zone: 'UTC'}), /requires an explicit instant/);
   assert.throws(() => validateRecord({...record, instant: '2026-08-19T00:00:00Z', zone: 'not a zone'}), /IANA/);
+  assert.throws(() => validateRecord({...record, instant: '2000-01-02T03:04Z', zone: 'UTC'}), /ISO-8601/);
+  assert.throws(() => validateRecord({...record, instant: '2000-02-30T00:00:00Z', zone: 'UTC'}), /ISO-8601/);
+  assert.throws(() => validateRecord({...record, instant: '2000-01-01T24:00:00Z', zone: 'UTC'}), /ISO-8601/);
+  validateRecord({...record, instant: '2000-01-02T03:04:05.12Z', zone: 'UTC'});
+  assert.throws(() => validateRecord({...record, instant: '2000-01-02T03:04:05Z', zone: 'utc'}), /IANA/);
+  assert.throws(() => validateRecord({...record, instant: '2000-01-02T03:04:05Z', zone: 'GMT+5'}), /IANA/);
   assert.throws(() => validateRecord({...record, globals: {strftime_now: {kind: 'strftime_now'}}}), /not supported/);
 });
 

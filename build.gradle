@@ -57,6 +57,8 @@ tasks.register('codenarcBuildScripts', CodeNarc) {
 
 tasks.withType(Test).configureEach {
   useJUnitPlatform()
+  timeout = java.time.Duration.ofMinutes(5)
+  inputs.file('tools/corpus/iana-time-zones.txt')
   // This is a single-project build, so org.gradle.parallel cannot parallelize project work.
   // Two forked JVMs provide the intended test-level parallelism without oversubscribing CI hosts.
   maxParallelForks = 2
@@ -133,7 +135,7 @@ tasks.register('nodeCorpusTest', Exec) {
   description = 'Tests the versioned differential-corpus schema and error classifier.'
   executable = 'node'
   args '--test', 'tools/corpus/corpus.test.mjs'
-  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/corpus.test.mjs',
+  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/iana-time-zones.txt', 'tools/corpus/corpus.test.mjs',
       'tools/corpus/error-patterns-0.5.9.json', 'upstream/upstream-lock.json',
       fileTree('src/test/resources/model-templates'))
   outputs.file(nodeCorpusTestMarker).withPropertyName('verifiedMarker')
@@ -163,7 +165,7 @@ tasks.register('nodeCorpusVerify', Exec) {
   executable = 'node'
   args 'tools/corpus/run-node-oracle.mjs', '--corpus', 'src/test/resources/corpus/v1.jsonl',
       '--patterns', 'tools/corpus/error-patterns-0.5.9.json', '--lock', 'upstream/upstream-lock.json'
-  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/run-node-oracle.mjs',
+  inputs.files('tools/corpus/corpus.mjs', 'tools/corpus/iana-time-zones.txt', 'tools/corpus/run-node-oracle.mjs',
       'tools/corpus/error-patterns-0.5.9.json', 'src/test/resources/corpus/v1.jsonl',
       'upstream/vendor/dist/index.js', 'upstream/upstream-lock.json')
   outputs.file(nodeCorpusVerifyMarker).withPropertyName('verifiedMarker')
@@ -179,7 +181,7 @@ tasks.register('corpusCoverage', Exec) {
   description = 'Checks extracted corpus fixtures and writes their upstream coverage report.'
   executable = 'node'
   args 'tools/corpus/convert-upstream-tests.mjs', '--check', "--report=${corpusCoverageReport.absolutePath}"
-  inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs',
+  inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs', 'tools/corpus/iana-time-zones.txt',
       'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json',
       fileTree('upstream/vendor/test') { include '**/*.test.js' })
   outputs.file(corpusCoverageReport)

@@ -92,6 +92,9 @@ function canonicalJson(value) {
 
 async function writeCoverage(path, generated, upstreamFixtureCount) {
   const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+  const committedRecords = await readCorpus(corpusPath);
+  validateCorpus(committedRecords, corpusPath);
+  const committedTemplateRecords = committedRecords.filter((record) => typeof record.template === 'string').length;
   const testFiles = await testSources('upstream/vendor/test');
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
@@ -100,10 +103,11 @@ async function writeCoverage(path, generated, upstreamFixtureCount) {
     `Vendored non-model unit sources: ${testFiles.length}`,
     `Vendored template fixture definitions: ${upstreamFixtureCount}`,
     `Automatically extracted fixture definitions: ${generated.length}`,
+    `Committed template-bearing corpus records: ${committedTemplateRecords} (executed by both the pinned Node oracle and Java differential runner)`,
     `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',
     '## Extracted fixtures', '', '| Corpus id | Upstream source |', '| --- | --- |',
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
-    'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription.', '',
+    'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription; committed-record execution does not complete that inventory.', '',
   ];
   const reportPath = resolve(path);
   await mkdir(dirname(reportPath), {recursive: true});
