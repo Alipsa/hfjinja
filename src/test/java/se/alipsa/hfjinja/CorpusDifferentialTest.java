@@ -26,6 +26,7 @@ class CorpusDifferentialTest {
 
   static List<DynamicTest> dynamicTests(List<CorpusFixtures.Record> records) {
     var executable = records.stream().filter(CorpusFixtures.Record::templateBearing).toList();
+    long expectedExecutions = records.stream().filter(record -> !record.hashOnly()).count();
     if (executable.isEmpty())
       throw new AssertionError("no template-bearing corpus records were executed");
     var tests =
@@ -36,7 +37,7 @@ class CorpusDifferentialTest {
                         record.id() + " (line " + record.line() + ")", () -> render(record)))
             .toList();
     assertEquals(
-        executable.size(),
+        expectedExecutions,
         tests.size(),
         "every template-bearing record must become one dynamic test");
     return tests;
@@ -95,6 +96,7 @@ class CorpusDifferentialTest {
             null,
             null,
             new CorpusFixtures.Expected("y", null),
+            false,
             7);
     var textFailure = assertThrows(AssertionError.class, () -> render(text));
     assertTrue(textFailure.getMessage().contains("wrong-text"));
@@ -108,6 +110,7 @@ class CorpusDifferentialTest {
             null,
             null,
             new CorpusFixtures.Expected(null, ErrorCategory.SYNTAX),
+            false,
             8);
     var errorFailure = assertThrows(AssertionError.class, () -> render(successWhenErrorExpected));
     assertTrue(errorFailure.getMessage().contains("expected-error"));
@@ -121,6 +124,7 @@ class CorpusDifferentialTest {
             null,
             null,
             new CorpusFixtures.Expected("2000-01-02 03:04", null),
+            false,
             9);
     assertThrows(
         AssertionError.class,

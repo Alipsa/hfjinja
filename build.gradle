@@ -58,7 +58,9 @@ tasks.register('codenarcBuildScripts', CodeNarc) {
 tasks.withType(Test).configureEach {
   useJUnitPlatform()
   timeout = java.time.Duration.ofMinutes(5)
-  inputs.file('tools/corpus/iana-time-zones.txt')
+  def canonicalIanaZones = file('tools/corpus/iana-time-zones.txt')
+  inputs.file(canonicalIanaZones)
+  systemProperty 'hfjinja.canonicalIanaZones', canonicalIanaZones.absolutePath
   // This is a single-project build, so org.gradle.parallel cannot parallelize project work.
   // Two forked JVMs provide the intended test-level parallelism without oversubscribing CI hosts.
   maxParallelForks = 2

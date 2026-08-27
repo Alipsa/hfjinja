@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
 
 /** Focused schema and JSON coverage for the test-only corpus reader. */
@@ -35,6 +36,15 @@ class CorpusFixturesTest {
             IllegalArgumentException.class,
             () -> CorpusFixtures.readContent(record("\"globals\":{}"), "globals.jsonl"));
     assertTrue(globals.getMessage().contains("not supported"));
+    String invalidUnicode = new String(new char[] {'\\', 'u', '+', '0', '4', '1'});
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            CorpusFixtures.readContent(
+                "{\"id\":\"unicode\",\"source\":\"test\",\"template\":\""
+                    + invalidUnicode
+                    + "\",\"context\":{},\"expected\":{\"text\":\"x\"}}",
+                "unicode.jsonl"));
   }
 
   @Test
@@ -57,6 +67,13 @@ class CorpusFixturesTest {
         () ->
             CorpusFixtures.readContent(
                 record("\"instant\":\"2000-01-02T03:04:05Z\",\"zone\":\"GMT+5\""), "zone.jsonl"));
+    assertEquals(
+        ZoneId.of("Africa/Abidjan"),
+        CorpusFixtures.readContent(
+                record("\"instant\":\"2000-01-02T03:04:05Z\",\"zone\":\"Africa/Abidjan\""),
+                "zone.jsonl")
+            .getFirst()
+            .zone());
     assertEquals(
         "2000-01-02T03:04:05.120Z",
         CorpusFixtures.readContent(

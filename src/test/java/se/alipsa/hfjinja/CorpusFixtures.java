@@ -131,6 +131,7 @@ final class CorpusFixtures {
         instant,
         zone,
         expected,
+        hashOnly,
         line);
   }
 
@@ -252,11 +253,15 @@ final class CorpusFixtures {
   }
 
   private static Set<String> canonicalZones() {
+    String configuredPath = System.getProperty("hfjinja.canonicalIanaZones");
+    if (configuredPath == null)
+      throw new IllegalStateException(
+          "hfjinja.canonicalIanaZones system property is not configured");
     try {
-      return Set.copyOf(
-          Files.readAllLines(Path.of("tools/corpus/iana-time-zones.txt"), StandardCharsets.UTF_8));
+      return Set.copyOf(Files.readAllLines(Path.of(configuredPath), StandardCharsets.UTF_8));
     } catch (IOException error) {
-      throw new IllegalStateException("could not read canonical IANA zone list", error);
+      throw new IllegalStateException(
+          "could not read canonical IANA zone list at " + configuredPath, error);
     }
   }
 
@@ -268,6 +273,7 @@ final class CorpusFixtures {
       Instant instant,
       ZoneId zone,
       Expected expected,
+      boolean hashOnly,
       int line) {
     boolean templateBearing() {
       return template != null;
@@ -381,11 +387,13 @@ final class CorpusFixtures {
       if (index + 4 > input.length()) throw error("incomplete unicode escape");
       String hex = input.substring(index, index + 4);
       index += 4;
-      try {
-        return (char) Integer.parseInt(hex, 16);
-      } catch (NumberFormatException error) {
-        throw error("invalid unicode escape");
+      int value = 0;
+      for (int character = 0; character < hex.length(); character++) {
+        int digit = Character.digit(hex.charAt(character), 16);
+        if (digit < 0) throw error("invalid unicode escape");
+        value = value * 16 + digit;
       }
+      return (char) value;
     }
 
     private Object literal(String expected, Object value) {
