@@ -61,6 +61,42 @@
     {
       "regex": "^`map` expressions without `attribute` set are not currently supported\\.$",
       "category": "TYPE"
+    },
+    {
+      "regex": "^wp7-eager-sentinel$",
+      "category": "EXPLICIT_RAISE"
+    },
+    {
+      "regex": "^arguments of `(?<name>selectattr|rejectattr)` must be strings$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Cannot convert to JSON: KeywordArgumentsValue$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^sep argument must be a string or null$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^maxsplit argument must be a number$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^replace\\(\\) arguments must be strings$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^replace\\(\\) requires at least two arguments$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Object key must be a string: got (?<type>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Positional arguments must come before keyword arguments$",
+      "category": "SYNTAX"
     }
   ]
 }

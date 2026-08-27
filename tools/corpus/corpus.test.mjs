@@ -65,10 +65,26 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('Cannot apply filter "abs" to type: FloatValue'), 'TYPE');
   assert.equal(classify('`selectattr` can only be applied to array of objects'), 'TYPE');
   assert.equal(classify('`map` expressions without `attribute` set are not currently supported.'), 'TYPE');
+  assert.equal(classify('wp7-eager-sentinel'), 'EXPLICIT_RAISE');
+  assert.equal(classify('arguments of `selectattr` must be strings'), 'TYPE');
+  assert.equal(classify('arguments of `rejectattr` must be strings'), 'TYPE');
+  assert.equal(classify('Cannot convert to JSON: KeywordArgumentsValue'), 'TYPE');
+  assert.equal(classify('sep argument must be a string or null'), 'TYPE');
+  assert.equal(classify('maxsplit argument must be a number'), 'TYPE');
+  assert.equal(classify('replace() arguments must be strings'), 'TYPE');
+  assert.equal(classify('replace() requires at least two arguments'), 'TYPE');
+  assert.equal(classify('Object key must be a string: got KeywordArgumentsValue'), 'TYPE');
+  assert.equal(classify('Positional arguments must come before keyword arguments'), 'SYNTAX');
   assert.throws(() => classify('Unknown FunctionValue filter: frob'), /Unmatched upstream error/);
   assert.throws(() => classify('Cannot apply filter abs to type: FloatValue'), /Unmatched upstream error/);
   assert.throws(() => classify('selectattr can only be applied to array of objects'), /Unmatched upstream error/);
   assert.throws(() => classify('`map` expressions without attribute set are not currently supported.'), /Unmatched upstream error/);
+  assert.throws(() => classify('wp7-eager-sentinel-extra'), /Unmatched upstream error/);
+  assert.throws(() => classify('arguments of selectattr must be strings'), /Unmatched upstream error/);
+  assert.throws(() => classify('sep argument must be a string or undefined'), /Unmatched upstream error/);
+  assert.throws(() => classify('replace arguments must be strings'), /Unmatched upstream error/);
+  assert.throws(() => classify('Object key must be a string: KeywordArgumentsValue'), /Unmatched upstream error/);
+  assert.throws(() => classify('Positional arguments cannot follow keyword arguments'), /Unmatched upstream error/);
   assert.throws(() => classify('unmapped upstream error'), /Unmatched upstream error/);
   await assert.rejects(
     errorClassifier('tools/corpus/error-patterns-0.5.9.json', '@huggingface/jinja@other'), /does not match/,

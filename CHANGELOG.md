@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Align call-form filter argument evaluation, error categories, and diagnostics with the pinned
   upstream runtime.
+- Match upstream keyword-bag handling for `replace`, `get`, and `split`, including the
+  positional-after-keyword diagnostic.
 
 ## [0.5.0] - TBD
 

@@ -276,11 +276,7 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ 'x' | default }}").render(Map.of()));
     assertEquals(ErrorCategory.TYPE, defaultIdentifier.category());
-    var value =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ 'x' | join(other='-') }}").render(Map.of()));
-    assertEquals(ErrorCategory.VALUE, value.category());
+    assertEquals("x", Template.parse("{{ 'x' | join(other='-') }}").render(Map.of()));
     var unknownTest =
         assertThrows(
             TemplateRenderException.class,
@@ -697,7 +693,7 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ namespace(a=1, raise_exception('boom')) }}").render(Map.of()));
     assertEquals(ErrorCategory.SYNTAX, error.category());
-    assertEquals("Positional arguments cannot follow keyword arguments", error.getMessage());
+    assertEquals("Positional arguments must come before keyword arguments", error.getMessage());
   }
 
   @Test
@@ -804,7 +800,7 @@ class InterpreterTest {
             TemplateRenderException.class,
             () -> Template.parse("{{ 1 | int(a=1, 2) }}").render(Map.of()));
     assertEquals(ErrorCategory.SYNTAX, error.category());
-    assertEquals("Positional arguments cannot follow keyword arguments", error.getMessage());
+    assertEquals("Positional arguments must come before keyword arguments", error.getMessage());
   }
 
   @Test
@@ -844,24 +840,17 @@ class InterpreterTest {
   }
 
   @Test
-  void unknownFilterKeywordReportsFirstKeyInSourceOrder() {
-    // z, a, m is deliberately not alphabetical: under java.util.HashMap these three short string
-    // keys iterate as [a, z, m], reporting "a" first instead of the source-order "z" — so this
-    // assertion fails if the implementation regresses from an insertion-ordered map to a HashMap.
-    // (a, b, c would not catch that regression: HashMap happens to iterate that set in the same
-    // order it was inserted.)
-    assertEquals(
-        "Unknown `int` filter argument: z",
-        raisedMessage("{{ '1' | int(z=1, a=2, m=3) }}", Map.of()));
-    assertEquals("1", Template.parse("{{ 1 | int(z=1) }}").render(Map.of()));
-  }
-
-  @Test
-  void interpreterSourceContainsNoMapCopyOfSubstring() throws Exception {
+  void interpreterSourcePreservesEvaluatorKeywordOrder() throws Exception {
     var source =
         Files.readString(
             Path.of("src/main/java/se/alipsa/hfjinja/internal/runtime/Interpreter.java"));
-    assertFalse(source.contains("Map.copyOf"));
+    int start = source.indexOf("private static EvaluatedArguments evaluateArguments(");
+    int end = source.indexOf("\n  private static TemplateRenderException filterReceiver", start);
+    assertTrue(start >= 0 && end > start);
+    var body = source.substring(start, end);
+    assertTrue(body.contains("var keywords = new LinkedHashMap<String, Value>();"));
+    assertTrue(body.contains("Collections.unmodifiableMap(keywords)"));
+    assertFalse(body.contains("Map.copyOf(keywords)"));
   }
 
   @Test
@@ -875,52 +864,29 @@ class InterpreterTest {
   }
 
   @Test
-  void joinArityCap_isKnownDivergenceFromUpstream() {
-    var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ [1,2] | join(*['-','+']) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, error.category());
-    assertEquals("`join` filter accepts at most one argument", error.getMessage());
+  void joinIgnoresSurplusSpreadArguments() {
+    assertEquals("1-2", Template.parse("{{ [1,2] | join(*['-','+']) }}").render(Map.of()));
   }
 
   @Test
-  void defaultArityCap_isKnownDivergenceFromUpstream() {
-    var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ missing | default(*['a', true, 'c']) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, error.category());
-    assertEquals("`default` filter accepts at most two arguments", error.getMessage());
+  void defaultIgnoresSurplusSpreadArguments() {
+    assertEquals(
+        "a", Template.parse("{{ missing | default(*['a', true, 'c']) }}").render(Map.of()));
   }
 
   @Test
-  void intArityCap_isKnownDivergenceFromUpstream() {
-    var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ 'x' | int(*[1,2,3]) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, error.category());
-    assertEquals("`int` filter accepts at most one argument", error.getMessage());
+  void intIgnoresSurplusSpreadArguments() {
+    assertEquals("1", Template.parse("{{ 'x' | int(*[1,2,3]) }}").render(Map.of()));
   }
 
   @Test
-  void floatArityCap_isKnownDivergenceFromUpstream() {
-    var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ 'x' | float(*[1,2,3]) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, error.category());
-    assertEquals("`float` filter accepts at most one argument", error.getMessage());
+  void floatIgnoresSurplusSpreadArguments() {
+    assertEquals("1", Template.parse("{{ 'x' | float(*[1,2,3]) }}").render(Map.of()));
   }
 
   @Test
-  void unknownFilterKeyword_isKnownDivergenceFromUpstream() {
-    var error =
-        assertThrows(
-            TemplateRenderException.class,
-            () -> Template.parse("{{ '1' | int(a=1, b=2, c=3) }}").render(Map.of()));
-    assertEquals(ErrorCategory.VALUE, error.category());
+  void intIgnoresUnknownKeywords() {
+    assertEquals("1", Template.parse("{{ '1' | int(a=1, b=2, c=3) }}").render(Map.of()));
   }
 
   @Test
@@ -1404,6 +1370,10 @@ class InterpreterTest {
                 filterError("{{ [1, 2] | selectattr() }}").getMessage()),
         () ->
             assertEquals(
+                "`selectattr` filter requires at least one argument",
+                filterError("{{ [{'a': 1}] | selectattr() }}").getMessage()),
+        () ->
+            assertEquals(
                 ErrorCategory.ARITY, filterError("{{ [{'a': 1}] | selectattr() }}").category()),
         () ->
             assertEquals(
@@ -1503,8 +1473,128 @@ class InterpreterTest {
     assertEquals(
         "true",
         Template.parse(
-                "{{ [{'n': '1'}, {'n': 1}, {'n': true}]|selectattr('n', 'equalto', 1)|length == 1 }}")
+                "{{ [{'n': '1'}, {'n': 1}, {'n': true}]|selectattr('n', 'equalto', '1')|length == 1 }}")
             .render(Map.of()));
+  }
+
+  @Test
+  void wp7Slice3FilterInvocationParity() {
+    assertAll(
+        () ->
+            assertEquals(
+                "[{\"a\": \"x\"}]",
+                Template.parse("{{ [{'a':'x'}]|selectattr('a','string','x','ignored') }}")
+                    .render(Map.of())),
+        () ->
+            assertEquals(
+                "arguments of `selectattr` must be strings",
+                raisedMessage("{{ [{'a':1}]|selectattr('a'~'') }}", Map.of())),
+        () ->
+            assertEquals(
+                "replace() arguments must be strings",
+                raisedMessage("{{ 'abc'.replace('a',count=1) }}", Map.of())),
+        () ->
+            assertEquals(
+                "ZZa", Template.parse("{{ 'aaa'|replace('a','Z',count=2) }}").render(Map.of())),
+        () ->
+            assertEquals(
+                "Cannot convert to JSON: KeywordArgumentsValue",
+                raisedMessage("{{ {'a':1}|get('z',nope=1) }}", Map.of())),
+        () ->
+            assertEquals(
+                "replace() arguments must be strings",
+                raisedMessage("{{ 'ab'|replace('a') }}", Map.of())),
+        () ->
+            assertEquals(
+                "Cannot convert to JSON: KeywordArgumentsValue",
+                raisedMessage("{{ {'a':1}.get('z',default='d') }}", Map.of())),
+        () ->
+            assertEquals(
+                "maxsplit argument must be a number",
+                raisedMessage("{{ 'a b c'.split(' ',maxsplit=1) }}", Map.of())),
+        () ->
+            assertEquals(
+                "sep argument must be a string or null",
+                raisedMessage("{{ 'a b'.split(sep=' ') }}", Map.of())),
+        () ->
+            assertEquals(
+                "Object key must be a string: got KeywordArgumentsValue",
+                raisedMessage("{{ {'a':1}.get(foo=1) }}", Map.of())),
+        () ->
+            assertEquals(
+                "Positional arguments must come before keyword arguments",
+                raisedMessage("{% macro m(a=1) %}{{ a }}{% endmacro %}{{ m(a=1,2) }}", Map.of())),
+        () ->
+            assertEquals(
+                "replace() requires at least two arguments",
+                raisedMessage("{{ 'abc'|replace() }}", Map.of())),
+        () ->
+            assertEquals(
+                "replace() requires at least two arguments",
+                raisedMessage("{{ 'ab'|replace(old='a',new='x') }}", Map.of())),
+        () ->
+            assertEquals(
+                "Zbc", Template.parse("{{ 'abc'|replace('a','Z',1,99) }}").render(Map.of())));
+  }
+
+  @Test
+  void wp7CorpusSelectattrAstAndFilterBlockCases() {
+    assertAll(
+        () ->
+            assertEquals(
+                "arguments of `selectattr` must be strings",
+                raisedMessage("{{ [{'a':1}]|selectattr(*['a']) }}", Map.of())),
+        () ->
+            assertEquals(
+                "arguments of `selectattr` must be strings",
+                raisedMessage("{{ [{'a':1}]|selectattr(a='a') }}", Map.of())),
+        () ->
+            assertEquals(
+                "1", Template.parse("{% filter int(1,2) %}x{% endfilter %}").render(Map.of())),
+        () ->
+            assertEquals(
+                "replace() arguments must be strings",
+                raisedMessage("{% filter replace('a') %}abc{% endfilter %}", Map.of())),
+        () ->
+            assertEquals(
+                "wp7-eager-sentinel",
+                raisedMessage(
+                    "{% filter int(1,raise_exception('wp7-eager-sentinel')) %}x{% endfilter %}",
+                    Map.of())));
+  }
+
+  @Test
+  void wp7CorpusGetFilterWithoutKeywords() {
+    assertEquals("", Template.parse("{{ {'a':1}|get('z') }}").render(Map.of()));
+    assertEquals("1", Template.parse("{{ {'a':1}|get('a') }}").render(Map.of()));
+  }
+
+  @Test
+  void wp7CorpusEagerSelectedFilterArguments() {
+    assertAll(
+        () -> assertEagerSentinel("{{ 'x'|int(1,raise_exception('wp7-eager-sentinel')) }}"),
+        () -> assertEagerSentinel("{{ 'x'|float(1,raise_exception('wp7-eager-sentinel')) }}"),
+        () ->
+            assertEagerSentinel(
+                "{{ [2,1]|sort(false,false,none,raise_exception('wp7-eager-sentinel')) }}"),
+        () -> assertEagerSentinel("{{ [1,2]|join('-',raise_exception('wp7-eager-sentinel')) }}"),
+        () ->
+            assertEagerSentinel(
+                "{{ 'x'|indent(2,false,false,raise_exception('wp7-eager-sentinel')) }}"),
+        () ->
+            assertEagerSentinel(
+                "{{ [{'a':1}]|map(attribute='a',unused=raise_exception('wp7-eager-sentinel')) }}"),
+        () -> assertEagerSentinel("{{ [1]|tojson(raise_exception('wp7-eager-sentinel')) }}"),
+        () ->
+            assertEagerSentinel(
+                "{{ missing|default('x',false,raise_exception('wp7-eager-sentinel')) }}"),
+        () ->
+            assertEagerSentinel(
+                "{{ 'abc'|replace('a','z',1,raise_exception('wp7-eager-sentinel')) }}"));
+  }
+
+  private static void assertEagerSentinel(String source) {
+    assertEquals("wp7-eager-sentinel", raisedMessage(source, Map.of()));
   }
 
   @Test
@@ -1930,17 +2020,7 @@ class InterpreterTest {
                 "[[, 1], [\"z\", 2]]",
                 Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
                     .render(Map.of())),
-        () -> assertEquals("false", Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())),
-        () -> {
-          var error =
-              assertThrows(
-                  TemplateRenderException.class,
-                  () -> Template.parse("{{ 'ab'|replace('a') }}").render(Map.of()));
-          assertEquals("replace() requires at least two arguments", error.getMessage());
-        },
-        () ->
-            assertEquals(
-                "", Template.parse("{{ {'a': 1}.get('z', default='d') }}").render(Map.of())));
+        () -> assertEquals("false", Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())));
   }
 
   @Test
