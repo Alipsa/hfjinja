@@ -101,16 +101,26 @@ export async function errorClassifier(path, expectedVersion) {
         && (!Array.isArray(pattern.constructors) || pattern.constructors.some((name) => !nonBlank(name)))) {
       throw new Error(`Invalid error pattern ${index + 1} in ${path}`);
     }
+    if (pattern.recordIds !== undefined
+        && (!Array.isArray(pattern.recordIds) || pattern.recordIds.some((id) => !nonBlank(id)))) {
+      throw new Error(`Invalid error pattern ${index + 1} in ${path}`);
+    }
     try {
-      return {category: pattern.category, regex: new RegExp(pattern.regex), constructors: pattern.constructors};
+      return {
+        category: pattern.category,
+        regex: new RegExp(pattern.regex),
+        constructors: pattern.constructors,
+        recordIds: pattern.recordIds,
+      };
     } catch (error) {
       throw new Error(`Invalid error pattern ${index + 1} in ${path}: ${error.message}`);
     }
   });
-  return (message, constructorName) => {
+  return (message, constructorName, recordId) => {
     for (const pattern of patterns) {
       if (pattern.regex.test(message)
-          && (pattern.constructors === undefined || pattern.constructors.includes(constructorName))) {
+          && (pattern.constructors === undefined || pattern.constructors.includes(constructorName))
+          && (pattern.recordIds === undefined || pattern.recordIds.includes(recordId))) {
         return pattern.category;
       }
     }

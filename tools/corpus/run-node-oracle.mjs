@@ -61,7 +61,7 @@ for (const [index, record] of records.entries()) {
         : undefined;
       let category;
       try {
-        category = classifyError(message, constructorName);
+        category = classifyError(message, constructorName, record.id);
       } catch (classificationError) {
         if (record.expected.errorMessage === undefined)
           fail(label, classificationError instanceof Error ? classificationError.message : String(classificationError));

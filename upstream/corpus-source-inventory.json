@@ -3,7 +3,7 @@
   "sources": {
     "test/templates.test.js": {
       "coverage": "differential-corpus",
-      "reason": "All serializable render vectors are generated; four function-context vectors are named schema exclusions."
+      "reason": "All serializable render and error vectors are generated; four function-context render vectors are named schema exclusions."
     },
     "test/interpreter.test.js": {
       "coverage": "differential-corpus",
