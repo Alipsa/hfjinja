@@ -136,7 +136,12 @@ class InterpreterTest {
 
     // Upstream throws TypeError: undefined is not iterable (cannot read property
     // Symbol(Symbol.iterator)).
-    assertEquals("", Template.parse("{{ 'abc'[9][0:1] }}").render(Map.of()));
+    var undefinedSlice =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'[9][0:1] }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, undefinedSlice.category());
+    assertEquals("undefined is not iterable", undefinedSlice.getMessage());
     var undefinedProperty =
         assertThrows(
             TemplateRenderException.class,

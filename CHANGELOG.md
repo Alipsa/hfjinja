@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Align `namespace(...)` values with the pinned runtime's object members, filters, containment,
   deferred builtin fallback, and public render-error contract.
 - Preserve stable identity for bound string, object, and namespace member builtins.
+- Match pinned JavaScript coercion and TypeError behavior for undefined-backed string filters,
+  members, and operators.
 - Preserve the pinned runtime's deferred undefined behavior for empty `first`/`last`, including
   container reads, boolean and member dereferences, and filter/macro default arguments;
   also align case-sensitive sorting and undefined-backed string tests.

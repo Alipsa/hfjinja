@@ -272,6 +272,9 @@ public final class Interpreter {
     }
     if (left instanceof Value.StringValue string && right instanceof Value.StringValue other) {
       if (operator.equals("in") || operator.equals("not in")) {
+        if (other.undefinedBacked())
+          throw filterType(
+              "Cannot read properties of undefined (reading 'includes')", expression.location());
         boolean present = JsOperations.contains(string, other);
         return new Value.BooleanValue(operator.equals("in") ? present : !present);
       }
@@ -606,12 +609,13 @@ public final class Interpreter {
             : filter.positional().get(0);
     if (separator == null || separator instanceof Value.DeferredUndefinedValue)
       separator = new Value.StringValue("");
-    if (!(separator instanceof Value.StringValue string) || string.undefinedBacked())
+    if (!(separator instanceof Value.StringValue string))
       throw new TemplateRenderException("separator must be a string", ErrorCategory.TYPE, location);
     List<Value> values;
     if (operand instanceof Value.ArrayValue array) values = array.values();
     else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
-    else if (operand instanceof Value.StringValue value && !value.undefinedBacked()) {
+    else if (operand instanceof Value.StringValue value) {
+      if (filter.positional().isEmpty() && filter.keywords().isEmpty()) return value;
       values =
           value
               .value()
@@ -619,10 +623,11 @@ public final class Interpreter {
               .mapToObj(c -> (Value) new Value.StringValue(new String(Character.toChars(c))))
               .toList();
     } else throw filterReceiver("join", operand, location);
+    String separatorText = string.undefinedBacked() ? "," : string.value();
     return new Value.StringValue(
         values.stream()
             .map(v -> joinText(v, location))
-            .collect(java.util.stream.Collectors.joining(string.value())));
+            .collect(java.util.stream.Collectors.joining(separatorText)));
   }
 
   private static Value filterList(Value operand, SourceLocation location) {
@@ -993,7 +998,7 @@ public final class Interpreter {
       return integer
           ? new Value.IntegerValue(value.value() ? 1 : 0)
           : new Value.FloatValue(value.value() ? 1 : 0);
-    if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
+    if (!(operand instanceof Value.StringValue string))
       throw filterReceiver(filter.name(), operand, location);
     var parsed = integer ? parseInt(string.value()) : parseFloat(string.value());
     return Double.isNaN(parsed)
@@ -1271,7 +1276,8 @@ public final class Interpreter {
       return memberIndex(x.values(), p, n.location());
     }
     if (target instanceof Value.StringValue x) {
-      if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
+      if (x.undefinedBacked())
+        throw filterType("Cannot read properties of undefined (reading 'at')", n.location());
       if (p instanceof Value.StringValue property) {
         if (!property.undefinedBacked() && property.value().equals("length"))
           return new Value.IntegerValue(x.value().length());
@@ -1311,7 +1317,7 @@ public final class Interpreter {
             throw new TemplateRenderException(
                 name + "() requires at least one argument", ErrorCategory.ARITY, location);
           var pattern = arguments.getFirst();
-          if (pattern instanceof Value.StringValue string && !string.undefinedBacked())
+          if (pattern instanceof Value.StringValue string)
             return new Value.BooleanValue(matches.test(receiver, string.value()));
           if (pattern instanceof Value.ArrayValue array)
             return stringBoundaryTuple(receiver, name, matches, array.values(), location);
@@ -1418,6 +1424,8 @@ public final class Interpreter {
     if (!(arguments.get(0) instanceof Value.StringValue oldValue)
         || !(arguments.get(1) instanceof Value.StringValue newValue))
       throw filterType("replace() arguments must be strings", location);
+    if (oldValue.undefinedBacked())
+      throw filterType("Cannot read properties of undefined (reading 'length')", location);
     Value count;
     if (arguments.size() > 2) {
       Value thirdArgument = arguments.get(2);
@@ -1623,7 +1631,7 @@ public final class Interpreter {
     Double stopValue = sliceBound(stop, expression.stop(), "stop");
     Double stepValue = sliceBound(step, expression.step(), "step");
     if (target instanceof Value.StringValue string && string.undefinedBacked())
-      return Value.UndefinedValue.INSTANCE;
+      throw filterType("undefined is not iterable", memberLocation);
     if (arrayLike(target))
       return new Value.ArrayValue(
           JsSlice.slice(arrayValues(target), startValue, stopValue, stepValue));
