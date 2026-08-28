@@ -132,7 +132,7 @@ project.tasks.register('fuzzParserVerify', Exec) {
       '--report', fuzzParserVerifyReport.absolutePath
   inputs.files('tools/fuzz/generate-parser-cases.mjs', 'tools/fuzz/node-parser-runner.mjs',
       'tools/fuzz/compare-parser-results.mjs', 'tools/ast-snapshot/ast-serialize.mjs',
-      'upstream/upstream-lock.json', 'upstream/vendor/dist/index.js', sourceSets.test.runtimeClasspath)
+      'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json', 'upstream/vendor/dist/index.js', sourceSets.test.runtimeClasspath)
   outputs.file(fuzzParserVerifyReport)
   outputs.upToDateWhen { false }
 }
@@ -619,7 +619,7 @@ tasks.register('upstreamVerify') {
 
 def upstreamVerification = tasks.named('upstreamVerify')
 def nodeVersionVerification = tasks.named('nodeOracleVersion')
-def nodeTimeoutSeconds = [nodeCorpusTest: 120, nodeCorpusVerify: 300, corpusCoverage: 120, nodeOracleVersion: 30, astSnapshotVerify: 120, fuzzParserTest: 30, fuzzParserVerify: 120]
+def nodeTimeoutSeconds = [nodeCorpusTest: 120, nodeCorpusVerify: 300, corpusCoverage: 120, nodeOracleVersion: 30, astSnapshotVerify: 120, fuzzParserTest: 30, fuzzParserVerify: 300]
 ['nodeCorpusTest', 'nodeCorpusVerify', 'corpusCoverage', 'nodeOracleVersion', 'astSnapshotVerify', 'fuzzParserTest', 'fuzzParserVerify'].each { taskName ->
   tasks.named(taskName) {
     dependsOn upstreamVerification

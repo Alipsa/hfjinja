@@ -77,6 +77,18 @@ class ParserTest {
   }
 
   @Test
+  void reportsUpstreamLoopVariableNodeTypes() {
+    var integer = assertThrows(TemplateSyntaxException.class, () -> parse("{% for 1 in values %}"));
+    assertEquals(
+        "Expected identifier/tuple for the loop variable, got IntegerLiteral instead",
+        integer.getMessage());
+    var object = assertThrows(TemplateSyntaxException.class, () -> parse("{% for {} in values %}"));
+    assertEquals(
+        "Expected identifier/tuple for the loop variable, got ObjectLiteral instead",
+        object.getMessage());
+  }
+
+  @Test
   void oversizedIntegersRemainIntegerLiterals() {
     assertInstanceOf(Expression.IntegerLiteral.class, expression("{{ 123456789012345678901234 }}"));
   }

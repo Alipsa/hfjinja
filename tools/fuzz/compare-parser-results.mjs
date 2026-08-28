@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { ALGORITHM, generate, SMOKE_SEEDS } from './generate-parser-cases.mjs';
 
@@ -12,6 +12,7 @@ function option(name, fallback) { const i = process.argv.indexOf(name); return i
 const java = option('--java'), classpath = option('--java-classpath'), report = option('--report', 'build/reports/fuzz-parser.md');
 if (!java || !classpath) throw new Error('Usage: compare-parser-results.mjs --java <java21> --java-classpath <classpath> [--report path]');
 const count = Number(option('--count', '100'));
+const corpusPath = 'src/test/resources/corpus/v1.jsonl';
 const encode = source => Buffer.from(source, 'utf16le').toString('base64');
 const decode = candidate => Buffer.from(candidate.source, 'base64').toString('utf16le');
 
@@ -41,7 +42,28 @@ function discrepancy(candidate, node, jvm) {
     return node.ast === jvm.ast ? null : { kind: 'PARITY', reason: 'AST differs' };
   }
   if (node.result === 'LIMIT' || jvm.result === 'LIMIT') return null;
-  return (node.result === 'PARSED') === (jvm.result === 'PARSED') ? null : { kind: 'PARITY', reason: `${node.result} versus ${jvm.result}` };
+  if ((node.result === 'PARSED') !== (jvm.result === 'PARSED')) return { kind: 'PARITY', reason: `${node.result} versus ${jvm.result}` };
+  if (candidate.family === 'mutation' && node.result !== 'PARSED' && node.message !== jvm.message) {
+    return { kind: 'PARITY', reason: `error message differs: Node ${JSON.stringify(node.message)} versus Java ${JSON.stringify(jvm.message)}` };
+  }
+  return null;
+}
+
+const mutationAlphabet = ['0', '1', 'a', ' ', '{', '}', '%', '(', ')', '[', ']', "'", '"', '!', '\n'];
+async function mutations() {
+  const records = (await readFile(corpusPath, 'utf8')).trim().split('\n').map(JSON.parse);
+  const candidates = [];
+  for (const record of records) {
+    const options = record.templateOptions ?? {};
+    for (let offset = 0; offset < record.template.length; offset++) for (const replacement of mutationAlphabet) {
+      if (record.template[offset] === replacement) continue;
+      const source = record.template.slice(0, offset) + replacement + record.template.slice(offset + 1);
+      candidates.push({ id: `mutation-${record.id}-${offset}-${Buffer.from(replacement, 'utf16le').toString('hex')}`,
+        family: 'mutation', source: encode(source), trimBlocks: options.trimBlocks ?? true,
+        lstripBlocks: options.lstripBlocks ?? true, sourceCodeUnits: source.length });
+    }
+  }
+  return candidates;
 }
 
 const node = runner('node', ['tools/fuzz/node-parser-runner.mjs']);
@@ -66,13 +88,18 @@ async function minimize(candidate, originalIssue) {
   return { source, trials, status: exhausted ? 'budget-exhausted' : 'complete' };
 }
 
-let total = 0, limits = 0; const otherErrors = [];
+let total = 0, mutationTotal = 0, limits = 0; const otherErrors = [];
 try {
-  for (const seed of SMOKE_SEEDS) for (const candidate of generate({ seed, count }).slice(1)) {
+  const candidates = [
+    ...SMOKE_SEEDS.flatMap(seed => generate({ seed, count }).slice(1)),
+    ...await mutations(),
+  ];
+  for (const candidate of candidates) {
     const result = await evaluate(candidate); total++;
+    if (candidate.family === 'mutation') mutationTotal++;
     if (candidate.family === 'hostile') {
       if (result.nodeResult.result === 'LIMIT' || result.javaResult.result === 'LIMIT') limits++;
-      for (const [runtime, value] of [['node', result.nodeResult], ['java', result.javaResult]]) if (value.result === 'OTHER_ERROR') otherErrors.push(`${candidate.id} ${runtime}${value.detail ? `: ${value.detail}` : ''}`);
+      for (const [runtime, value] of [['node', result.nodeResult], ['java', result.javaResult]]) if (value.result === 'OTHER_ERROR') otherErrors.push(`${candidate.id} ${runtime}${value.message ? `: ${value.message}` : ''}`);
     }
     if (result.issue) {
       let minimized;
@@ -80,12 +107,12 @@ try {
         minimized = await minimize(candidate, result.issue);
       } catch (error) {
         const status = String(error).includes('HARNESS timeout') ? 'timeout' : 'harness-error';
-        throw new Error(`${result.issue.kind} ${result.issue.reason} id=${candidate.id} seed=0x${seed.toString(16)} trimBlocks=${candidate.trimBlocks} lstripBlocks=${candidate.lstripBlocks} source=${JSON.stringify(decode(candidate))} minimization=${status} detail=${String(error)} replay=node tools/fuzz/compare-parser-results.mjs --java ${java} --java-classpath <classpath> --count ${count}`);
+        throw new Error(`${result.issue.kind} ${result.issue.reason} id=${candidate.id} trimBlocks=${candidate.trimBlocks} lstripBlocks=${candidate.lstripBlocks} source=${JSON.stringify(decode(candidate))} minimization=${status} detail=${String(error)} replay=node tools/fuzz/compare-parser-results.mjs --java ${java} --java-classpath <classpath> --count ${count}`);
       }
-      throw new Error(`${result.issue.kind} ${result.issue.reason} id=${candidate.id} seed=0x${seed.toString(16)} trimBlocks=${candidate.trimBlocks} lstripBlocks=${candidate.lstripBlocks} source=${JSON.stringify(minimized.source)} minimization=${minimized.status} trials=${minimized.trials} replay=node tools/fuzz/compare-parser-results.mjs --java ${java} --java-classpath <classpath> --count ${count}`);
+      throw new Error(`${result.issue.kind} ${result.issue.reason} id=${candidate.id} trimBlocks=${candidate.trimBlocks} lstripBlocks=${candidate.lstripBlocks} source=${JSON.stringify(minimized.source)} minimization=${minimized.status} trials=${minimized.trials} replay=node tools/fuzz/compare-parser-results.mjs --java ${java} --java-classpath <classpath> --count ${count}`);
     }
   }
   node.assertClean(); jvm.assertClean();
   await mkdir(dirname(report), { recursive: true });
-  await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 120 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}\n\nExclusions: none.\n`);
+  await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Corpus single-code-unit substitutions: ${mutationTotal}, using ${mutationAlphabet.length} replacements per position. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 300 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}\n\nExclusions: none.\n`);
 } finally { node.close(); jvm.close(); }

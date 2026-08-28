@@ -263,6 +263,9 @@ function extractErrorCases(source) {
   if (!sameSet(new Set(captured.map((entry) => entry.name)), new Set(upstreamErrorCategories.keys()))) {
     throw new Error(`Upstream error cases differ from reviewed category mapping in ${sourcePath}`);
   }
+  if (!sameSet(new Set(captured.map((entry) => entry.name)), new Set(upstreamErrorMessages.keys()))) {
+    throw new Error(`Upstream error cases differ from reviewed message mapping in ${sourcePath}`);
+  }
   for (const entry of captured) {
     const category = upstreamErrorCategories.get(entry.name);
     if (syntaxErrorGroups.has(entry.group) && category !== 'SYNTAX') {
@@ -284,7 +287,7 @@ function extractErrorCases(source) {
       context: publicApiErrorContextOverrides.get(entry.name) ?? entry.context,
       expected: {
         errorCategory: upstreamErrorCategories.get(entry.name),
-        ...(upstreamErrorMessages.has(entry.name) ? {errorMessage: upstreamErrorMessages.get(entry.name)} : {}),
+        errorMessage: upstreamErrorMessages.get(entry.name),
       },
     };
   });

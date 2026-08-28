@@ -179,7 +179,11 @@ public final class Parser {
       var variable = parseExpressionSequence(true);
       if (!(variable instanceof Expression.Identifier
           || variable instanceof Expression.TupleLiteral))
-        throw syntax("Expected identifier/tuple for the loop variable", variable.location());
+        throw syntax(
+            "Expected identifier/tuple for the loop variable, got "
+                + variable.getClass().getSimpleName()
+                + " instead",
+            variable.location());
       if (!isIdentifier("in"))
         throw syntax("Expected `in` keyword following loop variable", locationHere());
       next();
@@ -206,7 +210,7 @@ public final class Parser {
       expect(TokenType.CloseStatement, "Expected closing statement token");
       var body = new ArrayList<Statement>();
       while (!isStatement("endcall")) body.add(parseAny());
-      expect(TokenType.OpenStatement, "Expected {%");
+      expect(TokenType.OpenStatement, "Expected '{%'");
       expectIdentifier("endcall");
       expect(TokenType.CloseStatement, "Expected closing statement token");
       return new Statement.CallStatement(
@@ -223,7 +227,7 @@ public final class Parser {
       expect(TokenType.CloseStatement, "Expected closing statement token");
       var body = new ArrayList<Statement>();
       while (!isStatement("endfilter")) body.add(parseAny());
-      expect(TokenType.OpenStatement, "Expected {%");
+      expect(TokenType.OpenStatement, "Expected '{%'");
       expectIdentifier("endfilter");
       expect(TokenType.CloseStatement, "Expected '%}'");
       return new Statement.FilterStatement(filter, body, start);
@@ -470,6 +474,8 @@ public final class Parser {
             nested(
                 () -> {
                   var r = parseExpressionSequence(false);
+                  // Upstream accidentally uses a double-quoted JavaScript string here, leaving
+                  // this template placeholder literal in its diagnostic.
                   expect(
                       TokenType.CloseParen,
                       "Expected closing parenthesis, got ${tokens[current].type} instead.");

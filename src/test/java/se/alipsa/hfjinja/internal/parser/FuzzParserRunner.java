@@ -48,7 +48,7 @@ final class FuzzParserRunner {
                 : null;
         return response(id, "PARSED", ast64);
       } catch (TemplateSyntaxException exception) {
-        return response(id, "SYNTAX", null);
+        return response(id, "SYNTAX", null, exception.getMessage());
       } catch (TemplateRenderException exception) {
         if (exception.category() == ErrorCategory.RESOURCE_LIMIT)
           return response(id, "LIMIT", null);
@@ -73,13 +73,13 @@ final class FuzzParserRunner {
     return response(id, result, ast, null);
   }
 
-  private static String response(String id, String result, String ast, String detail) {
+  private static String response(String id, String result, String ast, String message) {
     return "{\"id\":"
         + (id == null ? "null" : quote(id))
         + ",\"result\":"
         + quote(result)
         + (ast == null ? "" : ",\"ast\":" + quote(ast))
-        + (detail == null ? "" : ",\"detail\":" + quote(detail))
+        + (message == null ? "" : ",\"message\":" + quote(message))
         + "}";
   }
 

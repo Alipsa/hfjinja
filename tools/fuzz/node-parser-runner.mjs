@@ -18,7 +18,7 @@ for await (const line of readline.createInterface({ input: process.stdin, crlfDe
     } catch (error) {
       // Pinned upstream's expect() throws plain Error("Parser Error: ..."), not SyntaxError.
       const result = error instanceof RangeError ? 'LIMIT' : error instanceof SyntaxError || (error instanceof Error && error.message.startsWith('Parser Error:')) ? 'SYNTAX' : 'OTHER_ERROR';
-      reply({ id: candidate.id, result, detail: result === 'OTHER_ERROR' ? String(error) : undefined });
+      reply({ id: candidate.id, result, message: String(error.message ?? error) });
     }
   } catch (error) {
     reply({ id: null, result: 'HARNESS', detail: String(error) });
