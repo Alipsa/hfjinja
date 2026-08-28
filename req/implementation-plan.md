@@ -92,7 +92,11 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
 2. Implement the versioned Node-message-to-`ErrorCategory` pattern mapping table as part of the
    oracle shim. Patterns extract interpolated message values (for example a filter name) rather
    than matching literals. Every known upstream error maps explicitly; an unmatched message fails
-   the harness loudly and never defaults to a category.
+   the harness loudly and never defaults to a category unless the record pins the diagnostic with
+   `errorMessage`. Exact-message records still cross-check a recognized category. They may bypass
+   the pattern table only for deliberately unclassifiable diagnostics whose literal text is the
+   contract (for example `raise_exception`'s arbitrary user message), not as a substitute for
+   adding a generalizable category pattern.
 3. Build the upstream-test-to-corpus converter. Automate extraction from vendored non-model unit
    sources where structurally representable. The upstream e2e source is excluded in full because it
    contains model-derived material. Retain reviewed manual transcriptions only for unsupported

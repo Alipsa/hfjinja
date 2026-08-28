@@ -681,9 +681,11 @@ class InterpreterTest {
   @Test
   void retainsTheKnownMarkerForUnportedCallableForms() {
     assertEquals(
-        "<function>!|<function>!|<function>!|<function>!",
+        "<function>!|<function>!|<function>!|<function>!|<function>!|<function>!|<function>!",
         Template.parse(
                 "{{ namespace ~ '!' }}|{{ 'ab'.upper ~ '!' }}|"
+                    + "{{ 'ab'.startswith ~ '!' }}|{{ ({'a':1}).keys ~ '!' }}|"
+                    + "{{ ({'a':1}).items ~ '!' }}|"
                     + "{% macro f() %}x{% endmacro %}{{ f ~ '!' }}|"
                     + "{% macro wrap() %}{{ caller ~ '!' }}{% endmacro %}{% call wrap() %}x{% endcall %}")
             .render(Map.of()));
