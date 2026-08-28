@@ -30,7 +30,7 @@
       "category": "SYNTAX"
     },
     {
-      "regex": "^(?:Unexpected end of input|Unexpected character: .+|Unknown statement type: .+|Unexpected token: .+|Expected closing parenthesis, got .+|Invalid LHS inside assignment expression: .+)$",
+      "regex": "^(?:Unexpected end of input|Unexpected character: .+|Unknown statement type: .+|Unexpected token: .+|Invalid LHS inside assignment expression: .+)$",
       "category": "SYNTAX",
       "comment": "Pinned templates.test.js lexer/parser error vectors"
     },

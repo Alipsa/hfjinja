@@ -38,6 +38,14 @@ const upstreamErrorCategories = new Map([
   ['Looping over non-iterable', 'TYPE'],
   ['Invalid variable assignment', 'SYNTAX'],
 ]);
+const upstreamErrorMessages = new Map([
+  ['Unclosed statement', "Cannot read properties of undefined (reading 'type')"],
+  ['Unclosed expression', "Cannot read properties of undefined (reading 'type')"],
+]);
+const syntaxErrorGroups = new Set(['Lexing errors', 'Parsing errors']);
+// runtime.ts evaluates the invalid assignment after parsing it, but Java rejects the left-hand
+// side during parsing. Both public APIs expose it as SYNTAX despite that detection-phase split.
+const syntaxRuntimeErrorCases = new Set(['Invalid variable assignment']);
 // templates.test.js injects `true` into a bare Environment. Template's public render API already
 // installs that built-in, so retaining the injected context would test a deliberate collision
 // error rather than the upstream test's attempted call of BooleanValue.
@@ -95,6 +103,7 @@ generated.push(...extractErrorCases(source));
 for (const record of generated) validateRecord(record, record.id);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
+validatePatternRecordIds(JSON.parse(await readFile(errorPatternsPath, 'utf8')), records);
 
 if (options.has('--write')) {
   const retained = records.filter(
@@ -164,6 +173,10 @@ function extractErrorCases(source) {
   class Environment {
     values = {};
 
+    constructor() {
+      currentEnvironment = this;
+    }
+
     set(name, value) {
       this.values[name] = value;
     }
@@ -187,10 +200,14 @@ function extractErrorCases(source) {
     toMatchObject: () => {},
     toEqual: () => {},
     toThrowError: () => {
+      if (!describeStack.includes('Error checking')) return;
       actual();
-      if (describeStack.includes('Error checking')) {
-        captured.push({name: currentName, template: currentTemplate, context: currentEnvironment?.values ?? {}});
-      }
+      captured.push({
+        name: currentName,
+        template: currentTemplate,
+        context: currentEnvironment?.values ?? {},
+        group: describeStack.at(-1),
+      });
     },
   });
   const executable = source.replace(/^(?:import[\s\S]*?;\s*)+/, '');
@@ -233,6 +250,15 @@ function extractErrorCases(source) {
   if (!sameSet(new Set(captured.map((entry) => entry.name)), new Set(upstreamErrorCategories.keys()))) {
     throw new Error(`Upstream error cases differ from reviewed category mapping in ${sourcePath}`);
   }
+  for (const entry of captured) {
+    const category = upstreamErrorCategories.get(entry.name);
+    if (syntaxErrorGroups.has(entry.group) && category !== 'SYNTAX') {
+      throw new Error(`Upstream ${entry.group} case must map to SYNTAX: ${entry.name}`);
+    }
+    if (syntaxRuntimeErrorCases.has(entry.name) && category !== 'SYNTAX') {
+      throw new Error(`Upstream runtime syntax case must map to SYNTAX: ${entry.name}`);
+    }
+  }
   return captured.map((entry) => {
     if (typeof entry.template !== 'string') {
       throw new Error(`Could not capture template for upstream error case: ${entry.name}`);
@@ -242,7 +268,10 @@ function extractErrorCases(source) {
       source: `${sourcePath}:${errorCaseLine(source, entry.name)}`,
       template: entry.template,
       context: publicApiErrorContextOverrides.get(entry.name) ?? entry.context,
-      expected: {errorCategory: upstreamErrorCategories.get(entry.name)},
+      expected: {
+        errorCategory: upstreamErrorCategories.get(entry.name),
+        ...(upstreamErrorMessages.has(entry.name) ? {errorMessage: upstreamErrorMessages.get(entry.name)} : {}),
+      },
     };
   });
 }
@@ -298,6 +327,15 @@ function containsFunction(value) {
 
 function sameSet(left, right) {
   return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
+function validatePatternRecordIds(patterns, records) {
+  const ids = new Set(records.map((record) => record.id));
+  for (const pattern of patterns.patterns ?? []) {
+    for (const id of pattern.recordIds ?? []) {
+      if (!ids.has(id)) throw new Error(`Error pattern recordIds references missing corpus record: ${id}`);
+    }
+  }
 }
 
 async function writeCoverage(path, generated, upstreamFixtureCount, committedRecords) {

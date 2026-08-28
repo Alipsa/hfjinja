@@ -88,7 +88,7 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('Unknown statement type: endfor'), 'SYNTAX');
   assert.equal(classify('Unexpected token: CloseStatement'), 'SYNTAX');
   assert.equal(
-    classify('Expected closing parenthesis, got ${tokens[current].type} instead.. CloseExpression !== CloseParen.'),
+    classify('Parser Error: Expected closing parenthesis, got ${tokens[current].type} instead.. CloseExpression !== CloseParen.'),
     'SYNTAX',
   );
   assert.equal(classify('Invalid LHS inside assignment expression: {"type":"IntegerLiteral","value":42}'), 'SYNTAX');
@@ -146,6 +146,25 @@ test('fails loudly for an unmatched upstream error', async () => {
   await assert.rejects(
     errorClassifier('tools/corpus/error-patterns-0.5.9.json', '@huggingface/jinja@other'), /does not match/,
   );
+});
+
+test('rejects malformed error-pattern selectors', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hfjinja-error-patterns-'));
+  const path = join(directory, 'patterns.json');
+  const writePatterns = (pattern) => writeFile(path, JSON.stringify({version: 'test', patterns: [pattern]}), 'utf8');
+  const pattern = {regex: '^error$', category: 'TYPE'};
+  try {
+    await writePatterns({...pattern, constructors: []});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+    await writePatterns({...pattern, constructors: ['']});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+    await writePatterns({...pattern, recordIds: []});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+    await writePatterns({...pattern, recordIds: ['']});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });
 
 test('preserves physical JSONL line numbers across blank lines', async () => {

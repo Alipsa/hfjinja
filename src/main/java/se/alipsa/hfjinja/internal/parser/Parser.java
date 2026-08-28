@@ -32,6 +32,8 @@ public final class Parser {
   }
 
   private static final class Cursor {
+    private static final String UPSTREAM_END_OF_INPUT_MESSAGE =
+        "Cannot read properties of undefined (reading 'type')";
     private final List<Token> tokens;
     private final TemplateOptions options;
     private final SourceLocation endLocation;
@@ -506,7 +508,7 @@ public final class Parser {
     }
 
     Token peek() {
-      if (current >= tokens.size()) throw syntax("Unexpected end of template", endLocation);
+      if (current >= tokens.size()) throw syntax(UPSTREAM_END_OF_INPUT_MESSAGE, endLocation);
       return tokens.get(current);
     }
 
@@ -517,8 +519,7 @@ public final class Parser {
     }
 
     Token expect(TokenType type, String error) {
-      if (current >= tokens.size())
-        throw syntax("Parser Error: " + error + ". End of template !== " + type, endLocation);
+      if (current >= tokens.size()) throw syntax(UPSTREAM_END_OF_INPUT_MESSAGE, endLocation);
       var t = tokens.get(current++);
       if (t.type() != type)
         throw syntax("Parser Error: " + error + ". " + t.type() + " !== " + type, t.start());

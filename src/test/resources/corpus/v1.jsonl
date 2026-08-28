@@ -173,8 +173,8 @@
 {"id":"templates.error-unclosed-string-literal","source":"upstream/vendor/test/templates.test.js:5445","template":"{{ 'unclosed string }}","context":{},"expected":{"errorCategory":"SYNTAX"}}
 {"id":"templates.error-unexpected-character","source":"upstream/vendor/test/templates.test.js:5450","template":"{{ invalid ! invalid }}","context":{},"expected":{"errorCategory":"SYNTAX"}}
 {"id":"templates.error-invalid-quote-character","source":"upstream/vendor/test/templates.test.js:5455","template":"{{ ‘text’ }}","context":{},"expected":{"errorCategory":"SYNTAX"}}
-{"id":"templates.error-unclosed-statement","source":"upstream/vendor/test/templates.test.js:5462","template":"{{ variable }}{{","context":{},"expected":{"errorCategory":"SYNTAX"}}
-{"id":"templates.error-unclosed-expression","source":"upstream/vendor/test/templates.test.js:5468","template":"{% if condition %}\n    Content","context":{},"expected":{"errorCategory":"SYNTAX"}}
+{"id":"templates.error-unclosed-statement","source":"upstream/vendor/test/templates.test.js:5462","template":"{{ variable }}{{","context":{},"expected":{"errorCategory":"SYNTAX","errorMessage":"Cannot read properties of undefined (reading 'type')"}}
+{"id":"templates.error-unclosed-expression","source":"upstream/vendor/test/templates.test.js:5468","template":"{% if condition %}\n    Content","context":{},"expected":{"errorCategory":"SYNTAX","errorMessage":"Cannot read properties of undefined (reading 'type')"}}
 {"id":"templates.error-unmatched-control-structure","source":"upstream/vendor/test/templates.test.js:5474","template":"{% if condition %}\n    Content\n{% endif %}\n{% endfor %}","context":{},"expected":{"errorCategory":"SYNTAX"}}
 {"id":"templates.error-missing-variable-in-for-loop","source":"upstream/vendor/test/templates.test.js:5480","template":"{% for %}\n    Content\n{% endfor %}","context":{},"expected":{"errorCategory":"SYNTAX"}}
 {"id":"templates.error-unclosed-parentheses-in-expression","source":"upstream/vendor/test/templates.test.js:5486","template":"{{ (variable + 1 }}","context":{},"expected":{"errorCategory":"SYNTAX"}}
