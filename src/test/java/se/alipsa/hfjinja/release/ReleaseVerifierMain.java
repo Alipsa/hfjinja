@@ -160,7 +160,7 @@ public final class ReleaseVerifierMain {
       throw new IllegalStateException("required Node " + expectedNode + ", got " + actualNode);
   }
 
-  private static void verifyRequiredTaskEvidence(Path worktree, Path contract) throws Exception {
+  static void verifyRequiredTaskEvidence(Path worktree, Path contract) throws Exception {
     java.util.Map<String, String> evidence =
         java.util.Map.of(
             "upstreamVerify",

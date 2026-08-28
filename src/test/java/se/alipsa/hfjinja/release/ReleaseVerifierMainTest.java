@@ -5,10 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class ReleaseVerifierMainTest {
+  @TempDir Path temporaryDirectory;
+
   @Test
   void requiresGradleUserHome() {
     assertThrows(
@@ -35,17 +39,16 @@ class ReleaseVerifierMainTest {
 
   @Test
   void readsContractPolicyInputs() throws Exception {
-    var contract = Files.createTempFile("release-contract", ".json");
+    var contract = temporaryDirectory.resolve("release-contract.json");
     Files.writeString(contract, "{\"policyInputs\":[\"NOTICE\",\"CHANGELOG.md\"]}");
     assertEquals(
         List.of("NOTICE", "CHANGELOG.md"),
         ReleaseVerifierMain.stringArray(contract, "policyInputs"));
-    Files.deleteIfExists(contract);
   }
 
   @Test
   void rejectsWrongDaemonJdk() throws Exception {
-    var source = Files.createTempDirectory("release-environment");
+    var source = temporaryDirectory.resolve("hfjinja-release-environment");
     Files.createDirectories(source.resolve("req"));
     Files.createDirectories(source.resolve("upstream"));
     Files.writeString(source.resolve("req/release-verification.json"), "{\"jdkMajor\":21}");
@@ -60,9 +63,9 @@ class ReleaseVerifierMainTest {
 
   @Test
   void rejectsConsumerWithPluginRepository() throws Exception {
-    var consumer = Files.createTempDirectory("consumer");
-    var candidate = Files.createTempDirectory("candidate");
-    var repository = Files.createTempDirectory("repository");
+    var consumer = Files.createDirectories(temporaryDirectory.resolve("hfjinja-consumer"));
+    var candidate = Files.createDirectories(temporaryDirectory.resolve("hfjinja-candidate"));
+    var repository = Files.createDirectories(temporaryDirectory.resolve("hfjinja-repository"));
     Files.writeString(candidate.resolve("gradlew"), "#!/bin/sh\n");
     Files.writeString(
         consumer.resolve("settings.gradle"),
@@ -80,9 +83,28 @@ class ReleaseVerifierMainTest {
 
   @Test
   void rejectsArchiveEvidenceWithoutMainJar() throws Exception {
-    var evidence = Files.createTempFile("archive-evidence", ".json");
+    var evidence = temporaryDirectory.resolve("hfjinja-archive-evidence.json");
     Files.writeString(evidence, "{\"archives\":[]}");
     assertThrows(
         IllegalStateException.class, () -> ReleaseVerifierMain.mainArchiveDigest(evidence));
+  }
+
+  @Test
+  void rejectsNonIdenticalArchiveEvidence() throws Exception {
+    var evidence = temporaryDirectory.resolve("hfjinja-archive-mismatch.json");
+    Files.writeString(
+        evidence,
+        "{\"name\":\"hfjinja-0.5.0-SNAPSHOT.jar\",\"firstSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"secondSha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}");
+    assertThrows(
+        IllegalStateException.class, () -> ReleaseVerifierMain.mainArchiveDigest(evidence));
+  }
+
+  @Test
+  void rejectsMissingRequiredTaskEvidence() throws Exception {
+    var contract = temporaryDirectory.resolve("release-contract-required.json");
+    Files.writeString(contract, "{\"requiredTasks\":[\"corpusCoverage\"]}");
+    assertThrows(
+        IllegalStateException.class,
+        () -> ReleaseVerifierMain.verifyRequiredTaskEvidence(temporaryDirectory, contract));
   }
 }
