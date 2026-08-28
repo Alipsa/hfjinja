@@ -474,9 +474,18 @@ public final class Interpreter {
   private static Value test(
       Expression.TestExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
-    deferredValue(operand, expression.location());
-    boolean result = namedTest(expression.test().value(), operand, null, expression.location());
+    String name = expression.test().value();
+    if (testReadsDeferredValue(name)) deferredValue(operand, expression.location());
+    boolean result = namedTest(name, operand, null, expression.location());
     return new Value.BooleanValue(expression.negate() ? !result : result);
+  }
+
+  /** Tests implemented as {@code instanceof} checks do not read an upstream value property. */
+  private static boolean testReadsDeferredValue(String name) {
+    return switch (name) {
+      case "callable", "integer", "mapping", "number", "sequence" -> false;
+      default -> true;
+    };
   }
 
   private static Value filterToJson(
@@ -535,12 +544,13 @@ public final class Interpreter {
   private static Value filterDefault(
       Value operand, NamedArguments filter, SourceLocation location) {
     var fallback =
-        filter.positional().isEmpty() ? new Value.StringValue("") : filter.positional().get(0);
+        filter.positional().isEmpty()
+            ? new Value.StringValue("")
+            : absentFilterArgument(filter.positional().get(0), new Value.StringValue(""));
     Value booleanFlag =
         filter.positional().size() > 1
-            ? filter.positional().get(1)
-            : filter.keywords().get("boolean");
-    if (booleanFlag == null) booleanFlag = new Value.BooleanValue(false);
+            ? absentFilterArgument(filter.positional().get(1), new Value.BooleanValue(false))
+            : absentFilterArgument(filter.keywords().get("boolean"), new Value.BooleanValue(false));
     if (!(booleanFlag instanceof Value.BooleanValue flag))
       throw new TemplateRenderException(
           "`default` filter flag must be a boolean", ErrorCategory.TYPE, location);
@@ -682,7 +692,8 @@ public final class Interpreter {
           "`map` expressions without `attribute` set are not currently supported.", location);
     if (!(attribute instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterType("attribute must be a string", location);
-    Value fallback = filter.keywords().getOrDefault("default", Value.UndefinedValue.INSTANCE);
+    Value fallback =
+        absentFilterArgument(filter.keywords().get("default"), Value.UndefinedValue.INSTANCE);
     var values = new ArrayList<Value>();
     for (var item : sequence(operand, filter.name(), location)) {
       if (!(item instanceof Value.ObjectValue))
@@ -947,7 +958,9 @@ public final class Interpreter {
         filter.positional().isEmpty()
             ? filter.keywords().get("default")
             : filter.positional().get(0);
-    if (fallback == null) fallback = integer ? new Value.IntegerValue(0) : new Value.FloatValue(0);
+    fallback =
+        absentFilterArgument(
+            fallback, integer ? new Value.IntegerValue(0) : new Value.FloatValue(0));
     if (operand instanceof Value.IntegerValue value)
       return integer ? value : new Value.FloatValue(value.value());
     if (operand instanceof Value.FloatValue value)
@@ -1306,12 +1319,16 @@ public final class Interpreter {
 
   private static Value stringSplit(
       String receiver, List<Value> arguments, SourceLocation location) {
-    Value separator = arguments.isEmpty() ? Value.NullValue.INSTANCE : arguments.getFirst();
+    Value separator =
+        arguments.isEmpty()
+            ? Value.NullValue.INSTANCE
+            : absentFilterArgument(arguments.getFirst(), Value.NullValue.INSTANCE);
     if (!(separator instanceof Value.StringValue) && !(separator instanceof Value.NullValue))
       throw filterType("sep argument must be a string or null", location);
     int max = -1;
-    if (arguments.size() > 1) {
-      if (!(arguments.get(1) instanceof Value.IntegerValue number))
+    Value maxSplit = arguments.size() > 1 ? absentFilterArgument(arguments.get(1), null) : null;
+    if (maxSplit != null) {
+      if (!(maxSplit instanceof Value.IntegerValue number))
         throw filterType("maxsplit argument must be a number", location);
       max = (int) number.value();
     }
@@ -1365,6 +1382,7 @@ public final class Interpreter {
         arguments.size() > 2 && !(arguments.get(2) instanceof Value.KeywordArgumentsValue)
             ? arguments.get(2)
             : keyword(arguments, "count");
+    count = absentFilterArgument(count, null);
     if (count != null
         && !(count instanceof Value.IntegerValue)
         && !(count instanceof Value.NullValue))
