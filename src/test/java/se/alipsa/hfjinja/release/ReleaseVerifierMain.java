@@ -27,17 +27,20 @@ public final class ReleaseVerifierMain {
   private ReleaseVerifierMain() {}
 
   public static void main(String[] args) throws Exception {
-    if (args.length < 2 || args.length > 3) {
+    if (args.length < 5 || args.length > 6) {
       throw new IllegalArgumentException(
-          "usage: ReleaseVerifierMain <source-dir> <gradle-user-home> [--allow-dirty]");
+          "usage: ReleaseVerifierMain <source-dir> <gradle-user-home> <daemon-java-home> <daemon-vendor> <daemon-version> [--allow-dirty]");
     }
     Path source = Path.of(args[0]).toAbsolutePath().normalize();
     Path userHome = Path.of(args[1]).toAbsolutePath().normalize();
-    boolean allowDirty = args.length == 3 && "--allow-dirty".equals(args[2]);
+    String daemonJavaHome = args[2];
+    String daemonVendor = args[3];
+    String daemonVersion = args[4];
+    boolean allowDirty = args.length == 6 && "--allow-dirty".equals(args[5]);
     Path report = source.resolve("build/reports/release-verification.md");
     Path retainedEvidence = source.resolve("build/reports/release-verification-evidence");
     prepareReport(report, retainedEvidence);
-    verifyEnvironment(source);
+    verifyEnvironment(source, daemonVersion);
     String status = output(source, "git", "status", "--porcelain");
     if (!status.isBlank() && !allowDirty)
       throw new IllegalStateException("source checkout is dirty:\n" + status);
@@ -105,7 +108,10 @@ public final class ReleaseVerifierMain {
           published,
           resolvedDigest,
           coordinates,
-          archiveEvidence);
+          archiveEvidence,
+          daemonJavaHome,
+          daemonVendor,
+          daemonVersion);
     } finally {
       runQuietly(source, "git", "worktree", "remove", "--force", worktree.toString());
       runQuietly(source, "git", "worktree", "prune");
@@ -139,12 +145,13 @@ public final class ReleaseVerifierMain {
     }
   }
 
-  private static void verifyEnvironment(Path source) throws Exception {
+  static void verifyEnvironment(Path source, String daemonVersion) throws Exception {
     int requiredJdk =
         contractInt(source.resolve("req/release-verification.json"), JDK_MAJOR, "jdkMajor");
-    if (Runtime.version().feature() != requiredJdk) {
+    int actualJdk = Runtime.Version.parse(daemonVersion).feature();
+    if (actualJdk != requiredJdk) {
       throw new IllegalStateException(
-          "required JDK major " + requiredJdk + ", got " + Runtime.version().feature());
+          "required Gradle daemon JDK major " + requiredJdk + ", got " + actualJdk);
     }
     String expectedNode =
         match(source.resolve("upstream/upstream-lock.json"), NODE_VERSION, "nodeVersion");
@@ -198,15 +205,13 @@ public final class ReleaseVerifierMain {
             classpath = sourceSets.main.runtimeClasspath
             mainClass = 'consumer.ConsumerMain'
           }
-          tasks.register('copyResolvedCandidate', Copy) {
+          tasks.register('copyResolvedRuntime', Copy) {
             from configurations.runtimeClasspath
-            include '%s-*.jar'
-            exclude '*-sources.jar', '*-javadoc.jar'
             into layout.buildDirectory.dir('resolved')
           }
-          tasks.named('consumerVerify') { finalizedBy tasks.named('copyResolvedCandidate') }
+          tasks.named('consumerVerify') { finalizedBy tasks.named('copyResolvedRuntime') }
           """
-              .formatted(repositoryUri, coordinates, coordinate[1]));
+              .formatted(repositoryUri, coordinates));
       Files.writeString(
           consumer.resolve("gradle.properties"),
           "org.gradle.java.installations.auto-download=false\n");
@@ -306,13 +311,15 @@ public final class ReleaseVerifierMain {
       Path published,
       String resolvedDigest,
       String coordinates,
-      Path archiveEvidence)
+      Path archiveEvidence,
+      String daemonJavaHome,
+      String daemonVendor,
+      String daemonVersion)
       throws Exception {
     Files.createDirectories(report.getParent());
     String candidate =
         status.isBlank() && !allowDirty ? "PASSING CANDIDATE" : "NOT A RELEASE CANDIDATE";
-    String javaVersion =
-        System.getProperty("java.vendor") + " " + System.getProperty("java.version");
+    String javaVersion = daemonVendor + " " + daemonVersion + " (" + daemonJavaHome + ")";
     String nodeVersion = output(source, "node", "--version").trim();
     List<String> policyInputs =
         stringArray(source.resolve("req/release-verification.json"), "policyInputs");

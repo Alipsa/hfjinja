@@ -325,7 +325,8 @@ tasks.register('releaseVerification', JavaExec) {
   classpath = sourceSets.test.runtimeClasspath
   mainClass = 'se.alipsa.hfjinja.release.ReleaseVerifierMain'
   def verificationHome = layout.projectDirectory.dir('.gradle-user/release-verification').asFile
-  args layout.projectDirectory.asFile.absolutePath, verificationHome.absolutePath
+  args layout.projectDirectory.asFile.absolutePath, verificationHome.absolutePath,
+      System.getProperty('java.home'), System.getProperty('java.vendor'), System.getProperty('java.version')
   if (providers.gradleProperty('releaseVerificationAllowDirty').present) args '--allow-dirty'
   inputs.files(releaseVerificationManifest, file('upstream/upstream-lock.json'), file('NOTICE'), file('req/model-fixture-policy.md'),
       file('CHANGELOG.md'), file('req/release-checklist.md'))

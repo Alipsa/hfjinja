@@ -42,4 +42,16 @@ class ReleaseVerifierMainTest {
         ReleaseVerifierMain.stringArray(contract, "policyInputs"));
     Files.deleteIfExists(contract);
   }
+
+  @Test
+  void rejectsWrongDaemonJdk() throws Exception {
+    var source = Files.createTempDirectory("release-environment");
+    Files.createDirectories(source.resolve("req"));
+    Files.createDirectories(source.resolve("upstream"));
+    Files.writeString(source.resolve("req/release-verification.json"), "{\"jdkMajor\":21}");
+    Files.writeString(
+        source.resolve("upstream/upstream-lock.json"), "{\"nodeVersion\":\"v26.7.0\"}");
+    assertThrows(
+        IllegalStateException.class, () -> ReleaseVerifierMain.verifyEnvironment(source, "25.0.4"));
+  }
 }
