@@ -241,16 +241,14 @@ public final class ReleaseVerifierMain {
       requireIsolation(consumerCommand, false);
       run(consumer, consumerCommand.toArray(String[]::new));
       try (var files = Files.list(consumer.resolve("build/resolved"))) {
-        List<Path> resolved =
-            files
-                .filter(
-                    path ->
-                        path.getFileName().toString().startsWith(coordinate[1] + "-")
-                            && path.getFileName().toString().endsWith(".jar"))
-                .toList();
+        List<Path> resolved = files.toList();
         if (resolved.size() != 1)
           throw new IllegalStateException(
               "consumer runtime graph must contain only the candidate JAR: " + resolved);
+        if (!resolved.getFirst().getFileName().toString().startsWith(coordinate[1] + "-")) {
+          throw new IllegalStateException(
+              "consumer resolved an artifact other than the candidate JAR: " + resolved);
+        }
         return sha256(resolved.getFirst());
       }
     } finally {
@@ -258,7 +256,7 @@ public final class ReleaseVerifierMain {
     }
   }
 
-  private static void verifyConsumerStructure(Path consumer, Path candidate, Path repository)
+  static void verifyConsumerStructure(Path consumer, Path candidate, Path repository)
       throws Exception {
     String settings = Files.readString(consumer.resolve("settings.gradle"));
     String build = Files.readString(consumer.resolve("build.gradle"));
@@ -391,7 +389,7 @@ public final class ReleaseVerifierMain {
     return result;
   }
 
-  private static void prepareReport(Path report, Path retainedEvidence) throws Exception {
+  static void prepareReport(Path report, Path retainedEvidence) throws Exception {
     Files.deleteIfExists(report);
     Files.deleteIfExists(report.resolveSibling("release-verification.json"));
     deleteTree(retainedEvidence);
@@ -402,7 +400,7 @@ public final class ReleaseVerifierMain {
         "{\n  \"status\": \"IN PROGRESS\"\n}\n");
   }
 
-  private static String mainArchiveDigest(Path archiveEvidence) throws Exception {
+  static String mainArchiveDigest(Path archiveEvidence) throws Exception {
     Matcher match = MAIN_ARCHIVE_DIGEST.matcher(Files.readString(archiveEvidence));
     if (!match.find()) throw new IllegalStateException("archive evidence has no main JAR digest");
     if (!match.group(1).equals(match.group(2))) {
