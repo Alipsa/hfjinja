@@ -52,14 +52,47 @@ public sealed interface Value
   record FloatValue(double value) implements Value {}
 
   /** A string value, optionally backed by JavaScript {@code undefined}. */
-  record StringValue(String value, boolean undefinedBacked) implements Value {
+  final class StringValue implements Value {
+    private final String value;
+    private final boolean undefinedBacked;
+    private final Map<String, CallableValue> builtins = new LinkedHashMap<>();
+
+    public StringValue(String value, boolean undefinedBacked) {
+      this.value = Objects.requireNonNull(value, "value");
+      this.undefinedBacked = undefinedBacked;
+    }
+
     public StringValue(String value) {
       this(value, false);
+    }
+
+    public String value() {
+      return value;
+    }
+
+    public boolean undefinedBacked() {
+      return undefinedBacked;
+    }
+
+    public Map<String, CallableValue> builtins() {
+      return builtins;
     }
 
     /** Returns the string-shaped value produced by out-of-range string indexing. */
     public static StringValue undefined() {
       return new StringValue("undefined", true);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+      return object instanceof StringValue other
+          && undefinedBacked == other.undefinedBacked
+          && value.equals(other.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(value, undefinedBacked);
     }
   }
 
@@ -80,7 +113,7 @@ public sealed interface Value
   /** Mutable by design for template member assignment; never use as a hash-based key. */
   final class ObjectValue implements Value {
     private final Map<Object, Value> values;
-    private CallableValue itemsBuiltin;
+    private final Map<String, CallableValue> builtins = new LinkedHashMap<>();
 
     public ObjectValue(Map<?, Value> values) {
       this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
@@ -90,12 +123,8 @@ public sealed interface Value
       return values;
     }
 
-    public CallableValue itemsBuiltin() {
-      return itemsBuiltin;
-    }
-
-    public void setItemsBuiltin(CallableValue itemsBuiltin) {
-      this.itemsBuiltin = itemsBuiltin;
+    public Map<String, CallableValue> builtins() {
+      return builtins;
     }
 
     @Override
@@ -115,9 +144,20 @@ public sealed interface Value
   }
 
   /** Object-like call keyword arguments, distinct because they are not JSON-renderable upstream. */
-  record KeywordArgumentsValue(Map<String, Value> values) implements Value {
-    public KeywordArgumentsValue {
-      values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
+  final class KeywordArgumentsValue implements Value {
+    private final Map<String, Value> values;
+    private final Map<String, CallableValue> builtins = new LinkedHashMap<>();
+
+    public KeywordArgumentsValue(Map<String, Value> values) {
+      this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
+    }
+
+    public Map<String, Value> values() {
+      return values;
+    }
+
+    public Map<String, CallableValue> builtins() {
+      return builtins;
     }
   }
 

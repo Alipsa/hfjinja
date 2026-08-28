@@ -787,16 +787,21 @@ public final class Interpreter {
   private static Value filterObjectBuiltin(
       Value operand, NamedArguments filter, SourceLocation location) {
     Map<?, Value> values;
-    if (operand instanceof Value.ObjectValue object) values = object.values();
-    else if (operand instanceof Value.KeywordArgumentsValue object) values = object.values();
-    else throw filterReceiver(filter.name(), operand, location);
+    Map<String, Value.CallableValue> builtins;
+    if (operand instanceof Value.ObjectValue object) {
+      values = object.values();
+      builtins = object.builtins();
+    } else if (operand instanceof Value.KeywordArgumentsValue object) {
+      values = object.values();
+      builtins = object.builtins();
+    } else throw filterReceiver(filter.name(), operand, location);
     var arguments = new ArrayList<>(filter.positional());
     if (!filter.keywords().isEmpty())
       arguments.add(new Value.KeywordArgumentsValue(filter.keywords()));
     var builtin =
         filter.name().equals("items")
-            ? objectItemsBuiltin(values)
-            : objectBuiltin(values, filter.name());
+            ? objectItemsBuiltin(builtins, values)
+            : objectBuiltin(builtins, values, filter.name());
     return ((Value.CallableValue) builtin)
         .callable()
         .invoke(arguments, !filter.keywords().isEmpty(), location, null);
@@ -1228,12 +1233,14 @@ public final class Interpreter {
       Value memberValue = x.values().get(key);
       if (memberValue != null && !(memberValue instanceof Value.DeferredUndefinedValue))
         return Value.materialize(memberValue);
-      if (!s.undefinedBacked() && "items".equals(s.value())) return objectItemsBuiltin(x);
+      if (!s.undefinedBacked() && "items".equals(s.value()))
+        return objectItemsBuiltin(x.builtins(), x.values());
       if (!s.undefinedBacked()
           && (s.value().equals("get")
               || s.value().equals("keys")
               || s.value().equals("values")
-              || s.value().equals("dictsort"))) return objectBuiltin(x.values(), s.value());
+              || s.value().equals("dictsort")))
+        return objectBuiltin(x.builtins(), x.values(), s.value());
       return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
@@ -1243,11 +1250,12 @@ public final class Interpreter {
       Value memberValue = x.values().get(s.value());
       if (memberValue != null && !(memberValue instanceof Value.DeferredUndefinedValue))
         return Value.materialize(memberValue);
-      if (s.value().equals("items")) return objectItemsBuiltin(x.values());
+      if (s.value().equals("items")) return objectItemsBuiltin(x.builtins(), x.values());
       if (s.value().equals("get")
           || s.value().equals("keys")
           || s.value().equals("values")
-          || s.value().equals("dictsort")) return objectBuiltin(x.values(), s.value());
+          || s.value().equals("dictsort"))
+        return objectBuiltin(x.builtins(), x.values(), s.value());
       return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.ArrayValue x) {
@@ -1265,15 +1273,11 @@ public final class Interpreter {
     if (target instanceof Value.StringValue x) {
       if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
       if (p instanceof Value.StringValue property) {
-        if (!property.undefinedBacked()
-            && (property.value().equals("startswith") || property.value().equals("endswith")))
-          return stringBoundaryBuiltin(
-              x.value(),
-              property.value(),
-              property.value().equals("startswith") ? String::startsWith : String::endsWith);
         if (!property.undefinedBacked() && property.value().equals("length"))
           return new Value.IntegerValue(x.value().length());
         if (List.of(
+                "startswith",
+                "endswith",
                 "upper",
                 "lower",
                 "strip",
@@ -1283,7 +1287,7 @@ public final class Interpreter {
                 "lstrip",
                 "split",
                 "replace")
-            .contains(property.value())) return stringBuiltin(x.value(), property.value());
+            .contains(property.value())) return stringBuiltin(x, property.value());
         return Value.UndefinedValue.INSTANCE;
       }
       if (!(p instanceof Value.IntegerValue))
@@ -1320,19 +1324,28 @@ public final class Interpreter {
         });
   }
 
-  private static Value stringBuiltin(String receiver, String name) {
+  private static Value stringBuiltin(Value.StringValue receiver, String name) {
+    return receiver.builtins().computeIfAbsent(name, ignored -> stringBuiltinValue(receiver, name));
+  }
+
+  private static Value.CallableValue stringBuiltinValue(Value.StringValue receiver, String name) {
+    String text = receiver.value();
+    if (name.equals("startswith") || name.equals("endswith"))
+      return (Value.CallableValue)
+          stringBoundaryBuiltin(
+              text, name, name.equals("startswith") ? String::startsWith : String::endsWith);
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
           return switch (name) {
-            case "upper" -> new Value.StringValue(receiver.toUpperCase(Locale.ROOT));
-            case "lower" -> new Value.StringValue(receiver.toLowerCase(Locale.ROOT));
-            case "strip" -> new Value.StringValue(JsOperations.trimEcmaWhitespace(receiver));
-            case "rstrip" -> new Value.StringValue(JsOperations.trimEndEcmaWhitespace(receiver));
-            case "lstrip" -> new Value.StringValue(JsOperations.trimStartEcmaWhitespace(receiver));
-            case "title" -> new Value.StringValue(titleCase(receiver));
-            case "capitalize" -> new Value.StringValue(capitalize(receiver));
-            case "split" -> stringSplit(receiver, arguments, location);
-            case "replace" -> stringReplace(receiver, arguments, location);
+            case "upper" -> new Value.StringValue(text.toUpperCase(Locale.ROOT));
+            case "lower" -> new Value.StringValue(text.toLowerCase(Locale.ROOT));
+            case "strip" -> new Value.StringValue(JsOperations.trimEcmaWhitespace(text));
+            case "rstrip" -> new Value.StringValue(JsOperations.trimEndEcmaWhitespace(text));
+            case "lstrip" -> new Value.StringValue(JsOperations.trimStartEcmaWhitespace(text));
+            case "title" -> new Value.StringValue(titleCase(text));
+            case "capitalize" -> new Value.StringValue(capitalize(text));
+            case "split" -> stringSplit(text, arguments, location);
+            case "replace" -> stringReplace(text, arguments, location);
             default -> throw new AssertionError(name);
           };
         });
@@ -1454,7 +1467,12 @@ public final class Interpreter {
         : null;
   }
 
-  private static Value objectBuiltin(Map<?, Value> values, String name) {
+  private static Value objectBuiltin(
+      Map<String, Value.CallableValue> builtins, Map<?, Value> values, String name) {
+    return builtins.computeIfAbsent(name, ignored -> objectBuiltinValue(values, name));
+  }
+
+  private static Value.CallableValue objectBuiltinValue(Map<?, Value> values, String name) {
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
           var positional = positional(arguments);
@@ -1568,20 +1586,13 @@ public final class Interpreter {
     return new Value.BooleanValue(false);
   }
 
-  private static Value objectItemsBuiltin(Value.ObjectValue object) {
-    if (object.itemsBuiltin() != null) return object.itemsBuiltin();
-    var builtin =
-        new Value.CallableValue(
-            (arguments, hasKeywords, location, environment) -> {
-              return itemsOf(object.values());
-            });
-    object.setItemsBuiltin(builtin);
-    return builtin;
-  }
-
-  private static Value objectItemsBuiltin(Map<?, Value> values) {
-    return new Value.CallableValue(
-        (arguments, hasKeywords, location, environment) -> itemsOf(values));
+  private static Value objectItemsBuiltin(
+      Map<String, Value.CallableValue> builtins, Map<?, Value> values) {
+    return builtins.computeIfAbsent(
+        "items",
+        ignored ->
+            new Value.CallableValue(
+                (arguments, hasKeywords, location, environment) -> itemsOf(values)));
   }
 
   private static Value.ArrayValue itemsOf(Map<?, Value> values) {
