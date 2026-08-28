@@ -352,7 +352,11 @@ public final class Interpreter {
       case "upper" ->
           filterString(operand, filter, location, value -> value.toUpperCase(Locale.ROOT));
       case "trim" -> filterString(operand, filter, location, JsOperations::trimEcmaWhitespace);
-      case "join" -> filterJoin(operand, filter, location);
+      // Upstream's bare string join returns its operand without reading .value. The call form
+      // (including |join()) instead builds an array from .value, which matters for
+      // undefined-backed strings.
+      case "join" ->
+          operand instanceof Value.StringValue ? operand : filterJoin(operand, filter, location);
       case "list" -> filterList(operand, location);
       case "items" -> filterItems(operand, location);
       case "first" -> filterFirstLast(operand, filter, location, false);
@@ -615,7 +619,7 @@ public final class Interpreter {
     if (operand instanceof Value.ArrayValue array) values = array.values();
     else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
     else if (operand instanceof Value.StringValue value) {
-      if (filter.positional().isEmpty() && filter.keywords().isEmpty()) return value;
+      if (value.undefinedBacked()) throw filterType("undefined is not iterable", location);
       values =
           value
               .value()
