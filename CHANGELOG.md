@@ -27,8 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Preserve the pinned JavaScript source rendering of the built-in `range` callable through
-  filters such as `safe` and `default`.
+- Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
+  `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
+  concatenation, joining, and explicit exception messages.
 - Align `namespace(...)` values with the pinned runtime's object members, filters, containment,
   deferred builtin fallback, and public render-error contract.
 - Preserve stable identity for bound string, object, and namespace member builtins.

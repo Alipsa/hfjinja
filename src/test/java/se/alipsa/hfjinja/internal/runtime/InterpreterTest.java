@@ -668,6 +668,16 @@ class InterpreterTest {
   }
 
   @Test
+  void usesCallableSourceForCoercionAndExceptionMessages() {
+    var source = Template.parse("{{ range }}").render(Map.of());
+    assertEquals(
+        source + "!|" + source + "!|" + source,
+        Template.parse("{{ range ~ '!' }}|{{ range + '!' }}|{{ [range]|join(',') }}")
+            .render(Map.of()));
+    assertEquals(source, raisedMessage("{{ raise_exception(range) }}", Map.of()));
+  }
+
+  @Test
   void rendersNamespaceKeywordArgumentsAndRejectsCyclicValues() {
     assertEquals("1", Template.parse("{% set ns = namespace(x=1) %}{{ ns.x }}").render(Map.of()));
     assertEquals(

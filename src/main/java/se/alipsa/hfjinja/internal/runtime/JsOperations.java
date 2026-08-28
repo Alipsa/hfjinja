@@ -78,7 +78,7 @@ final class JsOperations {
       case Value.TupleValue x -> arrayPayloadText(x.values(), location);
       case Value.ObjectValue ignored -> "[object Map]";
       case Value.KeywordArgumentsValue ignored -> "[object Map]";
-      case Value.CallableValue ignored -> "function";
+      case Value.CallableValue x -> x.renderedText();
     };
   }
 

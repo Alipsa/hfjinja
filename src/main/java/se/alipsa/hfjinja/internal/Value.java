@@ -176,13 +176,28 @@ public sealed interface Value
    * such as {@code safe} and {@code default} do not turn a callable into a Java-specific marker.
    */
   record CallableValue(Callable callable, String renderedText) implements Value {
+    /**
+     * Pinned 0.5.9 text produced by globals installed through {@code convertToRuntimeValues}.
+     *
+     * <p>See {@code upstream/vendor/src/runtime.ts}'s host-function conversion and the pinned
+     * {@code dist/index.js}. This is observable through interpolation and JavaScript coercion.
+     */
+    public static final String CONVERTED_FUNCTION_SOURCE =
+        """
+        (args, _scope) => {
+                const result = input(...args.map((x) => x.value)) ?? null;
+                return convertToRuntimeValues(result);
+              }""";
+
+    /**
+     * Explicit marker for Java-created callable forms whose exact upstream function source has not
+     * yet been ported (namespace, member builtins, macros, and call blocks).
+     */
+    public static final String JAVA_FUNCTION_MARKER = "<function>";
+
     public CallableValue {
       Objects.requireNonNull(callable);
       Objects.requireNonNull(renderedText);
-    }
-
-    public CallableValue(Callable callable) {
-      this(callable, "<function>");
     }
 
     @FunctionalInterface

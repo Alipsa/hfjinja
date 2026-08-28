@@ -115,19 +115,21 @@ public final class Interpreter {
     env.set(
         "range",
         new Value.CallableValue(
-            (a, k, x, s) -> range(a, k, x, budget),
-            """
-            (args, _scope) => {
-                    const result = input(...args.map((x) => x.value)) ?? null;
-                    return convertToRuntimeValues(result);
-                  }"""));
-    env.set("raise_exception", new Value.CallableValue((a, k, x, s) -> raise(a, k, x)));
-    env.set("strftime_now", new Value.CallableValue((a, k, x, s) -> strftime(a, k, x, o)));
+            (a, k, x, s) -> range(a, k, x, budget), Value.CallableValue.CONVERTED_FUNCTION_SOURCE));
+    env.set(
+        "raise_exception",
+        new Value.CallableValue(
+            (a, k, x, s) -> raise(a, k, x), Value.CallableValue.CONVERTED_FUNCTION_SOURCE));
+    env.set(
+        "strftime_now",
+        new Value.CallableValue(
+            (a, k, x, s) -> strftime(a, k, x, o), Value.CallableValue.CONVERTED_FUNCTION_SOURCE));
     for (var e : o.hostFunctions().entrySet())
       env.set(
           e.getKey(),
           new Value.CallableValue(
-              (a, k, x, s) -> HostFunctions.invoke(e.getKey(), e.getValue(), a, k, x)));
+              (a, k, x, s) -> HostFunctions.invoke(e.getKey(), e.getValue(), a, k, x),
+              Value.CallableValue.CONVERTED_FUNCTION_SOURCE));
   }
 
   static ExecResult evaluateBlock(List<Statement> body, Environment env, RenderBudget budget) {
@@ -1339,7 +1341,8 @@ public final class Interpreter {
               name + "() argument must be a string or tuple of strings",
               ErrorCategory.TYPE,
               location);
-        });
+        },
+        Value.CallableValue.JAVA_FUNCTION_MARKER);
   }
 
   private static Value stringBuiltin(Value.StringValue receiver, String name) {
@@ -1366,7 +1369,8 @@ public final class Interpreter {
             case "replace" -> stringReplace(text, arguments, location);
             default -> throw new AssertionError(name);
           };
-        });
+        },
+        Value.CallableValue.JAVA_FUNCTION_MARKER);
   }
 
   private static List<Value> positional(List<Value> arguments) {
@@ -1516,7 +1520,8 @@ public final class Interpreter {
             case "dictsort" -> dictSort(values, positional, arguments, location);
             default -> throw new AssertionError(name);
           };
-        });
+        },
+        Value.CallableValue.JAVA_FUNCTION_MARKER);
   }
 
   private static Value dictSort(
@@ -1612,7 +1617,8 @@ public final class Interpreter {
         "items",
         ignored ->
             new Value.CallableValue(
-                (arguments, hasKeywords, location, environment) -> itemsOf(values)));
+                (arguments, hasKeywords, location, environment) -> itemsOf(values),
+                Value.CallableValue.JAVA_FUNCTION_MARKER));
   }
 
   private static Value.ArrayValue itemsOf(Map<?, Value> values) {
@@ -1783,7 +1789,8 @@ public final class Interpreter {
               } finally {
                 b.exitMacro();
               }
-            }));
+            },
+            Value.CallableValue.JAVA_FUNCTION_MARKER));
     return new ExecResult.Normal("");
   }
 
@@ -1819,7 +1826,8 @@ public final class Interpreter {
               } finally {
                 b.exitMacro();
               }
-            });
+            },
+            Value.CallableValue.JAVA_FUNCTION_MARKER);
 
     var evaluated = evaluateArguments(n.call().args(), e, b);
     var arguments = new ArrayList<>(evaluated.positional());
@@ -2127,7 +2135,7 @@ public final class Interpreter {
               .orElse("");
       case Value.ObjectValue ignored -> "[object Map]";
       case Value.KeywordArgumentsValue ignored -> "[object Map]";
-      case Value.CallableValue ignored -> "[object Object]";
+      case Value.CallableValue x -> x.renderedText();
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> JsFormat.plainString(x.value());
       case Value.FloatValue x -> JsFormat.plainString(x.value());
@@ -2154,7 +2162,7 @@ public final class Interpreter {
               .orElse("[]");
       case Value.ObjectValue ignored -> "[object Map]";
       case Value.KeywordArgumentsValue ignored -> "[object Map]";
-      case Value.CallableValue ignored -> "[object Object]";
+      case Value.CallableValue x -> x.renderedText();
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> JsFormat.plainString(x.value());
       case Value.FloatValue x -> JsFormat.plainString(x.value());

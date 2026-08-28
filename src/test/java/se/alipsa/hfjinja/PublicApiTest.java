@@ -52,6 +52,19 @@ class PublicApiTest {
   }
 
   @Test
+  void convertedCallablesShareThePinnedFunctionSource() {
+    var options = RenderOptions.builder().hostFunction("host", arguments -> null).build();
+    var rendered =
+        Template.parse("{{ range }}|{{ raise_exception }}|{{ strftime_now }}|{{ host }}")
+            .render(Map.of(), options);
+    var functions = rendered.split("\\|", -1);
+    assertEquals(4, functions.length);
+    assertEquals(functions[0], functions[1]);
+    assertEquals(functions[0], functions[2]);
+    assertEquals(functions[0], functions[3]);
+  }
+
+  @Test
   void formattingOverloadsValidateInputsAndDoNotMutateTheTemplate() {
     var template = Template.parse("{% if a %}{{ x }}{% endif %}");
     var context = Map.of("a", true, "x", "x");

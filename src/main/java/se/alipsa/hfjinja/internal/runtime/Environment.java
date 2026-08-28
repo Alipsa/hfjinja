@@ -19,7 +19,9 @@ public final class Environment {
 
   Environment(Environment parent) {
     this.parent = parent;
-    variables.put("namespace", new Value.CallableValue(this::namespace));
+    variables.put(
+        "namespace",
+        new Value.CallableValue(this::namespace, Value.CallableValue.JAVA_FUNCTION_MARKER));
   }
 
   void set(String name, Value value) {
