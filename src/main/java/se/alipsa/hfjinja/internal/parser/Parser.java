@@ -179,6 +179,7 @@ public final class Parser {
       var variable = parseExpressionSequence(true);
       if (!(variable instanceof Expression.Identifier
           || variable instanceof Expression.TupleLiteral))
+        // Expression record names are pinned against upstream-lock.json by ParserTest.
         throw syntax(
             "Expected identifier/tuple for the loop variable, got "
                 + variable.getClass().getSimpleName()

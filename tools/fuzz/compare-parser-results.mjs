@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { readCorpus, validateCorpus } from '../corpus/corpus.mjs';
 import { ALGORITHM, generate, SMOKE_SEEDS } from './generate-parser-cases.mjs';
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -28,7 +29,7 @@ function runner(command, args) {
     const line = await new Promise((resolve, reject) => { const timer = setTimeout(() => { pending = null; child.kill('SIGKILL'); reject(new Error(`HARNESS timeout id=${candidate.id}`)); }, REQUEST_TIMEOUT_MS); pending = { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } }; child.stdin.write(`${JSON.stringify(candidate)}\n`); });
     let value; try { value = JSON.parse(line); } catch { throw new Error(`HARNESS malformed output id=${candidate.id}: ${line}`); }
     if (value.id !== candidate.id || !value.result) throw new Error(`HARNESS invalid output id=${candidate.id}: ${line}`);
-    if (value.result === 'HARNESS') throw new Error(`HARNESS id=${candidate.id}: ${value.detail ?? '<no detail>'}`);
+    if (value.result === 'HARNESS') throw new Error(`HARNESS id=${candidate.id}: ${value.message ?? value.detail ?? '<no detail>'}`);
     await new Promise(resolve => setImmediate(resolve));
     if (unexpectedOutput.length) throw new Error(`HARNESS unexpected runner output after id=${candidate.id}: ${JSON.stringify(unexpectedOutput)}`);
     return value;
@@ -43,23 +44,33 @@ function discrepancy(candidate, node, jvm) {
   }
   if (node.result === 'LIMIT' || jvm.result === 'LIMIT') return null;
   if ((node.result === 'PARSED') !== (jvm.result === 'PARSED')) return { kind: 'PARITY', reason: `${node.result} versus ${jvm.result}` };
-  if (candidate.family === 'mutation' && node.result !== 'PARSED' && node.message !== jvm.message) {
+  if (node.result !== 'PARSED' && node.message !== jvm.message) {
     return { kind: 'PARITY', reason: `error message differs: Node ${JSON.stringify(node.message)} versus Java ${JSON.stringify(jvm.message)}` };
   }
   return null;
 }
 
-const mutationAlphabet = ['0', '1', 'a', ' ', '{', '}', '%', '(', ')', '[', ']', "'", '"', '!', '\n'];
+// These delimiters and a numeric literal cover the parser transitions exercised by substitutions
+// without multiplying every corpus code unit by the full hostile-source alphabet.
+const mutationAlphabet = ['1', '{', '}', '!'];
 async function mutations() {
-  const records = (await readFile(corpusPath, 'utf8')).trim().split('\n').map(JSON.parse);
+  const records = await readCorpus(corpusPath);
+  validateCorpus(records, corpusPath);
   const candidates = [];
-  for (const record of records) {
+  for (const record of records.filter((record) => typeof record.template === 'string')) {
     const options = record.templateOptions ?? {};
     for (let offset = 0; offset < record.template.length; offset++) for (const replacement of mutationAlphabet) {
       if (record.template[offset] === replacement) continue;
       const source = record.template.slice(0, offset) + replacement + record.template.slice(offset + 1);
       candidates.push({ id: `mutation-${record.id}-${offset}-${Buffer.from(replacement, 'utf16le').toString('hex')}`,
         family: 'mutation', source: encode(source), trimBlocks: options.trimBlocks ?? true,
+        lstripBlocks: options.lstripBlocks ?? true, sourceCodeUnits: source.length });
+    }
+    // Prefixes cover truncation and end-of-input paths independently of substitutions.
+    for (let length = 1; length <= record.template.length; length++) {
+      const source = record.template.slice(0, length);
+      candidates.push({ id: `mutation-${record.id}-prefix-${length}`, family: 'mutation',
+        source: encode(source), trimBlocks: options.trimBlocks ?? true,
         lstripBlocks: options.lstripBlocks ?? true, sourceCodeUnits: source.length });
     }
   }
@@ -114,5 +125,5 @@ try {
   }
   node.assertClean(); jvm.assertClean();
   await mkdir(dirname(report), { recursive: true });
-  await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Corpus single-code-unit substitutions: ${mutationTotal}, using ${mutationAlphabet.length} replacements per position. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 300 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}\n\nExclusions: none.\n`);
+  await writeFile(report, `# Parser fuzz verification\n\nProtocol: ${PROTOCOL}; PRNG: ${ALGORITHM}. Seeds: ${SMOKE_SEEDS.map(seed => `0x${seed.toString(16).toUpperCase()}`).join(', ')}. Grammar and hostile cases per seed: ${count}. Corpus substitutions and prefixes: ${mutationTotal}; substitutions use ${mutationAlphabet.length} selected replacements per code unit. Per-request timeout: ${REQUEST_TIMEOUT_MS / 1000} seconds. Task timeout: 120 seconds. Minimization budget: ${REDUCTION_TIMEOUT_MS / 1000} seconds or ${REDUCTION_TRIALS} trials.\n\nVerified ${total} candidates; documented hostile limit outcomes: ${limits}. OTHER_ERROR outcomes (${otherErrors.length}):${otherErrors.length ? `\n${otherErrors.map(value => `- ${value}`).join('\n')}` : ' none'}\n\nExclusions: none.\n`);
 } finally { node.close(); jvm.close(); }

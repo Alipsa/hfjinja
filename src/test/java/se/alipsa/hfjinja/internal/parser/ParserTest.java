@@ -3,7 +3,10 @@ package se.alipsa.hfjinja.internal.parser;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.TemplateOptions;
@@ -86,6 +89,20 @@ class ParserTest {
     assertEquals(
         "Expected identifier/tuple for the loop variable, got ObjectLiteral instead",
         object.getMessage());
+  }
+
+  @Test
+  void expressionRecordNamesUsedInDiagnosticsArePinnedUpstreamAstNodes() throws Exception {
+    var lock = Files.readString(Path.of("upstream/upstream-lock.json"));
+    for (var expressionType : Expression.class.getDeclaredClasses()) {
+      if (Expression.class.isAssignableFrom(expressionType)) {
+        assertTrue(
+            lock.contains("\"" + expressionType.getSimpleName() + "\""),
+            () ->
+                expressionType.getSimpleName()
+                    + " is absent from the pinned upstream AST inventory");
+      }
+    }
   }
 
   @Test

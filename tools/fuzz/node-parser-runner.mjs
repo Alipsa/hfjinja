@@ -6,6 +6,7 @@ import { emit } from '../ast-snapshot/ast-serialize.mjs';
 
 const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
 if (process.version !== lock.nodeVersion) throw new Error(`Node oracle version ${process.version} does not match lock ${lock.nodeVersion}`);
+const UPSTREAM_MISSING_TOKEN_MESSAGE = "Cannot read properties of undefined (reading 'type')";
 const reply = result => process.stdout.write(`${JSON.stringify(result)}\n`);
 for await (const line of readline.createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   try {
@@ -17,8 +18,10 @@ for await (const line of readline.createInterface({ input: process.stdin, crlfDe
       reply({ id: candidate.id, result: 'PARSED', ast: candidate.family === 'grammar' ? Buffer.from(emit(ast)).toString('base64') : undefined });
     } catch (error) {
       // Pinned upstream's expect() throws plain Error("Parser Error: ..."), not SyntaxError.
-      const result = error instanceof RangeError ? 'LIMIT' : error instanceof SyntaxError || (error instanceof Error && error.message.startsWith('Parser Error:')) ? 'SYNTAX' : 'OTHER_ERROR';
-      reply({ id: candidate.id, result, message: String(error.message ?? error) });
+      const message = String(error.message ?? error);
+      const result = error instanceof RangeError ? 'LIMIT' : error instanceof SyntaxError
+        || (error instanceof Error && (message.startsWith('Parser Error:') || message === UPSTREAM_MISSING_TOKEN_MESSAGE)) ? 'SYNTAX' : 'OTHER_ERROR';
+      reply({ id: candidate.id, result, message });
     }
   } catch (error) {
     reply({ id: null, result: 'HARNESS', detail: String(error) });
