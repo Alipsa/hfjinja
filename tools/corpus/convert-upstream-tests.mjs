@@ -10,6 +10,7 @@ const corpusPath = 'src/test/resources/corpus/v1.jsonl';
 const lockPath = 'upstream/upstream-lock.json';
 const sourceInventoryPath = 'upstream/corpus-source-inventory.json';
 const runtimeSourcePath = 'upstream/vendor/src/runtime.ts';
+const errorPatternsPath = 'tools/corpus/error-patterns-0.5.9.json';
 // These upstream fixtures inject JavaScript functions through the render context. The public
 // differential-corpus schema intentionally does not serialize functions: its `globals` field is
 // reserved until the pinned Template API can inject non-built-in globals. Keep the exclusions
@@ -177,6 +178,10 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
   validateSourceInventory(inventory, testFiles, excludedTestFiles);
   const runtimeCoverage = runtimeSurfaceCoverage(await readFile(runtimeSourcePath, 'utf8'), committedRecords);
+  const errorCoverage = errorFamilyCoverage(
+    JSON.parse(await readFile(errorPatternsPath, 'utf8')),
+    committedRecords,
+  );
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
@@ -201,10 +206,26 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
     ...runtimeCoverage.flatMap(([surface, entries]) => entries.map(([name, evidence]) =>
       '| ' + surface + ' | ' + name + ' | ' + evidence.join(', ') + ' |')),
     '',
+    '## Error-family inventory', '', '| Category | Differential-corpus evidence |', '| --- | --- |',
+    ...errorCoverage.map(([category, evidence]) => '| ' + category + ' | ' + evidence + ' |'), '',
   );
   const reportPath = resolve(path);
   await mkdir(dirname(reportPath), {recursive: true});
   await writeFile(reportPath, lines.join('\n'), 'utf8');
+}
+
+function errorFamilyCoverage(patterns, records) {
+  const excluded = new Map([
+    ['UNDEFINED_OR_ACCESS', 'Excluded: unknown variables and missing members render as undefined in the pinned public Template API.'],
+  ]);
+  const categories = [...new Set(patterns.patterns.map((pattern) => pattern.category))].sort();
+  return categories.map((category) => {
+    const evidence = records.filter((record) => record.expected.errorCategory === category).map((record) => record.id);
+    if (evidence.length === 0 && !excluded.has(category)) {
+      throw new Error('Pinned error family lacks differential-corpus coverage: ' + category);
+    }
+    return [category, evidence.length === 0 ? excluded.get(category) : evidence.join(', ')];
+  });
 }
 
 function validateSourceInventory(inventory, testFiles, excludedTestFiles) {
