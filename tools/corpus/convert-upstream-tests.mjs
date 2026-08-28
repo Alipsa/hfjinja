@@ -176,7 +176,7 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
   validateSourceInventory(inventory, testFiles, excludedTestFiles);
-  runtimeSurfaceCoverage(await readFile(runtimeSourcePath, 'utf8'), committedRecords);
+  const runtimeCoverage = runtimeSurfaceCoverage(await readFile(runtimeSourcePath, 'utf8'), committedRecords);
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
@@ -193,6 +193,15 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
     ...Object.entries(inventory.sources).map(([source, entry]) => `| \`${source}\` | ${entry.coverage} | ${entry.evidence ?? entry.reason} |`), '',
     'Every vendored unit source and every policy-excluded test source is represented above.', '',
   ];
+  lines.splice(
+    lines.length - 1,
+    0,
+    '## Runtime surface inventory', '',
+    '| Surface | Name | Differential-corpus evidence |', '| --- | --- | --- |',
+    ...runtimeCoverage.flatMap(([surface, entries]) => entries.map(([name, evidence]) =>
+      '| ' + surface + ' | ' + name + ' | ' + evidence.join(', ') + ' |')),
+    '',
+  );
   const reportPath = resolve(path);
   await mkdir(dirname(reportPath), {recursive: true});
   await writeFile(reportPath, lines.join('\n'), 'utf8');
@@ -232,7 +241,9 @@ function runtimeSurfaceCoverage(runtimeSource, records) {
   const globals = unique([...between('export function setupGlobals', '/**\n * Helper function').matchAll(/env\.set\("([^"]+)"/g)]
     .map((match) => match[1]));
   const stringMembers = unique(mapEntries(between('export class StringValue', 'export class BooleanValue')));
-  const objectMembers = unique(mapEntries(between('export class ObjectValue', '\n\titems():')));
+  const objectMembers = unique(
+    mapEntries(between('export class ObjectValue', '\n\titems():')).filter((name) => name !== 'key'),
+  );
   const arrayMembers = unique(mapEntries(between('export class ArrayValue', 'export class TupleValue')));
   const filtersSource = between('private applyFilter', 'private evaluateFilterExpression');
   const filters = unique([
@@ -244,14 +255,15 @@ function runtimeSurfaceCoverage(runtimeSource, records) {
     ['filter', filters], ['test', tests], ['string member', stringMembers],
     ['object member', objectMembers], ['array member', arrayMembers], ['global', globals],
   ];
-  for (const [surface, names] of surfaces) {
-    for (const name of names) {
+  return surfaces.map(([surface, names]) => [surface, names.map((name) => {
       const usage = new RegExp('(?:\\||\\.|\\bis\\s+|\\b)' + escapeRegex(name) + '(?:\\b|\\(|\\s)');
-      if (!records.some((record) => typeof record.template === 'string' && usage.test(record.template))) {
+      const evidence = records.filter((record) => typeof record.template === 'string' && usage.test(record.template))
+        .map((record) => record.id);
+      if (evidence.length === 0) {
         throw new Error('Pinned runtime ' + surface + ' lacks differential-corpus coverage: ' + name);
       }
-    }
-  }
+      return [name, evidence];
+    })]);
 }
 
 function escapeRegex(value) {
