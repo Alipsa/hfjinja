@@ -180,7 +180,9 @@ public sealed interface Value
      * Pinned 0.5.9 text produced by globals installed through {@code convertToRuntimeValues}.
      *
      * <p>See {@code upstream/vendor/src/runtime.ts}'s host-function conversion and the pinned
-     * {@code dist/index.js}. This is observable through interpolation and JavaScript coercion.
+     * {@code dist/index.js}. This is observable through interpolation and JavaScript coercion. When
+     * updating {@code upstream/upstream-lock.json}, run the Node oracle with a temporary {@code {{
+     * range }}} corpus record and replace this literal with its byte-exact output.
      */
     public static final String CONVERTED_FUNCTION_SOURCE =
         """
@@ -191,7 +193,9 @@ public sealed interface Value
 
     /**
      * Explicit marker for Java-created callable forms whose exact upstream function source has not
-     * yet been ported (namespace, member builtins, macros, and call blocks).
+     * yet been ported (namespace, member builtins, macros, and call blocks). TODO: close this
+     * remaining callable-rendering parity work under {@link <a
+     * href="../../../../../../req/implementation-plan.md#wp7--pinned-upstream-parity-closure">WP7</a>}.
      */
     public static final String JAVA_FUNCTION_MARKER = "<function>";
 

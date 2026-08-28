@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import se.alipsa.hfjinja.internal.Value;
 
 class PublicApiTest {
   @Test
@@ -59,9 +60,8 @@ class PublicApiTest {
             .render(Map.of(), options);
     var functions = rendered.split("\\|", -1);
     assertEquals(4, functions.length);
-    assertEquals(functions[0], functions[1]);
-    assertEquals(functions[0], functions[2]);
-    assertEquals(functions[0], functions[3]);
+    for (var function : functions)
+      assertEquals(Value.CallableValue.CONVERTED_FUNCTION_SOURCE, function);
   }
 
   @Test
