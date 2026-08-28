@@ -25,6 +25,10 @@ test('accepts text and hash-only record forms', () => {
     modelRevision: 'a'.repeat(40), templatePath: 'tokenizer_config.json', context: {},
     expected: {errorCategory: 'EXPLICIT_RAISE'},
   });
+  validateRecord({
+    id: 'exact-error', source: 'test', template: 'hello', context: {},
+    expected: {errorCategory: 'EXPLICIT_RAISE', errorMessage: 'hello'},
+  });
 });
 
 test('rejects duplicate ids and malformed deterministic-time fields', () => {
@@ -53,6 +57,10 @@ test('rejects mixed fixture forms and invalid expected results', () => {
     id: 'wrong-outcome', source: 'test', template: 'hello', context: {},
     expected: {sha256: sha256Utf8('hello')},
   }), /does not match/);
+  assert.throws(() => validateRecord({
+    id: 'bad-exact-error', source: 'test', template: 'hello', context: {},
+    expected: {errorCategory: 'EXPLICIT_RAISE', errorMessage: 1},
+  }), /errorMessage must be a string/);
   assert.throws(() => validateRecord({
     id: 'bad-hash', source: 'test', template: 'hello', templateSha256: 'bad', context: {},
     expected: {text: 'hello'},
@@ -156,6 +164,29 @@ test('reports harness mismatches and unmatched upstream errors per record', asyn
   assert.doesNotMatch(result.stderr, /FAIL .*expected-error.*output mismatch/);
   assert.match(result.stderr, /Unmatched upstream error.*Unexpected token/);
   assert.match(result.stdout, /PASS after-error/);
+});
+
+test('compares opted-in exact upstream error messages', async () => {
+  const matching = await runOracle([{
+    id: 'exact-message', source: 'test', template: "{{ raise_exception('exact') }}", context: {},
+    expected: {errorCategory: 'EXPLICIT_RAISE', errorMessage: 'exact'},
+  }]);
+  assert.equal(matching.status, 0, matching.stderr);
+  assert.match(matching.stdout, /PASS exact-message error=EXPLICIT_RAISE message=exact/);
+
+  const mismatching = await runOracle([{
+    id: 'wrong-message', source: 'test', template: "{{ raise_exception('actual') }}", context: {},
+    expected: {errorCategory: 'EXPLICIT_RAISE', errorMessage: 'expected'},
+  }]);
+  assert.equal(mismatching.status, 1);
+  assert.match(mismatching.stderr, /error message mismatch; expected="expected", actual="actual"/);
+
+  const miscategorised = await runOracle([{
+    id: 'miscategorised-exact', source: 'test', template: '{{ [1]|nosuchfilter }}', context: {},
+    expected: {errorCategory: 'SYNTAX', errorMessage: 'Unknown ArrayValue filter: nosuchfilter'},
+  }]);
+  assert.equal(miscategorised.status, 1);
+  assert.match(miscategorised.stderr, /error category mismatch; expected=SYNTAX, actual=TYPE/);
 });
 
 test('reports skipped hash-only records and rejects an all-hash-only run', async () => {

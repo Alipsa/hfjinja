@@ -52,6 +52,17 @@ class PublicApiTest {
   }
 
   @Test
+  void convertedHostCallableSharesTheBuiltinFunctionSource() {
+    // JSONL corpus fixtures cannot inject RenderOptions host functions, so this public-boundary
+    // assertion covers the Java-only host-function registration path.
+    var options = RenderOptions.builder().hostFunction("host", arguments -> null).build();
+    var rendered = Template.parse("{{ range }}|{{ host }}").render(Map.of(), options);
+    var functions = rendered.split("\\|", -1);
+    assertEquals(2, functions.length);
+    assertEquals(functions[0], functions[1]);
+  }
+
+  @Test
   void formattingOverloadsValidateInputsAndDoNotMutateTheTemplate() {
     var template = Template.parse("{% if a %}{{ x }}{% endif %}");
     var context = Map.of("a", true, "x", "x");

@@ -25,8 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add pinned-oracle vectors for runtime filters and object members, including `reverse`, `bool`,
   `abs`, `keys`, `values`, and `dictsort`.
 
+### Changed
+
+- Render Java-native callable forms that still have no ported upstream source (namespace, member
+  builtins, macros, and call blocks) consistently as `<function>` in coercion and exception paths.
+
 ### Fixed
 
+- Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
+  `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
+  concatenation, joining, and explicit exception messages.
 - Align `namespace(...)` values with the pinned runtime's object members, filters, containment,
   deferred builtin fallback, and public render-error contract.
 - Preserve stable identity for bound string, object, and namespace member builtins.

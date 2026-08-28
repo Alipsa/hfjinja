@@ -155,17 +155,28 @@ final class CorpusFixtures {
   private static Expected validateExpected(Object raw, boolean hashOnly, String label) {
     if (!(raw instanceof Map<?, ?> map)) throw failure(label, "expected is required");
     Map<String, Object> expected = castMap(map, label);
-    if (expected.size() != 1) throw failure(label, "expected must have exactly one outcome");
+    boolean exactError =
+        expected.size() == 2
+            && expected.containsKey("errorCategory")
+            && expected.containsKey("errorMessage");
+    if (expected.size() != 1 && !exactError)
+      throw failure(label, "expected must have exactly one outcome");
     if (expected.containsKey("text") && !hashOnly && expected.get("text") instanceof String text)
-      return new Expected(text, null);
+      return new Expected(text, null, null);
     if (expected.containsKey("errorCategory")
         && expected.get("errorCategory") instanceof String category
-        && CATEGORIES.contains(category))
-      return new Expected(null, ErrorCategory.valueOf(category));
+        && CATEGORIES.contains(category)) {
+      if (exactError && !(expected.get("errorMessage") instanceof String))
+        throw failure(label, "errorMessage must be a string");
+      return new Expected(
+          null,
+          ErrorCategory.valueOf(category),
+          exactError ? (String) expected.get("errorMessage") : null);
+    }
     if (expected.containsKey("sha256")
         && hashOnly
         && expected.get("sha256") instanceof String hash
-        && SHA256.matcher(hash).matches()) return new Expected(null, null);
+        && SHA256.matcher(hash).matches()) return new Expected(null, null, null);
     throw failure(label, "expected outcome does not match fixture form");
   }
 
@@ -308,7 +319,7 @@ final class CorpusFixtures {
     }
   }
 
-  record Expected(String text, ErrorCategory errorCategory) {}
+  record Expected(String text, ErrorCategory errorCategory, String errorMessage) {}
 
   private static final class Json {
     private final String input;

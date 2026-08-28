@@ -668,6 +668,31 @@ class InterpreterTest {
   }
 
   @Test
+  void usesCallableSourceForCoercionAndExceptionMessages() {
+    var source = Template.parse("{{ range }}").render(Map.of());
+    assertEquals(
+        source + "!|" + source + "!|" + source,
+        Template.parse("{{ range ~ '!' }}|{{ range + '!' }}|{{ [range]|join(',') }}")
+            .render(Map.of()));
+    assertEquals(source, raisedMessage("{{ raise_exception(range) }}", Map.of()));
+    assertEquals(source, raisedMessage("{{ raise_exception([range]) }}", Map.of()));
+  }
+
+  @Test
+  void retainsTheKnownMarkerForUnportedCallableForms() {
+    assertEquals(
+        "<function>!|<function>!|<function>!|<function>!|<function>!|<function>!|<function>!",
+        Template.parse(
+                "{{ namespace ~ '!' }}|{{ 'ab'.upper ~ '!' }}|"
+                    + "{{ 'ab'.startswith ~ '!' }}|{{ ({'a':1}).keys ~ '!' }}|"
+                    + "{{ ({'a':1}).items ~ '!' }}|"
+                    + "{% macro f() %}x{% endmacro %}{{ f ~ '!' }}|"
+                    + "{% macro wrap() %}{{ caller ~ '!' }}{% endmacro %}{% call wrap() %}x{% endcall %}")
+            .render(Map.of()));
+    assertEquals("<function>", raisedMessage("{{ raise_exception(namespace) }}", Map.of()));
+  }
+
+  @Test
   void rendersNamespaceKeywordArgumentsAndRejectsCyclicValues() {
     assertEquals("1", Template.parse("{% set ns = namespace(x=1) %}{{ ns.x }}").render(Map.of()));
     assertEquals(

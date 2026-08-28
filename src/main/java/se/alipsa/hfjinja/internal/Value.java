@@ -168,9 +168,40 @@ public sealed interface Value
     }
   }
 
-  record CallableValue(Callable callable) implements Value {
+  /**
+   * A callable together with the pinned runtime's observable JavaScript source representation.
+   *
+   * <p>The runtime renders a {@code FunctionValue} by calling JavaScript {@code String} on its
+   * backing function. Preserve that text separately from Java's lambda implementation so filters
+   * such as {@code safe} and {@code default} do not turn a callable into a Java-specific marker.
+   */
+  record CallableValue(Callable callable, String renderedText) implements Value {
+    /**
+     * Pinned 0.5.9 text produced by globals installed through {@code convertToRuntimeValues}.
+     *
+     * <p>See {@code upstream/vendor/src/runtime.ts}'s host-function conversion and the pinned
+     * {@code dist/index.js}. This is observable through interpolation and JavaScript coercion. When
+     * updating {@code upstream/upstream-lock.json}, run the Node oracle with a temporary {@code {{
+     * range }}} corpus record and replace this literal with its byte-exact output.
+     */
+    public static final String CONVERTED_FUNCTION_SOURCE =
+        """
+        (args, _scope) => {
+                const result = input(...args.map((x) => x.value)) ?? null;
+                return convertToRuntimeValues(result);
+              }""";
+
+    // TODO: Close the remaining callable-rendering parity work in "WP7 — pinned-upstream parity
+    // closure" of req/implementation-plan.md (namespace, member builtins, macros, and call blocks).
+    /**
+     * Explicit marker for Java-created callable forms whose exact upstream function source has not
+     * yet been ported (namespace, member builtins, macros, and call blocks).
+     */
+    public static final String JAVA_FUNCTION_MARKER = "<function>";
+
     public CallableValue {
       Objects.requireNonNull(callable);
+      Objects.requireNonNull(renderedText);
     }
 
     @FunctionalInterface

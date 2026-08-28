@@ -154,10 +154,13 @@ function validInstant(instant) {
 function validateExpected(expected, hashOnly, label) {
   if (!isObject(expected)) throw new Error(`${label}: expected is required`);
   const keys = Object.keys(expected);
-  if (keys.length !== 1) throw new Error(`${label}: expected must have exactly one outcome`);
+  const exactError = keys.length === 2 && keys.includes('errorCategory') && keys.includes('errorMessage');
+  if (keys.length !== 1 && !exactError) throw new Error(`${label}: expected must have exactly one outcome`);
   const [outcome] = keys;
-  if (outcome === 'errorCategory') {
+  if (expected.errorCategory !== undefined) {
     if (!categories.has(expected.errorCategory)) throw new Error(`${label}: invalid error category`);
+    if (exactError && typeof expected.errorMessage !== 'string')
+      throw new Error(`${label}: errorMessage must be a string`);
     return;
   }
   if (hashOnly && outcome === 'sha256' && sha256(expected.sha256)) return;
