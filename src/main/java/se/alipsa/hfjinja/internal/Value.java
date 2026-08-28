@@ -191,11 +191,11 @@ public sealed interface Value
                 return convertToRuntimeValues(result);
               }""";
 
+    // TODO: Close the remaining callable-rendering parity work tracked by WP7 in
+    // req/implementation-plan.md (namespace, member builtins, macros, and call blocks).
     /**
      * Explicit marker for Java-created callable forms whose exact upstream function source has not
-     * yet been ported (namespace, member builtins, macros, and call blocks). TODO: close this
-     * remaining callable-rendering parity work under {@link <a
-     * href="../../../../../../req/implementation-plan.md#wp7--pinned-upstream-parity-closure">WP7</a>}.
+     * yet been ported (namespace, member builtins, macros, and call blocks).
      */
     public static final String JAVA_FUNCTION_MARKER = "<function>";
 
