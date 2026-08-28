@@ -55,7 +55,9 @@ public sealed interface Value
   final class StringValue implements Value {
     private final String value;
     private final boolean undefinedBacked;
-    private final Map<String, CallableValue> builtins = new LinkedHashMap<>();
+    // Values are rebuilt from host data for each render, so this render-local cache is not shared
+    // across concurrent renders. Keep it lazy: most string values never access a member builtin.
+    private Map<String, CallableValue> builtins;
 
     public StringValue(String value, boolean undefinedBacked) {
       this.value = Objects.requireNonNull(value, "value");
@@ -75,6 +77,7 @@ public sealed interface Value
     }
 
     public Map<String, CallableValue> builtins() {
+      if (builtins == null) builtins = new LinkedHashMap<>();
       return builtins;
     }
 
@@ -113,7 +116,8 @@ public sealed interface Value
   /** Mutable by design for template member assignment; never use as a hash-based key. */
   final class ObjectValue implements Value {
     private final Map<Object, Value> values;
-    private final Map<String, CallableValue> builtins = new LinkedHashMap<>();
+    // Values are rebuilt from host data for each render, so this cache is never shared by renders.
+    private Map<String, CallableValue> builtins;
 
     public ObjectValue(Map<?, Value> values) {
       this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
@@ -124,6 +128,7 @@ public sealed interface Value
     }
 
     public Map<String, CallableValue> builtins() {
+      if (builtins == null) builtins = new LinkedHashMap<>();
       return builtins;
     }
 
@@ -146,7 +151,8 @@ public sealed interface Value
   /** Object-like call keyword arguments, distinct because they are not JSON-renderable upstream. */
   final class KeywordArgumentsValue implements Value {
     private final Map<String, Value> values;
-    private final Map<String, CallableValue> builtins = new LinkedHashMap<>();
+    // Values are rebuilt from host data for each render, so this cache is never shared by renders.
+    private Map<String, CallableValue> builtins;
 
     public KeywordArgumentsValue(Map<String, Value> values) {
       this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
@@ -157,6 +163,7 @@ public sealed interface Value
     }
 
     public Map<String, CallableValue> builtins() {
+      if (builtins == null) builtins = new LinkedHashMap<>();
       return builtins;
     }
   }
