@@ -32,7 +32,9 @@ public final class Parser {
   }
 
   private static final class Cursor {
-    private static final String UPSTREAM_END_OF_INPUT_MESSAGE =
+    // Deliberately reproduces the pinned parser's uncaught missing-token TypeError, distinct
+    // from the lexer's designed "Unexpected end of input" diagnostic.
+    private static final String UPSTREAM_MISSING_TOKEN_MESSAGE =
         "Cannot read properties of undefined (reading 'type')";
     private final List<Token> tokens;
     private final TemplateOptions options;
@@ -76,7 +78,8 @@ public final class Parser {
 
     Statement parseJinjaStatement() {
       var start = expect(TokenType.OpenStatement, "Expected opening statement token").start();
-      if (current >= tokens.size() || peek().type() != TokenType.Identifier)
+      if (current >= tokens.size()) throw syntax(UPSTREAM_MISSING_TOKEN_MESSAGE, endLocation);
+      if (peek().type() != TokenType.Identifier)
         throw syntax("Unknown statement, got " + typeHere(), locationHere());
       var nameToken = peek();
       var name = nameToken.value();
@@ -222,7 +225,7 @@ public final class Parser {
       while (!isStatement("endfilter")) body.add(parseAny());
       expect(TokenType.OpenStatement, "Expected {%");
       expectIdentifier("endfilter");
-      expect(TokenType.CloseStatement, "Expected %}");
+      expect(TokenType.CloseStatement, "Expected '%}'");
       return new Statement.FilterStatement(filter, body, start);
     }
 
@@ -469,7 +472,7 @@ public final class Parser {
                   var r = parseExpressionSequence(false);
                   expect(
                       TokenType.CloseParen,
-                      "Expected closing parenthesis, got " + peek().type() + " instead.");
+                      "Expected closing parenthesis, got ${tokens[current].type} instead.");
                   return r;
                 });
         case OpenSquareBracket ->
@@ -508,7 +511,7 @@ public final class Parser {
     }
 
     Token peek() {
-      if (current >= tokens.size()) throw syntax(UPSTREAM_END_OF_INPUT_MESSAGE, endLocation);
+      if (current >= tokens.size()) throw syntax(UPSTREAM_MISSING_TOKEN_MESSAGE, endLocation);
       return tokens.get(current);
     }
 
@@ -519,10 +522,10 @@ public final class Parser {
     }
 
     Token expect(TokenType type, String error) {
-      if (current >= tokens.size()) throw syntax(UPSTREAM_END_OF_INPUT_MESSAGE, endLocation);
+      if (current >= tokens.size()) throw syntax(UPSTREAM_MISSING_TOKEN_MESSAGE, endLocation);
       var t = tokens.get(current++);
       if (t.type() != type)
-        throw syntax("Parser Error: " + error + ". " + t.type() + " !== " + type, t.start());
+        throw syntax("Parser Error: " + error + ". " + t.type() + " !== " + type + ".", t.start());
       return t;
     }
 

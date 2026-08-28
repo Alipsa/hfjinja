@@ -39,8 +39,21 @@ const upstreamErrorCategories = new Map([
   ['Invalid variable assignment', 'SYNTAX'],
 ]);
 const upstreamErrorMessages = new Map([
+  ['Missing closing curly brace', 'Unexpected end of input'],
+  ['Unclosed string literal', 'Unexpected end of input'],
+  ['Unexpected character', 'Unexpected character: !'],
+  ['Invalid quote character', 'Unexpected character: ‘'],
   ['Unclosed statement', "Cannot read properties of undefined (reading 'type')"],
   ['Unclosed expression', "Cannot read properties of undefined (reading 'type')"],
+  ['Unmatched control structure', 'Unknown statement type: endfor'],
+  ['Missing variable in for loop', 'Unexpected token: CloseStatement'],
+  ['Unclosed parentheses in expression', 'Parser Error: Expected closing parenthesis, got ${tokens[current].type} instead.. CloseExpression !== CloseParen.'],
+  ['Invalid variable name', 'Parser Error: Expected closing expression token. Identifier !== CloseExpression.'],
+  ['Invalid control structure usage', 'Unexpected token: CloseStatement'],
+  ['Undefined function call', 'Cannot call something that is not a function: got UndefinedValue'],
+  ['Incorrect function call', 'Cannot call something that is not a function: got BooleanValue'],
+  ['Looping over non-iterable', 'Expected iterable or object type in for loop: got IntegerValue'],
+  ['Invalid variable assignment', 'Invalid LHS inside assignment expression: {"type":"IntegerLiteral","value":42}'],
 ]);
 const syntaxErrorGroups = new Set(['Lexing errors', 'Parsing errors']);
 // runtime.ts evaluates the invalid assignment after parsing it, but Java rejects the left-hand
@@ -255,8 +268,9 @@ function extractErrorCases(source) {
     if (syntaxErrorGroups.has(entry.group) && category !== 'SYNTAX') {
       throw new Error(`Upstream ${entry.group} case must map to SYNTAX: ${entry.name}`);
     }
-    if (syntaxRuntimeErrorCases.has(entry.name) && category !== 'SYNTAX') {
-      throw new Error(`Upstream runtime syntax case must map to SYNTAX: ${entry.name}`);
+    if (entry.group === 'Runtime errors'
+        && (category === 'SYNTAX') !== syntaxRuntimeErrorCases.has(entry.name)) {
+      throw new Error(`Upstream Runtime errors category mapping is not declared: ${entry.name}`);
     }
   }
   return captured.map((entry) => {

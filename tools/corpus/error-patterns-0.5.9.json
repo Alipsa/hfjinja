@@ -125,7 +125,7 @@
       "regex": "^Cannot read properties of undefined \\(reading 'type'\\)$",
       "category": "SYNTAX",
       "constructors": ["TypeError"],
-      "recordIds": ["templates.error-unclosed-statement", "templates.error-unclosed-expression"],
+      "recordIds": ["templates.error-unclosed-statement", "templates.error-unclosed-expression", "wp7.parser-missing-statement-name"],
       "comment": "Pinned parser crashes whose generic TypeError text also occurs in runtime failures"
     },
     {
