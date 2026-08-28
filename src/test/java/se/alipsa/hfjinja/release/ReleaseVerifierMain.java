@@ -35,6 +35,7 @@ public final class ReleaseVerifierMain {
     Path dependencyEvidence = Files.createTempDirectory("hfjinja-dependency-evidence-");
     Path repository = Files.createTempDirectory("hfjinja-release-repository-");
     Path report = source.resolve("build/reports/release-verification.md");
+    Path retainedEvidence = source.resolve("build/reports/release-verification-evidence");
     try {
       run(source, "git", "worktree", "add", "--detach", worktree.toString(), head);
       Files.createDirectories(userHome);
@@ -51,6 +52,8 @@ public final class ReleaseVerifierMain {
       Files.copy(worktree.resolve("build/dependencyUpdates/report.txt"), stagedReport);
 
       gradle(worktree, userHome, true, "verifyReproducibleArchives");
+      Path archiveEvidence = dependencyEvidence.resolve("archive-reproducibility.json");
+      Files.copy(worktree.resolve("build/reports/archive-reproducibility.json"), archiveEvidence);
       gradle(worktree, userHome, true, "clean", "check");
       gradle(
           worktree,
@@ -58,20 +61,37 @@ public final class ReleaseVerifierMain {
           true,
           "dependencyReview",
           "-PreleaseVerificationDependencyReport=" + stagedReport);
+      Files.createDirectories(retainedEvidence);
+      copyEvidence(worktree, retainedEvidence, "build/reports/corpus-coverage.md");
+      copyEvidence(worktree, retainedEvidence, "build/publications/maven/pom-default.xml");
+      copyEvidence(worktree, retainedEvidence, "build/reports/dependency-review.md");
+      Files.copy(
+          archiveEvidence,
+          retainedEvidence.resolve("archive-reproducibility.json"),
+          java.nio.file.StandardCopyOption.REPLACE_EXISTING);
       gradle(
           worktree,
           userHome,
           true,
           "publishMavenPublicationToReleaseVerificationRepository",
           "-PreleaseVerificationRepository=" + repository);
-      Path resolved = runConsumer(worktree, userHome, repository, coordinates);
+      String resolvedDigest = runConsumer(worktree, userHome, repository, coordinates);
       Path published = publishedJar(repository, coordinates);
-      if (!sha256(published).equals(sha256(resolved))) {
+      if (!sha256(published).equals(resolvedDigest)) {
         throw new IllegalStateException(
             "consumer resolved artifact does not match the published candidate JAR");
       }
       writeReport(
-          report, head, status, allowDirty, worktree, source, published, resolved, coordinates);
+          report,
+          head,
+          status,
+          allowDirty,
+          worktree,
+          source,
+          published,
+          resolvedDigest,
+          coordinates,
+          archiveEvidence);
     } finally {
       runQuietly(source, "git", "worktree", "remove", "--force", worktree.toString());
       runQuietly(source, "git", "worktree", "prune");
@@ -105,7 +125,7 @@ public final class ReleaseVerifierMain {
     }
   }
 
-  private static Path runConsumer(
+  private static String runConsumer(
       Path candidate, Path userHome, Path repository, String coordinates) throws Exception {
     Path consumer = Files.createTempDirectory("hfjinja-release-consumer-");
     String[] coordinate = coordinates.split(":", -1);
@@ -165,14 +185,16 @@ public final class ReleaseVerifierMain {
           userHome.toString(),
           "consumerVerify");
       try (var files = Files.list(consumer.resolve("build/resolved"))) {
-        return files
-            .filter(
-                path ->
-                    path.getFileName().toString().startsWith(coordinate[1] + "-")
-                        && path.getFileName().toString().endsWith(".jar"))
-            .findFirst()
-            .orElseThrow(
-                () -> new IllegalStateException("consumer did not resolve the candidate JAR"));
+        Path resolved =
+            files
+                .filter(
+                    path ->
+                        path.getFileName().toString().startsWith(coordinate[1] + "-")
+                            && path.getFileName().toString().endsWith(".jar"))
+                .findFirst()
+                .orElseThrow(
+                    () -> new IllegalStateException("consumer did not resolve the candidate JAR"));
+        return sha256(resolved);
       }
     } finally {
       deleteTree(consumer);
@@ -212,8 +234,9 @@ public final class ReleaseVerifierMain {
       Path worktree,
       Path source,
       Path published,
-      Path resolved,
-      String coordinates)
+      String resolvedDigest,
+      String coordinates,
+      Path archiveEvidence)
       throws Exception {
     Files.createDirectories(report.getParent());
     String candidate =
@@ -250,8 +273,10 @@ public final class ReleaseVerifierMain {
             + "`\n- Published candidate JAR SHA-256: `"
             + sha256(published)
             + "`\n- Consumer-resolved JAR SHA-256: `"
-            + sha256(resolved)
-            + "`\n\n## Contract inputs\n\n"
+            + resolvedDigest
+            + "`\n\n## Reproducible archive hashes\n\n```json\n"
+            + Files.readString(archiveEvidence)
+            + "```\n\n## Contract inputs\n\n"
             + reviewInputs
             + "\n## Human sign-off\n\n- [ ] NOTICE, changelog, POM, Javadoc, dependency report, and corpus evidence reviewed.\n";
     Files.writeString(report, body);
@@ -272,6 +297,17 @@ public final class ReleaseVerifierMain {
     Matcher match = COORDINATES.matcher(Files.readString(contract));
     if (!match.find()) throw new IllegalStateException("release contract has no coordinates");
     return match.group(1);
+  }
+
+  private static void copyEvidence(Path worktree, Path destination, String relative)
+      throws Exception {
+    Path source = worktree.resolve(relative);
+    if (!Files.isRegularFile(source))
+      throw new IllegalStateException("required candidate evidence is missing: " + relative);
+    Files.copy(
+        source,
+        destination.resolve(source.getFileName()),
+        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
   }
 
   private static String digests(Path source, List<String> names) throws Exception {

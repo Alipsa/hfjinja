@@ -14,19 +14,20 @@ public final class ArchiveReproducibilityMain {
   private ArchiveReproducibilityMain() {}
 
   public static void main(String[] args) throws Exception {
-    if (args.length != 4) {
+    if (args.length != 5) {
       throw new IllegalArgumentException(
-          "usage: ArchiveReproducibilityMain <project-dir> <gradle-user-home> <offline> <bytecode-major>");
+          "usage: ArchiveReproducibilityMain <project-dir> <gradle-user-home> <offline> <bytecode-major> <report>");
     }
     Path project = Path.of(args[0]).toAbsolutePath().normalize();
     Path userHome = Path.of(args[1]).toAbsolutePath().normalize();
     boolean offline = Boolean.parseBoolean(args[2]);
-    int bytecodeMajor = Integer.parseInt(args[3]);
+    Path report = Path.of(args[3]).toAbsolutePath().normalize();
+    int bytecodeMajor = Integer.parseInt(args[4]);
     Path evidence = Files.createTempDirectory("hfjinja-archive-evidence-");
     Path sandboxParent = Files.createTempDirectory("hfjinja-archive-worktree-");
     Path sandbox = sandboxParent.resolve("candidate");
     try {
-      run(project, false, "git", "worktree", "add", "--detach", sandbox.toString(), "HEAD");
+      runGit(project, "git", "worktree", "add", "--detach", sandbox.toString(), "HEAD");
       List<Path> first = buildAndCopy(sandbox, userHome, offline, evidence.resolve("first"));
       List<Path> second = buildAndCopy(sandbox, userHome, offline, evidence.resolve("second"));
       for (int index = 0; index < first.size(); index++) {
@@ -36,7 +37,9 @@ public final class ArchiveReproducibilityMain {
         }
       }
       verifyModule(first.get(0), bytecodeMajor);
-      System.out.println("archive evidence: " + evidence);
+      Files.createDirectories(report.getParent());
+      Files.writeString(report, report(first));
+      System.out.println("archive evidence: " + report);
       for (Path archive : first) System.out.println(archive.getFileName() + " " + sha256(archive));
     } finally {
       runQuietly(project, "git", "worktree", "remove", "--force", sandbox.toString());
@@ -110,7 +113,7 @@ public final class ArchiveReproducibilityMain {
         .formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
   }
 
-  private static void run(Path directory, boolean ignored, String... command)
+  private static void runGit(Path directory, String... command)
       throws IOException, InterruptedException {
     Process process = new ProcessBuilder(command).directory(directory.toFile()).inheritIO().start();
     if (process.waitFor() != 0)
@@ -119,10 +122,26 @@ public final class ArchiveReproducibilityMain {
 
   private static void runQuietly(Path directory, String... command) {
     try {
-      run(directory, false, command);
+      runGit(directory, command);
     } catch (Exception ignored) {
       // Cleanup is best effort; do not hide the original verification failure.
     }
+  }
+
+  private static String report(List<Path> archives) throws Exception {
+    StringBuilder result = new StringBuilder("{\n  \"archives\": [\n");
+    for (int index = 0; index < archives.size(); index++) {
+      Path archive = archives.get(index);
+      result
+          .append("    {\"name\": \"")
+          .append(archive.getFileName())
+          .append("\", \"sha256\": \"")
+          .append(sha256(archive))
+          .append("\"}");
+      if (index + 1 < archives.size()) result.append(',');
+      result.append('\n');
+    }
+    return result.append("  ]\n}\n").toString();
   }
 
   private static void deleteTree(Path path) {

@@ -202,7 +202,9 @@ tasks.named('check') {
 }
 
 def releaseVerificationManifest = layout.projectDirectory.file('req/release-verification.json').asFile
-def releaseVerificationContract = new groovy.json.JsonSlurper().parse(releaseVerificationManifest)
+def releaseVerificationBytecodeMajor = providers.fileContents(layout.projectDirectory.file('req/release-verification.json')).asText.map {
+  new groovy.json.JsonSlurper().parseText(it).bytecodeMajor.toString()
+}
 def releaseVerificationPom = layout.buildDirectory.file('publications/maven/pom-default.xml')
 def releaseVerificationGroup = project.group.toString()
 def releaseVerificationArtifact = project.name
@@ -232,7 +234,7 @@ tasks.register('verifyPublicationMetadata') {
       throw new GradleException('Generated POM contains unexpected published dependencies')
     }
     ['name', 'description', 'url'].each { field ->
-      if (value(field)?.isBlank()) throw new GradleException("Generated POM is missing ${field}")
+      if (value(field) == null || value(field).isBlank()) throw new GradleException("Generated POM is missing ${field}")
     }
   }
 }
@@ -291,13 +293,27 @@ tasks.register('dependencyReview') {
   }
 }
 
+abstract class ReleaseVerificationBytecodeArgument implements CommandLineArgumentProvider {
+  @Input
+  abstract Property<String> getBytecodeMajor()
+
+  @Override
+  Iterable<String> asArguments() {
+    [bytecodeMajor.get()]
+  }
+}
+
 tasks.register('verifyReproducibleArchives', JavaExec) {
   group = 'verification'
   description = 'Release-only: performs two independent clean archive builds and compares their bytes.'
   dependsOn tasks.named('testClasses')
   classpath = sourceSets.test.runtimeClasspath
   mainClass = 'se.alipsa.hfjinja.release.ArchiveReproducibilityMain'
-  args layout.projectDirectory.asFile.absolutePath, gradle.gradleUserHomeDir.absolutePath, gradle.startParameter.offline.toString(), releaseVerificationContract.bytecodeMajor.toString()
+  args layout.projectDirectory.asFile.absolutePath, gradle.gradleUserHomeDir.absolutePath, gradle.startParameter.offline.toString(), layout.buildDirectory.file('reports/archive-reproducibility.json').get().asFile.absolutePath
+  def bytecodeArgument = objects.newInstance(ReleaseVerificationBytecodeArgument)
+  bytecodeArgument.bytecodeMajor.set(releaseVerificationBytecodeMajor)
+  argumentProviders.add(bytecodeArgument)
+  outputs.file(layout.buildDirectory.file('reports/archive-reproducibility.json'))
   outputs.upToDateWhen { false }
   outputs.cacheIf { false }
 }
