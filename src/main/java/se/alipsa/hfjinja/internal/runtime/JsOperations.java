@@ -73,6 +73,7 @@ final class JsOperations {
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.NullValue ignored -> "undefined";
       case Value.UndefinedValue ignored -> "undefined";
+      case Value.DeferredUndefinedValue ignored -> "undefined";
       case Value.ArrayValue x -> arrayPayloadText(x.values(), location);
       case Value.TupleValue x -> arrayPayloadText(x.values(), location);
       case Value.ObjectValue ignored -> "[object Map]";
@@ -116,6 +117,7 @@ final class JsOperations {
     return switch (value) {
       case Value.NullValue ignored -> false;
       case Value.UndefinedValue ignored -> false;
+      case Value.DeferredUndefinedValue ignored -> false;
       case Value.BooleanValue x -> x.value();
       case Value.IntegerValue x -> x.value() != 0 && !Double.isNaN(x.value());
       case Value.FloatValue x -> x.value() != 0 && !Double.isNaN(x.value());
@@ -131,6 +133,7 @@ final class JsOperations {
   static boolean nilLike(Value value) {
     return value instanceof Value.NullValue
         || value instanceof Value.UndefinedValue
+        || value instanceof Value.DeferredUndefinedValue
         || value instanceof Value.StringValue string && string.undefinedBacked();
   }
 

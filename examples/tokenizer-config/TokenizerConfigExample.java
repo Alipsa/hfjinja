@@ -22,13 +22,16 @@ public final class TokenizerConfigExample {
     System.out.print(
         template.render(
             Map.of(
-                "messages", List.of(Map.of("role", "user", "content", "Hello")),
-                "add_generation_prompt", true)));
+                "messages",
+                List.of(Map.of("role", "user", "content", "Hello")),
+                "add_generation_prompt",
+                true)));
   }
 
   static String chatTemplate(String tokenizerConfig) {
     Matcher match = CHAT_TEMPLATE.matcher(tokenizerConfig);
-    if (!match.find()) throw new IllegalArgumentException("tokenizer_config.json has no string chat_template");
+    if (!match.find())
+      throw new IllegalArgumentException("tokenizer_config.json has no string chat_template");
     return unescapeJsonString(match.group(1));
   }
 
@@ -40,7 +43,8 @@ public final class TokenizerConfigExample {
         result.append(character);
         continue;
       }
-      if (++index == value.length()) throw new IllegalArgumentException("Invalid JSON string escape");
+      if (++index == value.length())
+        throw new IllegalArgumentException("Invalid JSON string escape");
       switch (value.charAt(index)) {
         case '"' -> result.append('"');
         case '\\' -> result.append('\\');

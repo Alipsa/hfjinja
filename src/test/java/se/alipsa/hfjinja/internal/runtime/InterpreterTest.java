@@ -232,7 +232,7 @@ class InterpreterTest {
                     + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}{{ (1, 2) is iterable }}")
             .render(Map.of()));
     assertEquals(
-        "fallback|true|false",
+        "undefined|false|true",
         Template.parse(
                 "{{ 'abc'[5] | default('fallback') }}|{{ 'abc'[5] is undefined }}|"
                     + "{{ 'abc'[5] is defined }}")

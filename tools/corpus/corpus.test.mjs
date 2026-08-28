@@ -85,9 +85,12 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('maxsplit argument must be a number'), 'TYPE');
   assert.equal(classify('replace() arguments must be strings'), 'TYPE');
   assert.equal(classify('replace() requires at least two arguments'), 'TYPE');
+  assert.equal(classify('Missing positional argument: a'), 'ARITY');
   assert.equal(classify('Object key must be a string: got KeywordArgumentsValue'), 'TYPE');
   assert.equal(classify('Positional arguments must come before keyword arguments'), 'SYNTAX');
-  assert.equal(classify(''), 'SYNTAX');
+  assert.equal(classify('', 'BreakControl'), 'SYNTAX');
+  assert.equal(classify('', 'ContinueControl'), 'SYNTAX');
+  assert.throws(() => classify('', 'Error'), /Unmatched upstream error/);
   assert.equal(classify("Cannot read properties of undefined (reading 'toLowerCase')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'type')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'value')"), 'TYPE');

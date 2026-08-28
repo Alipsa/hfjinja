@@ -163,8 +163,10 @@ public final class Interpreter {
       case Expression.IntegerLiteral x -> new Value.IntegerValue(x.value());
       case Expression.FloatLiteral x -> new Value.FloatValue(x.value());
       case Expression.StringLiteral x -> new Value.StringValue(x.value());
-      case Expression.ArrayLiteral x -> new Value.ArrayValue(values(x.value(), env, budget));
-      case Expression.TupleLiteral x -> new Value.TupleValue(values(x.value(), env, budget));
+      case Expression.ArrayLiteral x ->
+          new Value.ArrayValue(materializedValues(x.value(), env, budget));
+      case Expression.TupleLiteral x ->
+          new Value.TupleValue(materializedValues(x.value(), env, budget));
       case Expression.ObjectLiteral x -> object(x, env, budget);
       case Expression.MemberExpression x -> member(x, env, budget);
       case Expression.CallExpression x -> call(x, env, budget);
@@ -594,8 +596,7 @@ public final class Interpreter {
   private static Value filterFirstLast(
       Value operand, NamedArguments filter, SourceLocation location, boolean last) {
     var values = sequence(operand, filter.name(), location);
-    if (values.isEmpty())
-      throw filterType("Cannot read properties of undefined (reading 'type')", location);
+    if (values.isEmpty()) return Value.DeferredUndefinedValue.INSTANCE;
     return values.get(last ? values.size() - 1 : 0);
   }
 
@@ -860,23 +861,18 @@ public final class Interpreter {
       case "even" -> integerTest(value, false, location);
       case "integer" -> value instanceof Value.IntegerValue;
       case "lower" -> lowerTest(value, location);
-      case "upper" ->
-          value instanceof Value.StringValue string
-              && !string.undefinedBacked()
-              && string.value().equals(string.value().toUpperCase(Locale.ROOT));
+      case "upper" -> upperTest(value, location);
       case "number" -> JsOperations.numeric(value);
-      case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "string" -> value instanceof Value.StringValue;
       case "mapping" ->
           value instanceof Value.ObjectValue || value instanceof Value.KeywordArgumentsValue;
-      case "iterable" ->
-          value instanceof Value.ArrayValue
-              || value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "iterable" -> value instanceof Value.ArrayValue || value instanceof Value.StringValue;
       case "sequence" ->
           value instanceof Value.ArrayValue
               || value instanceof Value.TupleValue
               || value instanceof Value.ObjectValue
               || value instanceof Value.KeywordArgumentsValue
-              || value instanceof Value.StringValue string && !string.undefinedBacked();
+              || value instanceof Value.StringValue;
       default -> throw filterType("Unknown test: " + name, location);
     };
   }
@@ -887,10 +883,19 @@ public final class Interpreter {
     return (number.value() % 2 != 0) == odd;
   }
 
+  private static boolean upperTest(Value value, SourceLocation location) {
+    if (!(value instanceof Value.StringValue string)) return false;
+    if (string.undefinedBacked())
+      throw filterType("Cannot read properties of undefined (reading 'toUpperCase')", location);
+    return string.value().equals(string.value().toUpperCase(Locale.ROOT));
+  }
+
   private static String joinText(Value value, SourceLocation location) {
     return switch (value) {
       case Value.NullValue ignored -> "";
       case Value.UndefinedValue ignored -> "";
+      case Value.DeferredUndefinedValue ignored ->
+          throw filterType("Cannot read properties of undefined (reading 'type')", location);
       case Value.StringValue string -> string.undefinedBacked() ? "" : string.value();
       case Value.ArrayValue array ->
           array.values().stream()
@@ -1019,6 +1024,7 @@ public final class Interpreter {
       case Value.ObjectValue ignored -> filterType("Unknown ObjectValue filter: " + name, location);
       case Value.NullValue ignored -> filterReceiver(name, value, location);
       case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
+      case Value.DeferredUndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.CallableValue ignored -> filterReceiver(name, value, location);
       case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
     };
@@ -1037,6 +1043,7 @@ public final class Interpreter {
       case Value.BooleanValue ignored -> filterReceiver(name, value, location);
       case Value.NullValue ignored -> filterReceiver(name, value, location);
       case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
+      case Value.DeferredUndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.CallableValue ignored -> filterReceiver(name, value, location);
     };
   }
@@ -1050,8 +1057,7 @@ public final class Interpreter {
   }
 
   private static boolean undefinedLike(Value value) {
-    return value instanceof Value.UndefinedValue
-        || value instanceof Value.StringValue string && string.undefinedBacked();
+    return value instanceof Value.UndefinedValue || value instanceof Value.DeferredUndefinedValue;
   }
 
   private static TemplateRenderException operatorUndefined(
@@ -1089,6 +1095,11 @@ public final class Interpreter {
     return r;
   }
 
+  private static List<Value> materializedValues(
+      List<Expression> items, Environment e, RenderBudget b) {
+    return values(items, e, b).stream().map(Value::materialize).toList();
+  }
+
   private static Value object(Expression.ObjectLiteral x, Environment e, RenderBudget b) {
     var r = new LinkedHashMap<Object, Value>();
     for (var item : x.value()) {
@@ -1098,7 +1109,9 @@ public final class Interpreter {
             "Object keys must be strings: got " + type(k),
             ErrorCategory.TYPE,
             item.key().location());
-      r.put(key.undefinedBacked() ? key : key.value(), evaluateExpression(item.value(), e, b));
+      r.put(
+          key.undefinedBacked() ? key : key.value(),
+          Value.materialize(evaluateExpression(item.value(), e, b)));
     }
     return new Value.ObjectValue(r);
   }
@@ -1112,6 +1125,7 @@ public final class Interpreter {
     return switch (v) {
       case Value.NullValue ignored -> false;
       case Value.UndefinedValue ignored -> false;
+      case Value.DeferredUndefinedValue ignored -> false;
       case Value.BooleanValue x -> x.value();
       case Value.IntegerValue x -> x.value() != 0 && !Double.isNaN(x.value());
       case Value.FloatValue x -> x.value() != 0 && !Double.isNaN(x.value());
@@ -1423,8 +1437,9 @@ public final class Interpreter {
     if (numericLike(left) && numericLike(right))
       return Double.compare(JsOperations.toNumber(left), JsOperations.toNumber(right));
     if (left instanceof Value.StringValue a && right instanceof Value.StringValue b) {
-      if (a.undefinedBacked() || b.undefinedBacked())
+      if (!caseSensitive && (a.undefinedBacked() || b.undefinedBacked()))
         throw filterType("Cannot read properties of undefined (reading 'toLowerCase')", location);
+      if (caseSensitive && (a.undefinedBacked() || b.undefinedBacked())) return 0;
       String aText = caseSensitive ? a.value() : a.value().toLowerCase(Locale.ROOT);
       String bText = caseSensitive ? b.value() : b.value().toLowerCase(Locale.ROOT);
       return aText.compareTo(bText);
@@ -1607,7 +1622,7 @@ public final class Interpreter {
                   var nodeArg = n.args().get(i);
                   Value passed = i < positional.size() ? positional.get(i) : null;
                   if (nodeArg instanceof Expression.Identifier id) {
-                    if (passed == null)
+                    if (passed == null || passed instanceof Value.DeferredUndefinedValue)
                       throw new TemplateRenderException(
                           "Missing positional argument: " + id.value(), ErrorCategory.ARITY, l);
                     macroScope.setVariable(id.value(), passed);
@@ -1766,8 +1781,9 @@ public final class Interpreter {
             "Cannot assign to member with non-identifier property",
             ErrorCategory.TYPE,
             n.location());
-      if (target instanceof Value.ObjectValue obj) obj.values().put(key.value(), rhs);
-      else ((Value.KeywordArgumentsValue) target).values().put(key.value(), rhs);
+      if (target instanceof Value.ObjectValue obj)
+        obj.values().put(key.value(), Value.materialize(rhs));
+      else ((Value.KeywordArgumentsValue) target).values().put(key.value(), Value.materialize(rhs));
     } else
       throw new TemplateRenderException(
           "Invalid LHS inside assignment expression: " + astJson(n.assignee()),
@@ -1896,6 +1912,8 @@ public final class Interpreter {
       case Value.CallableValue ignored -> "<function>";
       case Value.NullValue ignored -> throw new AssertionError("unreachable: " + v);
       case Value.UndefinedValue ignored -> throw new AssertionError("unreachable: " + v);
+      case Value.DeferredUndefinedValue ignored ->
+          throw filterType("Cannot read properties of undefined (reading 'type')", l);
     };
   }
 
@@ -1957,6 +1975,7 @@ public final class Interpreter {
     return switch (value) {
       case Value.NullValue ignored -> "";
       case Value.UndefinedValue ignored -> "";
+      case Value.DeferredUndefinedValue ignored -> "";
       case Value.ArrayValue array ->
           array.values().stream()
               .map(Interpreter::nestedExceptionText)
@@ -1981,6 +2000,7 @@ public final class Interpreter {
     return switch (value) {
       case Value.NullValue ignored -> "undefined";
       case Value.UndefinedValue ignored -> "undefined";
+      case Value.DeferredUndefinedValue ignored -> "undefined";
       case Value.ArrayValue array ->
           array.values().stream()
               .map(Interpreter::nestedExceptionText)

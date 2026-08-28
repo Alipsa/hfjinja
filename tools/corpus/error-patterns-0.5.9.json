@@ -47,6 +47,10 @@
       "category": "TYPE"
     },
     {
+      "regex": "^Missing positional argument: (?<name>.+)$",
+      "category": "ARITY"
+    },
+    {
       "regex": "^Unknown (?<type>ArrayValue|StringValue|NumericValue|ObjectValue|BooleanValue|FunctionValue) filter: (?<name>.+)$",
       "category": "TYPE"
     },
@@ -101,10 +105,11 @@
     {
       "regex": "^$",
       "category": "SYNTAX",
+      "constructors": ["BreakControl", "ContinueControl"],
       "comment": "Raw BreakControl/ContinueControl escaping an upstream macro or call block outside a loop"
     },
     {
-      "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|type|value)'\\)$",
+      "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|toUpperCase|type|value)'\\)$",
       "category": "TYPE"
     },
     {

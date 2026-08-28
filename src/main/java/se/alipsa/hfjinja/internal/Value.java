@@ -16,6 +16,7 @@ import se.alipsa.hfjinja.internal.runtime.Environment;
 @SuppressWarnings("doclint:missing")
 public sealed interface Value
     permits Value.UndefinedValue,
+        Value.DeferredUndefinedValue,
         Value.NullValue,
         Value.BooleanValue,
         Value.IntegerValue,
@@ -26,7 +27,17 @@ public sealed interface Value
         Value.ObjectValue,
         Value.KeywordArgumentsValue,
         Value.CallableValue {
+  /** Materializes a deferred sequence-filter result when it becomes part of another value. */
+  static Value materialize(Value value) {
+    return value instanceof DeferredUndefinedValue ? UndefinedValue.INSTANCE : value;
+  }
+
   enum UndefinedValue implements Value {
+    INSTANCE
+  }
+
+  /** Undefined returned by a sequence filter and dereferenced only by a subsequent operation. */
+  enum DeferredUndefinedValue implements Value {
     INSTANCE
   }
 

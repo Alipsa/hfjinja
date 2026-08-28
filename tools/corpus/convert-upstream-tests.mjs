@@ -55,10 +55,11 @@ const generated = Object.keys(capture.templates)
     context: capture.contexts[upstreamName],
     expected: {text: capture.outputs[upstreamName]},
   }));
-const interpreterGenerated = extractWhitespaceCases(await readFile(interpreterSourcePath, 'utf8')).map(
+const interpreterSource = await readFile(interpreterSourcePath, 'utf8');
+const interpreterGenerated = extractWhitespaceCases(interpreterSource).map(
   (test, index) => ({
     id: `interpreter.whitespace-control-${index + 1}`,
-    source: `${interpreterSourcePath}:8`,
+    source: `${interpreterSourcePath}:${whitespaceCaseLine(interpreterSource, index)}`,
     template: test.template,
     templateOptions: {
       ...(test.options.trim_blocks === undefined ? {} : {trimBlocks: test.options.trim_blocks}),
@@ -139,6 +140,15 @@ function propertyLine(source, name, end) {
   return source.slice(0, match.index).split('\n').length;
 }
 
+function whitespaceCaseLine(source, index) {
+  const testsStart = source.indexOf('const TESTS = [');
+  if (testsStart < 0) throw new Error(`Could not locate TESTS in ${interpreterSourcePath}`);
+  const cases = [...source.slice(testsStart).matchAll(/^\s*\{\s*$/gm)];
+  const match = cases[index];
+  if (!match) throw new Error(`Could not locate whitespace case ${index + 1} in ${interpreterSourcePath}`);
+  return source.slice(0, testsStart + match.index).split('\n').length;
+}
+
 function sameFixture(actual, generated) {
   return Object.keys(actual).length === Object.keys(generated).length
     && actual.source === generated.source
@@ -194,7 +204,7 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
     '## Schema exclusions', '', '| Upstream fixture | Reason |', '| --- | --- |',
     ...[...unsupportedContextFixtures].map(([name, reason]) => `| \`${name}\` | ${reason} |`), '',
-    '## Source inventory', '', '| Upstream source | Coverage | Evidence |', '| --- | --- |',
+    '## Source inventory', '', '| Upstream source | Coverage | Evidence |', '| --- | --- | --- |',
     ...Object.entries(inventory.sources).map(([source, entry]) => `| \`${source}\` | ${entry.coverage} | ${entry.evidence ?? entry.reason} |`), '',
     'Every vendored unit source and every policy-excluded test source is represented above.', '',
   ];
@@ -277,7 +287,7 @@ function runtimeSurfaceCoverage(runtimeSource, records) {
     ['object member', objectMembers], ['array member', arrayMembers], ['global', globals],
   ];
   return surfaces.map(([surface, names]) => [surface, names.map((name) => {
-      const usage = new RegExp('(?:\\||\\.|\\bis\\s+|\\b)' + escapeRegex(name) + '(?:\\b|\\(|\\s)');
+      const usage = runtimeUsage(surface, name);
       const evidence = records.filter((record) => typeof record.template === 'string' && usage.test(record.template))
         .map((record) => record.id);
       if (evidence.length === 0) {
@@ -285,6 +295,24 @@ function runtimeSurfaceCoverage(runtimeSource, records) {
       }
       return [name, evidence];
     })]);
+}
+
+function runtimeUsage(surface, name) {
+  const escaped = escapeRegex(name);
+  switch (surface) {
+    case 'filter':
+      return new RegExp(`(?:\\|\\s*${escaped}(?=\\s|\\(|\\}|$)|\\bfilter\\s+${escaped}(?=\\s|\\}|$))`);
+    case 'test':
+      return new RegExp(`\\bis\\s+(?:not\\s+)?${escaped}(?=\\s|\\}|\\(|$)`);
+    case 'string member':
+    case 'object member':
+    case 'array member':
+      return new RegExp(`(?:\\.${escaped}(?=\\s*\\(|\\s|\\}|$)|\\|\\s*${escaped}(?=\\s|\\(|\\}|$))`);
+    case 'global':
+      return new RegExp(`\\b${escaped}(?=\\s*\\(|\\s|\\}|$)`);
+    default:
+      throw new Error(`Unknown runtime surface: ${surface}`);
+  }
 }
 
 function escapeRegex(value) {

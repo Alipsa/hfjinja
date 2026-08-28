@@ -56,7 +56,10 @@ for (const [index, record] of records.entries()) {
       fail(label, `unexpected upstream error: ${message}`);
     } else {
       try {
-        const category = classifyError(message);
+        const constructorName = error !== null && typeof error === 'object'
+          ? error.constructor?.name
+          : undefined;
+        const category = classifyError(message, constructorName);
         if (category === record.expected.errorCategory) {
           console.log(`PASS ${record.id} error=${category}`);
         } else {
@@ -99,8 +102,7 @@ function render(record, upstreamRuntime) {
       return new upstreamRuntime.Template(record.template).render(record.context);
     }
     const environment = new upstreamRuntime.Environment();
-    // interpreter.test.js constructs its environment directly and binds only this global.
-    environment.set('True', true);
+    setupGlobals(environment);
     for (const [key, value] of Object.entries(record.context)) environment.set(key, value);
     return new upstreamRuntime.Interpreter(environment)
       .run(
@@ -116,6 +118,40 @@ function render(record, upstreamRuntime) {
     if (nativeZone === undefined) delete process.env.TZ;
     else process.env.TZ = nativeZone;
   }
+}
+
+// The upstream dist bundle keeps setupGlobals private, though Template.render invokes it. Mirror
+// that function here so templateOptions fixtures exercise the same built-ins as Template records.
+function setupGlobals(environment) {
+  environment.set('false', false);
+  environment.set('true', true);
+  environment.set('none', null);
+  environment.set('raise_exception', (arguments_) => { throw new Error(arguments_); });
+  environment.set('range', range);
+  environment.set('strftime_now', strftimeNow);
+  environment.set('True', true);
+  environment.set('False', false);
+  environment.set('None', null);
+}
+
+function range(start, stop, step = 1) {
+  if (stop === undefined) [start, stop] = [0, start];
+  if (step === 0) throw new Error('range() step must not be zero');
+  const result = [];
+  for (let index = start; step > 0 ? index < stop : index > stop; index += step) result.push(index);
+  return result;
+}
+
+function strftimeNow(format) {
+  const date = new Date();
+  const shortMonth = new Intl.DateTimeFormat(undefined, {month: 'short'});
+  const longMonth = new Intl.DateTimeFormat(undefined, {month: 'long'});
+  const pad2 = (number) => number < 10 ? `0${number}` : number.toString();
+  return format.replace(/%[YmdbBHM%]/g, (token) => ({
+    '%Y': date.getFullYear().toString(), '%m': pad2(date.getMonth() + 1), '%d': pad2(date.getDate()),
+    '%b': shortMonth.format(date), '%B': longMonth.format(date), '%H': pad2(date.getHours()),
+    '%M': pad2(date.getMinutes()), '%%': '%',
+  })[token] ?? token);
 }
 
 function nodeTemplateOptions(options) {

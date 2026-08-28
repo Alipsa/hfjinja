@@ -37,7 +37,7 @@ dependencies {
 
 spotless {
   java {
-    target 'src/*/java/**/*.java'
+    target 'src/*/java/**/*.java', 'examples/tokenizer-config/**/*.java'
     googleJavaFormat('1.28.0')
   }
   format('gradle') {
@@ -198,7 +198,21 @@ tasks.register('corpusCoverage', Exec) {
 tasks.named('check') {
   dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeOracleVersion'), tasks.named('nodeCorpusVerify'),
       tasks.named('corpusCoverage'), tasks.named('upstreamVerify'), tasks.named('astSnapshotVerify'),
-      tasks.named('fuzzParserTest'), tasks.named('fuzzParserVerify'), tasks.named('formatGoldenVerify'), tasks.named('codenarcBuildScripts')
+      tasks.named('fuzzParserTest'), tasks.named('fuzzParserVerify'), tasks.named('formatGoldenVerify'), tasks.named('codenarcBuildScripts'), tasks.named('compileTokenizerConfigExample')
+}
+
+tasks.register('compileTokenizerConfigExample', JavaCompile) {
+  group = 'verification'
+  description = 'Compiles the tokenizer-config example against the published JPMS jar.'
+  dependsOn tasks.named('jar')
+  source = fileTree('examples/tokenizer-config') { include '**/*.java' }
+  destinationDirectory = layout.buildDirectory.dir('examples/tokenizer-config/classes')
+  classpath = files()
+  options.release = 21
+  options.compilerArgs.addAll([
+      '--module-path', tasks.named('jar').flatMap { it.archiveFile }.get().asFile.absolutePath,
+      '--add-modules', 'se.alipsa.hfjinja',
+  ])
 }
 
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
@@ -487,6 +501,12 @@ publishing {
           license {
             name = 'MIT License'
             url = 'https://opensource.org/license/mit'
+          }
+        }
+        developers {
+          developer {
+            id = 'pernyfelt'
+            name = 'Per Nyfelt'
           }
         }
         scm {
