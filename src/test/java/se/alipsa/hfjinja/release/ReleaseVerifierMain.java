@@ -88,7 +88,10 @@ public final class ReleaseVerifierMain {
     List<String> command =
         new ArrayList<>(
             List.of(
-                project.resolve(wrapper).toString(), "--gradle-user-home", userHome.toString()));
+                project.resolve(wrapper).toString(),
+                "-Dorg.gradle.java.installations.auto-download=false",
+                "--gradle-user-home",
+                userHome.toString()));
     if (offline) command.add("--offline");
     command.addAll(List.of(tasks));
     requireIsolation(command, offline);

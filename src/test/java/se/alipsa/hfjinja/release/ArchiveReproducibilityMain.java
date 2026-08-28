@@ -42,6 +42,7 @@ public final class ArchiveReproducibilityMain {
       runQuietly(project, "git", "worktree", "remove", "--force", sandbox.toString());
       runQuietly(project, "git", "worktree", "prune");
       Files.deleteIfExists(sandboxParent);
+      deleteTree(evidence);
     }
   }
 
@@ -79,7 +80,10 @@ public final class ArchiveReproducibilityMain {
     List<String> command =
         new ArrayList<>(
             List.of(
-                project.resolve(wrapper).toString(), "--gradle-user-home", userHome.toString()));
+                project.resolve(wrapper).toString(),
+                "-Dorg.gradle.java.installations.auto-download=false",
+                "--gradle-user-home",
+                userHome.toString()));
     if (offline) command.add("--offline");
     command.addAll(List.of(tasks));
     Process process = new ProcessBuilder(command).directory(project.toFile()).inheritIO().start();
@@ -118,6 +122,23 @@ public final class ArchiveReproducibilityMain {
       run(directory, false, command);
     } catch (Exception ignored) {
       // Cleanup is best effort; do not hide the original verification failure.
+    }
+  }
+
+  private static void deleteTree(Path path) {
+    try (var files = Files.walk(path)) {
+      files
+          .sorted(java.util.Comparator.reverseOrder())
+          .forEach(
+              file -> {
+                try {
+                  Files.deleteIfExists(file);
+                } catch (IOException ignored) {
+                  // Cleanup is best effort.
+                }
+              });
+    } catch (IOException ignored) {
+      // Cleanup is best effort.
     }
   }
 }

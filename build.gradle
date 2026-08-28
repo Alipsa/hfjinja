@@ -226,7 +226,9 @@ tasks.register('verifyPublicationMetadata') {
     if (value('groupId') != releaseVerificationGroup || value('artifactId') != releaseVerificationArtifact || value('version') != releaseVerificationVersion) {
       throw new GradleException('Generated POM coordinates do not match the project')
     }
-    if (pom.getElementsByTagName('dependency').length != contract.publishedRuntimeDependencies.size()) {
+    def dependencies = pom.documentElement.childNodes.find { it.nodeType == org.w3c.dom.Node.ELEMENT_NODE && it.nodeName == 'dependencies' }
+    def dependencyCount = dependencies == null ? 0 : dependencies.childNodes.count { it.nodeType == org.w3c.dom.Node.ELEMENT_NODE && it.nodeName == 'dependency' }
+    if (dependencyCount != contract.publishedRuntimeDependencies.size()) {
       throw new GradleException('Generated POM contains unexpected published dependencies')
     }
     ['name', 'description', 'url'].each { field ->
@@ -281,7 +283,8 @@ tasks.register('dependencyReview') {
       throw new GradleException('dependencyReview requires -PreleaseVerificationDependencyReport=<staged online dependencyUpdates report>')
     }
     def pom = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(releaseVerificationPom.get().asFile)
-    if (pom.getElementsByTagName('dependency').length != 0) throw new GradleException('Published POM has runtime dependencies')
+    def dependencies = pom.documentElement.childNodes.find { it.nodeType == org.w3c.dom.Node.ELEMENT_NODE && it.nodeName == 'dependencies' }
+    if (dependencies != null && dependencies.childNodes.any { it.nodeType == org.w3c.dom.Node.ELEMENT_NODE && it.nodeName == 'dependency' }) throw new GradleException('Published POM has runtime dependencies')
     def report = dependencyReviewOutput.get().asFile
     report.parentFile.mkdirs()
     report.text = "# Dependency review\n\nStaged online scan: `${stagedReport.get()}`\n\nPublished runtime dependencies: none\n\nThe Node oracle is lock-governed and is not upgraded by this review.\n"
