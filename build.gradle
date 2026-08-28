@@ -202,6 +202,7 @@ tasks.named('check') {
 }
 
 def releaseVerificationManifest = layout.projectDirectory.file('req/release-verification.json').asFile
+def releaseVerificationContract = new groovy.json.JsonSlurper().parse(releaseVerificationManifest)
 def releaseVerificationPom = layout.buildDirectory.file('publications/maven/pom-default.xml')
 def releaseVerificationGroup = project.group.toString()
 def releaseVerificationArtifact = project.name
@@ -218,7 +219,10 @@ tasks.register('verifyPublicationMetadata') {
   doLast {
     def contract = new groovy.json.JsonSlurper().parse(releaseVerificationManifest)
     def pom = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(releaseVerificationPom.get().asFile)
-    def value = { name -> pom.getElementsByTagName(name).item(0)?.textContent }
+    def value = { name ->
+      def direct = pom.documentElement.childNodes.find { it.nodeType == org.w3c.dom.Node.ELEMENT_NODE && it.nodeName == name }
+      direct?.textContent
+    }
     if (value('groupId') != releaseVerificationGroup || value('artifactId') != releaseVerificationArtifact || value('version') != releaseVerificationVersion) {
       throw new GradleException('Generated POM coordinates do not match the project')
     }
@@ -243,7 +247,9 @@ tasks.register('verifyModuleDescriptor') {
     def zip = new java.util.zip.ZipFile(jarFile)
     def bytes
     try {
-      bytes = zip.getInputStream(zip.getEntry('module-info.class')).bytes
+      def entry = zip.getEntry('module-info.class')
+      if (entry == null) throw new GradleException("Published jar has no module-info.class: ${jarFile}")
+      bytes = zip.getInputStream(entry).bytes
       int major = ((bytes[6] & 0xff) << 8) | (bytes[7] & 0xff)
       if (major != contract.bytecodeMajor) throw new GradleException("Expected bytecode major ${contract.bytecodeMajor}, got ${major}")
     } finally {
@@ -265,17 +271,18 @@ tasks.register('dependencyReview') {
   group = 'verification'
   description = 'Reviews staged dependency-update evidence without resolving dependencies.'
   dependsOn tasks.named('generatePomFileForMavenPublication')
-  def stagedReport = providers.gradleProperty('releaseVerificationDependencyReport')
-  inputs.file(stagedReport.map { file(it) }).optional()
+  def stagedReport = providers.gradleProperty('releaseVerificationDependencyReport').map { new File(it) }
+  def dependencyReviewOutput = layout.buildDirectory.file('reports/dependency-review.md')
+  inputs.file(stagedReport).optional()
   inputs.file(releaseVerificationPom)
-  outputs.file(layout.buildDirectory.file('reports/dependency-review.md'))
+  outputs.file(dependencyReviewOutput)
   doLast {
-    if (!stagedReport.present || !file(stagedReport.get()).isFile()) {
+    if (!stagedReport.present || !stagedReport.get().isFile()) {
       throw new GradleException('dependencyReview requires -PreleaseVerificationDependencyReport=<staged online dependencyUpdates report>')
     }
     def pom = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(releaseVerificationPom.get().asFile)
     if (pom.getElementsByTagName('dependency').length != 0) throw new GradleException('Published POM has runtime dependencies')
-    def report = layout.buildDirectory.file('reports/dependency-review.md').get().asFile
+    def report = dependencyReviewOutput.get().asFile
     report.parentFile.mkdirs()
     report.text = "# Dependency review\n\nStaged online scan: `${stagedReport.get()}`\n\nPublished runtime dependencies: none\n\nThe Node oracle is lock-governed and is not upgraded by this review.\n"
   }
@@ -287,7 +294,7 @@ tasks.register('verifyReproducibleArchives', JavaExec) {
   dependsOn tasks.named('testClasses')
   classpath = sourceSets.test.runtimeClasspath
   mainClass = 'se.alipsa.hfjinja.release.ArchiveReproducibilityMain'
-  args layout.projectDirectory.asFile.absolutePath, gradle.gradleUserHomeDir.absolutePath
+  args layout.projectDirectory.asFile.absolutePath, gradle.gradleUserHomeDir.absolutePath, gradle.startParameter.offline.toString(), releaseVerificationContract.bytecodeMajor.toString()
   outputs.upToDateWhen { false }
   outputs.cacheIf { false }
 }
@@ -634,11 +641,12 @@ publishing {
       }
     }
   }
-  repositories {
-    maven {
-      name = 'releaseVerificationRepository'
-      url = uri(providers.gradleProperty('releaseVerificationRepository')
-          .orElse(layout.buildDirectory.dir('release-verification-repository').get().asFile.absolutePath).get())
+  if (providers.gradleProperty('releaseVerificationRepository').present) {
+    repositories {
+      maven {
+        name = 'releaseVerification'
+        url = uri(providers.gradleProperty('releaseVerificationRepository').get())
+      }
     }
   }
 }

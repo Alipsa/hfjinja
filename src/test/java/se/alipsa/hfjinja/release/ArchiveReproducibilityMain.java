@@ -14,31 +14,40 @@ public final class ArchiveReproducibilityMain {
   private ArchiveReproducibilityMain() {}
 
   public static void main(String[] args) throws Exception {
-    if (args.length != 2) {
+    if (args.length != 4) {
       throw new IllegalArgumentException(
-          "usage: ArchiveReproducibilityMain <project-dir> <gradle-user-home>");
+          "usage: ArchiveReproducibilityMain <project-dir> <gradle-user-home> <offline> <bytecode-major>");
     }
     Path project = Path.of(args[0]).toAbsolutePath().normalize();
     Path userHome = Path.of(args[1]).toAbsolutePath().normalize();
+    boolean offline = Boolean.parseBoolean(args[2]);
+    int bytecodeMajor = Integer.parseInt(args[3]);
     Path evidence = Files.createTempDirectory("hfjinja-archive-evidence-");
-    List<Path> first = buildAndCopy(project, userHome, evidence.resolve("first"));
-    List<Path> second = buildAndCopy(project, userHome, evidence.resolve("second"));
-    for (int index = 0; index < first.size(); index++) {
-      if (!sha256(first.get(index)).equals(sha256(second.get(index)))) {
-        throw new IllegalStateException(
-            "archive is not reproducible: " + first.get(index).getFileName());
+    Path sandboxParent = Files.createTempDirectory("hfjinja-archive-worktree-");
+    Path sandbox = sandboxParent.resolve("candidate");
+    try {
+      run(project, false, "git", "worktree", "add", "--detach", sandbox.toString(), "HEAD");
+      List<Path> first = buildAndCopy(sandbox, userHome, offline, evidence.resolve("first"));
+      List<Path> second = buildAndCopy(sandbox, userHome, offline, evidence.resolve("second"));
+      for (int index = 0; index < first.size(); index++) {
+        if (!sha256(first.get(index)).equals(sha256(second.get(index)))) {
+          throw new IllegalStateException(
+              "archive is not reproducible: " + first.get(index).getFileName());
+        }
       }
-    }
-    verifyModule(first.get(0));
-    System.out.println("archive evidence: " + evidence);
-    for (Path archive : first) {
-      System.out.println(archive.getFileName() + " " + sha256(archive));
+      verifyModule(first.get(0), bytecodeMajor);
+      System.out.println("archive evidence: " + evidence);
+      for (Path archive : first) System.out.println(archive.getFileName() + " " + sha256(archive));
+    } finally {
+      runQuietly(project, "git", "worktree", "remove", "--force", sandbox.toString());
+      runQuietly(project, "git", "worktree", "prune");
+      Files.deleteIfExists(sandboxParent);
     }
   }
 
-  private static List<Path> buildAndCopy(Path project, Path userHome, Path destination)
-      throws Exception {
-    run(project, userHome, "clean", "jar", "sourcesJar", "javadocJar");
+  private static List<Path> buildAndCopy(
+      Path project, Path userHome, boolean offline, Path destination) throws Exception {
+    runGradle(project, userHome, offline, "clean", "jar", "sourcesJar", "javadocJar");
     Files.createDirectories(destination);
     List<Path> result = new ArrayList<>();
     for (String suffix : List.of(".jar", "-sources.jar", "-javadoc.jar")) {
@@ -63,17 +72,15 @@ public final class ArchiveReproducibilityMain {
         : name.endsWith(suffix);
   }
 
-  private static void run(Path project, Path userHome, String... tasks)
+  private static void runGradle(Path project, Path userHome, boolean offline, String... tasks)
       throws IOException, InterruptedException {
     String wrapper =
         System.getProperty("os.name").toLowerCase().contains("win") ? "gradlew.bat" : "gradlew";
     List<String> command =
         new ArrayList<>(
             List.of(
-                project.resolve(wrapper).toString(),
-                "--offline",
-                "--gradle-user-home",
-                userHome.toString()));
+                project.resolve(wrapper).toString(), "--gradle-user-home", userHome.toString()));
+    if (offline) command.add("--offline");
     command.addAll(List.of(tasks));
     Process process = new ProcessBuilder(command).directory(project.toFile()).inheritIO().start();
     if (process.waitFor() != 0) {
@@ -81,16 +88,36 @@ public final class ArchiveReproducibilityMain {
     }
   }
 
-  private static void verifyModule(Path archive) throws IOException {
+  private static void verifyModule(Path archive, int expectedBytecodeMajor) throws IOException {
     try (ZipFile zip = new ZipFile(archive.toFile())) {
-      byte[] moduleInfo = zip.getInputStream(zip.getEntry("module-info.class")).readAllBytes();
+      var entry = zip.getEntry("module-info.class");
+      if (entry == null)
+        throw new IllegalStateException("archive has no module-info.class: " + archive);
+      byte[] moduleInfo = zip.getInputStream(entry).readAllBytes();
       int major = ((moduleInfo[6] & 0xff) << 8) | (moduleInfo[7] & 0xff);
-      if (major != 65) throw new IllegalStateException("expected bytecode major 65, got " + major);
+      if (major != expectedBytecodeMajor)
+        throw new IllegalStateException(
+            "expected bytecode major " + expectedBytecodeMajor + ", got " + major);
     }
   }
 
   static String sha256(Path file) throws Exception {
     return HexFormat.of()
         .formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
+  }
+
+  private static void run(Path directory, boolean ignored, String... command)
+      throws IOException, InterruptedException {
+    Process process = new ProcessBuilder(command).directory(directory.toFile()).inheritIO().start();
+    if (process.waitFor() != 0)
+      throw new IllegalStateException("command failed: " + String.join(" ", command));
+  }
+
+  private static void runQuietly(Path directory, String... command) {
+    try {
+      run(directory, false, command);
+    } catch (Exception ignored) {
+      // Cleanup is best effort; do not hide the original verification failure.
+    }
   }
 }
