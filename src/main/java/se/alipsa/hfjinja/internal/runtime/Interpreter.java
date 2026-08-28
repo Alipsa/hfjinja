@@ -163,15 +163,13 @@ public final class Interpreter {
       case Expression.IntegerLiteral x -> new Value.IntegerValue(x.value());
       case Expression.FloatLiteral x -> new Value.FloatValue(x.value());
       case Expression.StringLiteral x -> new Value.StringValue(x.value());
-      case Expression.ArrayLiteral x ->
-          new Value.ArrayValue(materializedValues(x.value(), env, budget));
-      case Expression.TupleLiteral x ->
-          new Value.TupleValue(materializedValues(x.value(), env, budget));
+      case Expression.ArrayLiteral x -> new Value.ArrayValue(values(x.value(), env, budget));
+      case Expression.TupleLiteral x -> new Value.TupleValue(values(x.value(), env, budget));
       case Expression.ObjectLiteral x -> object(x, env, budget);
       case Expression.MemberExpression x -> member(x, env, budget);
       case Expression.CallExpression x -> call(x, env, budget);
       case Expression.SelectExpression x ->
-          truthy(evaluateExpression(x.test(), env, budget))
+          truthy(evaluateExpression(x.test(), env, budget), x.test().location())
               ? evaluateExpression(x.lhs(), env, budget)
               : Value.UndefinedValue.INSTANCE;
       case Expression.BinaryExpression x -> binary(x, env, budget);
@@ -204,7 +202,9 @@ public final class Interpreter {
 
   private static Value ternary(
       Expression.Ternary expression, Environment env, RenderBudget budget) {
-    return truthy(evaluateExpression(expression.condition(), env, budget))
+    return truthy(
+            evaluateExpression(expression.condition(), env, budget),
+            expression.condition().location())
         ? evaluateExpression(expression.trueExpr(), env, budget)
         : evaluateExpression(expression.falseExpr(), env, budget);
   }
@@ -219,11 +219,17 @@ public final class Interpreter {
     var left = evaluateExpression(expression.left(), env, budget);
     var operator = expression.operator().value();
     if (operator.equals("and"))
-      return truthy(left) ? evaluateExpression(expression.right(), env, budget) : left;
+      return truthy(left, expression.left().location())
+          ? evaluateExpression(expression.right(), env, budget)
+          : left;
     if (operator.equals("or"))
-      return truthy(left) ? left : evaluateExpression(expression.right(), env, budget);
+      return truthy(left, expression.left().location())
+          ? left
+          : evaluateExpression(expression.right(), env, budget);
 
     var right = evaluateExpression(expression.right(), env, budget);
+    deferredValue(left, "value", expression.location());
+    deferredValue(right, "value", expression.location());
     if (operator.equals("==") || operator.equals("!=")) {
       boolean equal = JsOperations.looseEquals(left, right);
       return new Value.BooleanValue(operator.equals("==") ? equal : !equal);
@@ -292,6 +298,7 @@ public final class Interpreter {
   private static Value unary(
       Expression.UnaryExpression expression, Environment env, RenderBudget budget) {
     var argument = evaluateExpression(expression.argument(), env, budget);
+    deferredValue(argument, "value", expression.location());
     if (expression.operator().value().equals("not"))
       return new Value.BooleanValue(!JsOperations.rawTruthy(argument));
     throw operatorUnsupportedUnary(expression.operator().value(), argument, expression.location());
@@ -311,11 +318,14 @@ public final class Interpreter {
       Environment env,
       RenderBudget budget,
       SourceLocation location) {
-    if (filterNode instanceof Expression.Identifier identifier)
+    if (filterNode instanceof Expression.Identifier identifier) {
+      if (!identifier.value().equals("default")) deferredValue(operand, location);
       return applyBareFilter(operand, identifier.value(), location, budget);
+    }
     if (!(filterNode instanceof Expression.CallExpression call)
         || !(call.callee() instanceof Expression.Identifier identifier))
       throw filterType("Unknown filter: " + filterNode.getClass().getSimpleName(), location);
+    if (!identifier.value().equals("default")) deferredValue(operand, location);
     return applyCallFilter(operand, identifier.value(), call, env, budget, location);
   }
 
@@ -459,6 +469,7 @@ public final class Interpreter {
   private static Value test(
       Expression.TestExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
+    deferredValue(operand, expression.location());
     boolean result = namedTest(expression.test().value(), operand, null, expression.location());
     return new Value.BooleanValue(expression.negate() ? !result : result);
   }
@@ -526,6 +537,10 @@ public final class Interpreter {
     if (!(booleanFlag instanceof Value.BooleanValue flag))
       throw new TemplateRenderException(
           "`default` filter flag must be a boolean", ErrorCategory.TYPE, location);
+    if (operand instanceof Value.DeferredUndefinedValue) {
+      if (flag.value()) deferredValue(operand, "__bool__", location);
+      deferredValue(operand, location);
+    }
     return undefinedLike(operand) || flag.value() && !truthy(operand) ? fallback : operand;
   }
 
@@ -555,7 +570,8 @@ public final class Interpreter {
         filter.positional().isEmpty()
             ? filter.keywords().get("separator")
             : filter.positional().get(0);
-    if (separator == null) separator = new Value.StringValue("");
+    if (separator == null || separator instanceof Value.DeferredUndefinedValue)
+      separator = new Value.StringValue("");
     if (!(separator instanceof Value.StringValue string) || string.undefinedBacked())
       throw new TemplateRenderException("separator must be a string", ErrorCategory.TYPE, location);
     List<Value> values;
@@ -597,7 +613,7 @@ public final class Interpreter {
       Value operand, NamedArguments filter, SourceLocation location, boolean last) {
     var values = sequence(operand, filter.name(), location);
     if (values.isEmpty()) return Value.DeferredUndefinedValue.INSTANCE;
-    return values.get(last ? values.size() - 1 : 0);
+    return Value.materialize(values.get(last ? values.size() - 1 : 0));
   }
 
   private static boolean lowerTest(Value value, SourceLocation location) {
@@ -706,9 +722,11 @@ public final class Interpreter {
   }
 
   private static Value filterArgument(NamedArguments filter, int index, String key) {
-    return filter.positional().size() > index
-        ? filter.positional().get(index)
-        : filter.keywords().get(key);
+    Value value =
+        filter.positional().size() > index
+            ? filter.positional().get(index)
+            : filter.keywords().get(key);
+    return value instanceof Value.DeferredUndefinedValue ? null : value;
   }
 
   private static boolean filterBoolean(
@@ -1007,7 +1025,18 @@ public final class Interpreter {
 
   private static TemplateRenderException filterReceiver(
       String name, Value value, SourceLocation location) {
+    deferredValue(value, location);
     return filterType("Cannot apply filter \"" + name + "\" to type: " + type(value), location);
+  }
+
+  private static void deferredValue(Value value, SourceLocation location) {
+    deferredValue(value, "type", location);
+  }
+
+  private static void deferredValue(Value value, String property, SourceLocation location) {
+    if (value instanceof Value.DeferredUndefinedValue)
+      throw filterType(
+          "Cannot read properties of undefined (reading '" + property + "')", location);
   }
 
   private static TemplateRenderException unknownBareFilter(
@@ -1095,11 +1124,6 @@ public final class Interpreter {
     return r;
   }
 
-  private static List<Value> materializedValues(
-      List<Expression> items, Environment e, RenderBudget b) {
-    return values(items, e, b).stream().map(Value::materialize).toList();
-  }
-
   private static Value object(Expression.ObjectLiteral x, Environment e, RenderBudget b) {
     var r = new LinkedHashMap<Object, Value>();
     for (var item : x.value()) {
@@ -1109,9 +1133,7 @@ public final class Interpreter {
             "Object keys must be strings: got " + type(k),
             ErrorCategory.TYPE,
             item.key().location());
-      r.put(
-          key.undefinedBacked() ? key : key.value(),
-          Value.materialize(evaluateExpression(item.value(), e, b)));
+      r.put(key.undefinedBacked() ? key : key.value(), evaluateExpression(item.value(), e, b));
     }
     return new Value.ObjectValue(r);
   }
@@ -1132,7 +1154,6 @@ public final class Interpreter {
       case Value.NullValue ignored -> false;
       case Value.UndefinedValue ignored -> false;
       case Value.DeferredUndefinedValue ignored -> {
-        if (location == null) yield false;
         throw filterType("Cannot read properties of undefined (reading '__bool__')", location);
       }
       case Value.BooleanValue x -> x.value();
@@ -1149,6 +1170,7 @@ public final class Interpreter {
 
   private static Value member(Expression.MemberExpression n, Environment e, RenderBudget b) {
     var target = evaluateExpression(n.object(), e, b);
+    deferredValue(target, "builtins", n.location());
     if (n.computed() && n.property() instanceof Expression.SliceExpression slice)
       return slice(target, slice, e, b, n.location());
     var p =
@@ -1159,7 +1181,7 @@ public final class Interpreter {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
       var key = objectKey(s);
-      if (x.values().containsKey(key)) return x.values().get(key);
+      if (x.values().containsKey(key)) return Value.materialize(x.values().get(key));
       if (!s.undefinedBacked() && "items".equals(s.value())) return objectItemsBuiltin(x);
       if (!s.undefinedBacked()
           && (s.value().equals("get")
@@ -1172,7 +1194,7 @@ public final class Interpreter {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
       if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
-      return x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE);
+      return Value.materialize(x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE));
     }
     if (target instanceof Value.ArrayValue x) {
       if (p instanceof Value.StringValue property
@@ -1561,7 +1583,7 @@ public final class Interpreter {
 
   private static Value indexed(List<Value> values, Value p) {
     int i = index(values.size(), p);
-    return i < 0 ? Value.UndefinedValue.INSTANCE : values.get(i);
+    return i < 0 ? Value.UndefinedValue.INSTANCE : Value.materialize(values.get(i));
   }
 
   private static int index(int size, Value p) {
@@ -1586,6 +1608,7 @@ public final class Interpreter {
   }
 
   private static String type(Value v) {
+    if (v instanceof Value.DeferredUndefinedValue) return "UndefinedValue";
     return v instanceof Value.CallableValue ? "FunctionValue" : v.getClass().getSimpleName();
   }
 
@@ -1639,9 +1662,10 @@ public final class Interpreter {
                     Value fromKwargs =
                         kwargs == null ? null : kwargs.values().get(kwarg.key().value());
                     Value value =
-                        passed != null
+                        passed != null && !(passed instanceof Value.DeferredUndefinedValue)
                             ? passed
                             : fromKwargs != null
+                                    && !(fromKwargs instanceof Value.DeferredUndefinedValue)
                                 ? fromKwargs
                                 : evaluateExpression(kwarg.value(), macroScope, b);
                     macroScope.setVariable(kwarg.key().value(), value);
@@ -1790,9 +1814,8 @@ public final class Interpreter {
             "Cannot assign to member with non-identifier property",
             ErrorCategory.TYPE,
             n.location());
-      if (target instanceof Value.ObjectValue obj)
-        obj.values().put(key.value(), Value.materialize(rhs));
-      else ((Value.KeywordArgumentsValue) target).values().put(key.value(), Value.materialize(rhs));
+      if (target instanceof Value.ObjectValue obj) obj.values().put(key.value(), rhs);
+      else ((Value.KeywordArgumentsValue) target).values().put(key.value(), rhs);
     } else
       throw new TemplateRenderException(
           "Invalid LHS inside assignment expression: " + astJson(n.assignee()),
@@ -1850,7 +1873,8 @@ public final class Interpreter {
       b.chargeLoopIteration(n.location());
       var filterScope = new Environment(e);
       bind(n.loopVariable(), item, filterScope, n.location());
-      if (test == null || truthy(evaluateExpression(test, filterScope, b))) filtered.add(item);
+      if (test == null || truthy(evaluateExpression(test, filterScope, b), test.location()))
+        filtered.add(item);
     }
     items = filtered;
     var out = new StringBuilder();
@@ -1970,6 +1994,7 @@ public final class Interpreter {
     if (index >= arguments.size()) return Value.UndefinedValue.INSTANCE;
     var value = arguments.get(index);
     return value instanceof Value.NullValue
+            || value instanceof Value.DeferredUndefinedValue
             || value instanceof Value.StringValue string && string.undefinedBacked()
         ? Value.UndefinedValue.INSTANCE
         : value;

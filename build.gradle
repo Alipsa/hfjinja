@@ -201,6 +201,16 @@ tasks.named('check') {
       tasks.named('fuzzParserTest'), tasks.named('fuzzParserVerify'), tasks.named('formatGoldenVerify'), tasks.named('codenarcBuildScripts'), tasks.named('compileTokenizerConfigExample')
 }
 
+abstract class ExampleModulePathArguments implements CommandLineArgumentProvider {
+  @Classpath
+  abstract RegularFileProperty getModuleJar()
+
+  @Override
+  Iterable<String> asArguments() {
+    ['--module-path', moduleJar.get().asFile.absolutePath, '--add-modules', 'se.alipsa.hfjinja']
+  }
+}
+
 tasks.register('compileTokenizerConfigExample', JavaCompile) {
   group = 'verification'
   description = 'Compiles the tokenizer-config example against the published JPMS jar.'
@@ -209,10 +219,9 @@ tasks.register('compileTokenizerConfigExample', JavaCompile) {
   destinationDirectory = layout.buildDirectory.dir('examples/tokenizer-config/classes')
   classpath = files()
   options.release = 21
-  options.compilerArgs.addAll([
-      '--module-path', tasks.named('jar').flatMap { it.archiveFile }.get().asFile.absolutePath,
-      '--add-modules', 'se.alipsa.hfjinja',
-  ])
+  def modulePathArguments = objects.newInstance(ExampleModulePathArguments)
+  modulePathArguments.moduleJar.set(tasks.named('jar').flatMap { it.archiveFile })
+  options.compilerArgumentProviders.add(modulePathArguments)
 }
 
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile

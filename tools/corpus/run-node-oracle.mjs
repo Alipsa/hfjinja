@@ -24,6 +24,7 @@ if (process.version !== lock.nodeVersion) {
   throw new Error(`Node oracle version ${process.version} does not match lock ${lock.nodeVersion}`);
 }
 const upstream = await import(pathToFileURL(resolve('upstream/vendor/dist/index.js')).href);
+const upstreamGlobals = captureGlobals(upstream);
 const classifyError = await errorClassifier(patternsPath, `${lock.package}@${lock.version}`);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
@@ -120,38 +121,23 @@ function render(record, upstreamRuntime) {
   }
 }
 
-// The upstream dist bundle keeps setupGlobals private, though Template.render invokes it. Mirror
-// that function here so templateOptions fixtures exercise the same built-ins as Template records.
 function setupGlobals(environment) {
-  environment.set('false', false);
-  environment.set('true', true);
-  environment.set('none', null);
-  environment.set('raise_exception', (arguments_) => { throw new Error(arguments_); });
-  environment.set('range', range);
-  environment.set('strftime_now', strftimeNow);
-  environment.set('True', true);
-  environment.set('False', false);
-  environment.set('None', null);
+  for (const [name, value] of upstreamGlobals) environment.set(name, value);
 }
 
-function range(start, stop, step = 1) {
-  if (stop === undefined) [start, stop] = [0, start];
-  if (step === 0) throw new Error('range() step must not be zero');
-  const result = [];
-  for (let index = start; step > 0 ? index < stop : index > stop; index += step) result.push(index);
-  return result;
-}
-
-function strftimeNow(format) {
-  const date = new Date();
-  const shortMonth = new Intl.DateTimeFormat(undefined, {month: 'short'});
-  const longMonth = new Intl.DateTimeFormat(undefined, {month: 'long'});
-  const pad2 = (number) => number < 10 ? `0${number}` : number.toString();
-  return format.replace(/%[YmdbBHM%]/g, (token) => ({
-    '%Y': date.getFullYear().toString(), '%m': pad2(date.getMonth() + 1), '%d': pad2(date.getDate()),
-    '%b': shortMonth.format(date), '%B': longMonth.format(date), '%H': pad2(date.getHours()),
-    '%M': pad2(date.getMinutes()), '%%': '%',
-  })[token] ?? token);
+function captureGlobals(upstreamRuntime) {
+  const globals = [];
+  const originalSet = upstreamRuntime.Environment.prototype.set;
+  upstreamRuntime.Environment.prototype.set = function set(name, value) {
+    globals.push([name, value]);
+    return originalSet.call(this, name, value);
+  };
+  try {
+    new upstreamRuntime.Template('').render({});
+  } finally {
+    upstreamRuntime.Environment.prototype.set = originalSet;
+  }
+  return globals;
 }
 
 function nodeTemplateOptions(options) {

@@ -299,17 +299,18 @@ function runtimeSurfaceCoverage(runtimeSource, records) {
 
 function runtimeUsage(surface, name) {
   const escaped = escapeRegex(name);
+  const terminator = '(?=\\s|\\(|\\}|\\||\\)|,|\\]|$)';
   switch (surface) {
     case 'filter':
-      return new RegExp(`(?:\\|\\s*${escaped}(?=\\s|\\(|\\}|$)|\\bfilter\\s+${escaped}(?=\\s|\\}|$))`);
+      return new RegExp(`(?:\\|\\s*${escaped}${terminator}|\\bfilter\\s+${escaped}${terminator})`);
     case 'test':
-      return new RegExp(`\\bis\\s+(?:not\\s+)?${escaped}(?=\\s|\\}|\\(|$)`);
+      return new RegExp(`\\bis\\s+(?:not\\s+)?${escaped}${terminator}`);
     case 'string member':
     case 'object member':
     case 'array member':
-      return new RegExp(`(?:\\.${escaped}(?=\\s*\\(|\\s|\\}|$)|\\|\\s*${escaped}(?=\\s|\\(|\\}|$))`);
+      return new RegExp(`(?:\\.${escaped}(?=\\s*\\(|\\s|\\}|\\||\\)|,|\\]|$)|\\|\\s*${escaped}${terminator})`);
     case 'global':
-      return new RegExp(`\\b${escaped}(?=\\s*\\(|\\s|\\}|$)`);
+      return new RegExp(`\\b${escaped}(?=\\s*\\(|\\s|\\}|\\||\\)|,|\\]|$)`);
     default:
       throw new Error(`Unknown runtime surface: ${surface}`);
   }

@@ -24,8 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Preserve the pinned runtime's deferred undefined behavior for empty `first`/`last`,
-  case-sensitive sorting, and undefined-backed string tests.
+- Preserve the pinned runtime's deferred undefined behavior for empty `first`/`last`, including
+  container reads, boolean and member dereferences, and filter/macro default arguments;
+  also align case-sensitive sorting and undefined-backed string tests.
 - Classify the pinned runtime's `Unknown FunctionValue filter` diagnostics as `TYPE` in the
   differential oracle.
 - Classify the pinned runtime's undefined `value` access diagnostic as `TYPE`, covering the
