@@ -28,6 +28,9 @@ public final class ReleaseVerifierMain {
     Path source = Path.of(args[0]).toAbsolutePath().normalize();
     Path userHome = Path.of(args[1]).toAbsolutePath().normalize();
     boolean allowDirty = args.length == 3 && "--allow-dirty".equals(args[2]);
+    Path report = source.resolve("build/reports/release-verification.md");
+    Path retainedEvidence = source.resolve("build/reports/release-verification-evidence");
+    prepareReport(report, retainedEvidence);
     String status = output(source, "git", "status", "--porcelain");
     if (!status.isBlank() && !allowDirty)
       throw new IllegalStateException("source checkout is dirty:\n" + status);
@@ -37,9 +40,6 @@ public final class ReleaseVerifierMain {
     Path worktree = parent.resolve("candidate");
     Path dependencyEvidence = Files.createTempDirectory("hfjinja-dependency-evidence-");
     Path repository = Files.createTempDirectory("hfjinja-release-repository-");
-    Path report = source.resolve("build/reports/release-verification.md");
-    Path retainedEvidence = source.resolve("build/reports/release-verification-evidence");
-    prepareReport(report, retainedEvidence);
     try {
       run(source, "git", "worktree", "add", "--detach", worktree.toString(), head);
       Files.createDirectories(userHome);
@@ -311,6 +311,9 @@ public final class ReleaseVerifierMain {
     deleteTree(retainedEvidence);
     Files.createDirectories(report.getParent());
     Files.writeString(report, "# Release verification\n\nStatus: IN PROGRESS\n");
+    Files.writeString(
+        report.resolveSibling("release-verification.json"),
+        "{\n  \"status\": \"IN PROGRESS\"\n}\n");
   }
 
   private static String mainArchiveDigest(Path archiveEvidence) throws Exception {
