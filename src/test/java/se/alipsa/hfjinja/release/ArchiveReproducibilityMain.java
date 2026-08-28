@@ -38,7 +38,7 @@ public final class ArchiveReproducibilityMain {
       }
       verifyModule(first.get(0), bytecodeMajor);
       Files.createDirectories(report.getParent());
-      Files.writeString(report, report(first));
+      Files.writeString(report, report(first, second));
       System.out.println("archive evidence: " + report);
       for (Path archive : first) System.out.println(archive.getFileName() + " " + sha256(archive));
     } finally {
@@ -128,17 +128,19 @@ public final class ArchiveReproducibilityMain {
     }
   }
 
-  private static String report(List<Path> archives) throws Exception {
+  private static String report(List<Path> first, List<Path> second) throws Exception {
     StringBuilder result = new StringBuilder("{\n  \"archives\": [\n");
-    for (int index = 0; index < archives.size(); index++) {
-      Path archive = archives.get(index);
+    for (int index = 0; index < first.size(); index++) {
+      Path archive = first.get(index);
       result
           .append("    {\"name\": \"")
           .append(archive.getFileName())
-          .append("\", \"sha256\": \"")
+          .append("\", \"firstSha256\": \"")
           .append(sha256(archive))
+          .append("\", \"secondSha256\": \"")
+          .append(sha256(second.get(index)))
           .append("\"}");
-      if (index + 1 < archives.size()) result.append(',');
+      if (index + 1 < first.size()) result.append(',');
       result.append('\n');
     }
     return result.append("  ]\n}\n").toString();

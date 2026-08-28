@@ -14,6 +14,9 @@ import java.util.regex.Pattern;
 public final class ReleaseVerifierMain {
   private static final Pattern COORDINATES =
       Pattern.compile("\\\"coordinates\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+  private static final Pattern MAIN_ARCHIVE_DIGEST =
+      Pattern.compile(
+          "\\\"name\\\"\\s*:\\s*\\\"hfjinja-(?![^\\\"]+-(?:sources|javadoc)\\.jar)[^\\\"]+\\.jar\\\"\\s*,\\s*\\\"firstSha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"\\s*,\\s*\\\"secondSha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"");
 
   private ReleaseVerifierMain() {}
 
@@ -36,6 +39,7 @@ public final class ReleaseVerifierMain {
     Path repository = Files.createTempDirectory("hfjinja-release-repository-");
     Path report = source.resolve("build/reports/release-verification.md");
     Path retainedEvidence = source.resolve("build/reports/release-verification-evidence");
+    prepareReport(report, retainedEvidence);
     try {
       run(source, "git", "worktree", "add", "--detach", worktree.toString(), head);
       Files.createDirectories(userHome);
@@ -53,7 +57,7 @@ public final class ReleaseVerifierMain {
 
       gradle(worktree, userHome, true, "verifyReproducibleArchives");
       Path archiveEvidence = dependencyEvidence.resolve("archive-reproducibility.json");
-      Files.copy(worktree.resolve("build/reports/archive-reproducibility.json"), archiveEvidence);
+      copyEvidence(worktree, dependencyEvidence, "build/reports/archive-reproducibility.json");
       gradle(worktree, userHome, true, "clean", "check");
       gradle(
           worktree,
@@ -77,9 +81,11 @@ public final class ReleaseVerifierMain {
           "-PreleaseVerificationRepository=" + repository);
       String resolvedDigest = runConsumer(worktree, userHome, repository, coordinates);
       Path published = publishedJar(repository, coordinates);
-      if (!sha256(published).equals(resolvedDigest)) {
+      String publishedDigest = sha256(published);
+      String archiveDigest = mainArchiveDigest(archiveEvidence);
+      if (!archiveDigest.equals(publishedDigest) || !publishedDigest.equals(resolvedDigest)) {
         throw new IllegalStateException(
-            "consumer resolved artifact does not match the published candidate JAR");
+            "archive, published candidate, and consumer-resolved main JAR digests must all match");
       }
       writeReport(
           report,
@@ -296,6 +302,23 @@ public final class ReleaseVerifierMain {
   private static String contractCoordinates(Path contract) throws Exception {
     Matcher match = COORDINATES.matcher(Files.readString(contract));
     if (!match.find()) throw new IllegalStateException("release contract has no coordinates");
+    return match.group(1);
+  }
+
+  private static void prepareReport(Path report, Path retainedEvidence) throws Exception {
+    Files.deleteIfExists(report);
+    Files.deleteIfExists(report.resolveSibling("release-verification.json"));
+    deleteTree(retainedEvidence);
+    Files.createDirectories(report.getParent());
+    Files.writeString(report, "# Release verification\n\nStatus: IN PROGRESS\n");
+  }
+
+  private static String mainArchiveDigest(Path archiveEvidence) throws Exception {
+    Matcher match = MAIN_ARCHIVE_DIGEST.matcher(Files.readString(archiveEvidence));
+    if (!match.find()) throw new IllegalStateException("archive evidence has no main JAR digest");
+    if (!match.group(1).equals(match.group(2))) {
+      throw new IllegalStateException("archive evidence records non-identical main JARs");
+    }
     return match.group(1);
   }
 
