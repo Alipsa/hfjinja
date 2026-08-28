@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add isolated clean-checkout release verification, publication metadata checks, and release-only
+  reproducible archive evidence.
+
 - Add a dependency-free local `tokenizer_config.json` consumer example that parses and renders a
   chat template with the published JPMS module.
 - Run every checked-in template-bearing differential-corpus record against hfjinja's public Java

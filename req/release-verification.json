@@ -1,0 +1,11 @@
+{
+  "jdkMajor": 21,
+  "bytecodeMajor": 65,
+  "coordinates": "se.alipsa:hfjinja:0.5.0-SNAPSHOT",
+  "module": "se.alipsa.hfjinja",
+  "exports": ["se.alipsa.hfjinja"],
+  "publishedRuntimeDependencies": [],
+  "archives": ["jar", "sourcesJar", "javadocJar"],
+  "requiredTasks": ["upstreamVerify", "corpusCoverage", "formatGoldenVerify"],
+  "policyInputs": ["NOTICE", "req/model-fixture-policy.md", "CHANGELOG.md", "req/release-checklist.md"]
+}
