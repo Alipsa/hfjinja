@@ -1208,7 +1208,9 @@ public final class Interpreter {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
       var key = objectKey(s);
-      if (x.values().containsKey(key)) return Value.materialize(x.values().get(key));
+      Value memberValue = x.values().get(key);
+      if (memberValue != null && !(memberValue instanceof Value.DeferredUndefinedValue))
+        return Value.materialize(memberValue);
       if (!s.undefinedBacked() && "items".equals(s.value())) return objectItemsBuiltin(x);
       if (!s.undefinedBacked()
           && (s.value().equals("get")
@@ -1378,11 +1380,15 @@ public final class Interpreter {
     if (!(arguments.get(0) instanceof Value.StringValue oldValue)
         || !(arguments.get(1) instanceof Value.StringValue newValue))
       throw filterType("replace() arguments must be strings", location);
-    Value count =
-        arguments.size() > 2 && !(arguments.get(2) instanceof Value.KeywordArgumentsValue)
-            ? arguments.get(2)
-            : keyword(arguments, "count");
-    count = absentFilterArgument(count, null);
+    Value count;
+    if (arguments.size() > 2) {
+      Value thirdArgument = arguments.get(2);
+      deferredValue(thirdArgument, "type", location);
+      count =
+          thirdArgument instanceof Value.KeywordArgumentsValue
+              ? absentFilterArgument(keyword(arguments, "count"), Value.NullValue.INSTANCE)
+              : thirdArgument;
+    } else count = Value.NullValue.INSTANCE;
     if (count != null
         && !(count instanceof Value.IntegerValue)
         && !(count instanceof Value.NullValue))
