@@ -319,13 +319,13 @@ public final class Interpreter {
       RenderBudget budget,
       SourceLocation location) {
     if (filterNode instanceof Expression.Identifier identifier) {
-      if (!identifier.value().equals("default")) deferredValue(operand, location);
+      if (!absorbsDeferredOperand(identifier.value())) deferredValue(operand, location);
       return applyBareFilter(operand, identifier.value(), location, budget);
     }
     if (!(filterNode instanceof Expression.CallExpression call)
         || !(call.callee() instanceof Expression.Identifier identifier))
       throw filterType("Unknown filter: " + filterNode.getClass().getSimpleName(), location);
-    if (!identifier.value().equals("default")) deferredValue(operand, location);
+    if (!absorbsDeferredOperand(identifier.value())) deferredValue(operand, location);
     return applyCallFilter(operand, identifier.value(), call, env, budget, location);
   }
 
@@ -364,6 +364,11 @@ public final class Interpreter {
       case "float" -> filterNumber(operand, filter, location, false);
       default -> throw unknownBareFilter(filter.name(), operand, location);
     };
+  }
+
+  /** Filters whose upstream implementation returns the operand before reading its properties. */
+  private static boolean absorbsDeferredOperand(String name) {
+    return name.equals("default") || name.equals("safe");
   }
 
   private static Value applyCallFilter(
@@ -476,22 +481,24 @@ public final class Interpreter {
 
   private static Value filterToJson(
       Value operand, NamedArguments filter, SourceLocation location, RenderBudget budget) {
-    Value indent = filter.keywords().getOrDefault("indent", Value.NullValue.INSTANCE);
+    Value indent = absentFilterArgument(filter.keywords().get("indent"), Value.NullValue.INSTANCE);
     if (!(indent instanceof Value.NullValue || indent instanceof Value.IntegerValue))
       throw new TemplateRenderException(
           "If set, indent must be a number", ErrorCategory.TYPE, location);
     Double indentValue = indent instanceof Value.IntegerValue number ? number.value() : null;
 
     Value ensureAscii =
-        filter.keywords().getOrDefault("ensure_ascii", new Value.BooleanValue(false));
+        absentFilterArgument(filter.keywords().get("ensure_ascii"), new Value.BooleanValue(false));
     if (!(ensureAscii instanceof Value.BooleanValue ensureAsciiValue))
       throw new TemplateRenderException(
           "If set, ensure_ascii must be a boolean", ErrorCategory.TYPE, location);
-    Value sortKeys = filter.keywords().getOrDefault("sort_keys", new Value.BooleanValue(false));
+    Value sortKeys =
+        absentFilterArgument(filter.keywords().get("sort_keys"), new Value.BooleanValue(false));
     if (!(sortKeys instanceof Value.BooleanValue sortKeysValue))
       throw new TemplateRenderException(
           "If set, sort_keys must be a boolean", ErrorCategory.TYPE, location);
-    Value separators = filter.keywords().getOrDefault("separators", Value.NullValue.INSTANCE);
+    Value separators =
+        absentFilterArgument(filter.keywords().get("separators"), Value.NullValue.INSTANCE);
     JsFormat.JsonSeparators separatorValues = null;
     if (separators instanceof Value.ArrayValue array)
       separatorValues = jsonSeparators(array.values(), location);
@@ -613,7 +620,7 @@ public final class Interpreter {
       Value operand, NamedArguments filter, SourceLocation location, boolean last) {
     var values = sequence(operand, filter.name(), location);
     if (values.isEmpty()) return Value.DeferredUndefinedValue.INSTANCE;
-    return Value.materialize(values.get(last ? values.size() - 1 : 0));
+    return values.get(last ? values.size() - 1 : 0);
   }
 
   private static boolean lowerTest(Value value, SourceLocation location) {
@@ -632,9 +639,11 @@ public final class Interpreter {
 
   private static Value filterUnique(Value operand, NamedArguments filter, SourceLocation location) {
     var result = new ArrayList<Value>();
-    for (var value : sequence(operand, filter.name(), location))
+    for (var value : sequence(operand, filter.name(), location)) {
+      deferredValue(value, location);
       if (result.stream().noneMatch(existing -> JsOperations.strictValueEquals(existing, value)))
         result.add(value);
+    }
     return new Value.ArrayValue(result);
   }
 
@@ -743,6 +752,10 @@ public final class Interpreter {
     return value == null ? fallback : JsOperations.rawTruthy(value);
   }
 
+  private static Value absentFilterArgument(Value value, Value fallback) {
+    return value == null || value instanceof Value.DeferredUndefinedValue ? fallback : value;
+  }
+
   private static Value filterObjectBuiltin(
       Value operand, NamedArguments filter, SourceLocation location) {
     if (!(operand instanceof Value.ObjectValue object))
@@ -771,13 +784,14 @@ public final class Interpreter {
   private static Value attribute(Value value, String path) {
     for (var part : path.split("\\.")) {
       if (value instanceof Value.ObjectValue object)
-        value = object.values().getOrDefault(part, Value.UndefinedValue.INSTANCE);
+        value =
+            Value.materialize(object.values().getOrDefault(part, Value.UndefinedValue.INSTANCE));
       else if (value instanceof Value.ArrayValue array) {
         try {
           int index = Integer.parseInt(part);
           value =
               index >= 0 && index < array.values().size()
-                  ? array.values().get(index)
+                  ? Value.materialize(array.values().get(index))
                   : Value.UndefinedValue.INSTANCE;
         } catch (NumberFormatException ignored) {
           return Value.UndefinedValue.INSTANCE;
@@ -841,7 +855,7 @@ public final class Interpreter {
     Value comparison = filter.positional().size() > 2 ? filter.positional().get(2) : null;
     var result = new ArrayList<Value>();
     for (var item : values) {
-      var attrValue = ((Value.ObjectValue) item).values().get(attr.value());
+      var attrValue = Value.materialize(((Value.ObjectValue) item).values().get(attr.value()));
       boolean matched =
           attrValue != null
               && (testName == null
@@ -1406,7 +1420,9 @@ public final class Interpreter {
                   .values()
                   .getOrDefault(
                       key.value(),
-                      arguments.size() > 1 ? arguments.get(1) : Value.NullValue.INSTANCE);
+                      arguments.size() > 1
+                          ? Value.materialize(arguments.get(1))
+                          : Value.NullValue.INSTANCE);
             }
             case "keys" ->
                 new Value.ArrayValue(
@@ -1426,9 +1442,15 @@ public final class Interpreter {
       List<Value> arguments,
       SourceLocation location) {
     Value caseValue =
-        positional.isEmpty() ? keyword(arguments, "case_sensitive") : positional.getFirst();
-    Value byValue = positional.size() < 2 ? keyword(arguments, "by") : positional.get(1);
-    Value reverseValue = positional.size() < 3 ? keyword(arguments, "reverse") : positional.get(2);
+        absentFilterArgument(
+            positional.isEmpty() ? keyword(arguments, "case_sensitive") : positional.getFirst(),
+            null);
+    Value byValue =
+        absentFilterArgument(
+            positional.size() < 2 ? keyword(arguments, "by") : positional.get(1), null);
+    Value reverseValue =
+        absentFilterArgument(
+            positional.size() < 3 ? keyword(arguments, "reverse") : positional.get(2), null);
     boolean caseSensitive =
         caseValue == null ? false : booleanValue(caseValue, "case_sensitive", location);
     String by = byValue == null ? "key" : stringValue(byValue, "by", location);
@@ -1962,6 +1984,9 @@ public final class Interpreter {
     Value current = argument(a, 0);
     Value stop = argument(a, 1);
     Value step = argument(a, 2);
+    deferredValue(current, "value", l);
+    deferredValue(stop, "value", l);
+    deferredValue(step, "value", l);
     if (step instanceof Value.UndefinedValue) step = new Value.IntegerValue(1);
     if (stop instanceof Value.UndefinedValue) {
       stop = current;
@@ -1994,7 +2019,6 @@ public final class Interpreter {
     if (index >= arguments.size()) return Value.UndefinedValue.INSTANCE;
     var value = arguments.get(index);
     return value instanceof Value.NullValue
-            || value instanceof Value.DeferredUndefinedValue
             || value instanceof Value.StringValue string && string.undefinedBacked()
         ? Value.UndefinedValue.INSTANCE
         : value;

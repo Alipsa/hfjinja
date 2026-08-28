@@ -192,7 +192,9 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ 'abc'[5] ~ '' }}").render(Map.of()));
-    assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, directUndefined.category());
+    assertEquals(ErrorCategory.TYPE, directUndefined.category());
+    assertEquals(
+        "Cannot read properties of undefined (reading 'toString')", directUndefined.getMessage());
     var nestedTuple =
         assertThrows(
             TemplateRenderException.class,

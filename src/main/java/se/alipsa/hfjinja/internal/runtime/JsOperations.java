@@ -190,7 +190,7 @@ final class JsOperations {
 
   private static String undefinedPayload(SourceLocation location) {
     throw new TemplateRenderException(
-        "Cannot stringify undefined value", ErrorCategory.UNDEFINED_OR_ACCESS, location);
+        "Cannot read properties of undefined (reading 'toString')", ErrorCategory.TYPE, location);
   }
 
   private static double stringNumber(String value) {

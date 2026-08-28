@@ -92,6 +92,7 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('', 'ContinueControl'), 'SYNTAX');
   assert.throws(() => classify('', 'Error'), /Unmatched upstream error/);
   assert.equal(classify("Cannot read properties of undefined (reading 'toLowerCase')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'toString')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'type')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'value')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading '__bool__')"), 'TYPE');
