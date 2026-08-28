@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a dependency-free local `tokenizer_config.json` consumer example that parses and renders a
+  chat template with the published JPMS module.
 - Run every checked-in template-bearing differential-corpus record against hfjinja's public Java
   API as well as the pinned Node oracle.
 - Extract all serializable upstream `templates.test.js` rendering fixtures into the differential

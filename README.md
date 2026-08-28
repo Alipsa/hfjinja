@@ -90,6 +90,13 @@ String spaces = template.format(2);         // two spaces per nesting level
 String custom = template.format("  ");      // string indentation unit
 ```
 
+## Local tokenizer-config integration
+
+See [the local tokenizer-config example](examples/tokenizer-config). It reads a local
+`tokenizer_config.json` chat template, parses it once, and renders a prompt. Production
+applications should use their normal JSON library to obtain that string before calling
+`Template.parse`.
+
 ## Values and safety
 
 Contexts accept strings, booleans, JSON-compatible `Number` values, arrays, `List<?>`, and
