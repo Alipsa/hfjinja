@@ -14,6 +14,12 @@ import java.util.regex.Pattern;
 public final class ReleaseVerifierMain {
   private static final Pattern COORDINATES =
       Pattern.compile("\\\"coordinates\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+  private static final Pattern JDK_MAJOR = Pattern.compile("\\\"jdkMajor\\\"\\s*:\\s*(\\d+)");
+  private static final Pattern NODE_VERSION =
+      Pattern.compile("\\\"nodeVersion\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+  private static final Pattern ARRAY =
+      Pattern.compile("\\\"%s\\\"\\s*:\\s*\\[([^]]*)]", Pattern.DOTALL);
+  private static final Pattern JSON_STRING = Pattern.compile("\\\"([^\\\"]+)\\\"");
   private static final Pattern MAIN_ARCHIVE_DIGEST =
       Pattern.compile(
           "\\\"name\\\"\\s*:\\s*\\\"hfjinja-(?![^\\\"]+-(?:sources|javadoc)\\.jar)[^\\\"]+\\.jar\\\"\\s*,\\s*\\\"firstSha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"\\s*,\\s*\\\"secondSha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"");
@@ -31,6 +37,7 @@ public final class ReleaseVerifierMain {
     Path report = source.resolve("build/reports/release-verification.md");
     Path retainedEvidence = source.resolve("build/reports/release-verification-evidence");
     prepareReport(report, retainedEvidence);
+    verifyEnvironment(source);
     String status = output(source, "git", "status", "--porcelain");
     if (!status.isBlank() && !allowDirty)
       throw new IllegalStateException("source checkout is dirty:\n" + status);
@@ -59,6 +66,7 @@ public final class ReleaseVerifierMain {
       Path archiveEvidence = dependencyEvidence.resolve("archive-reproducibility.json");
       copyEvidence(worktree, dependencyEvidence, "build/reports/archive-reproducibility.json");
       gradle(worktree, userHome, true, "clean", "check");
+      verifyRequiredTaskEvidence(worktree, source.resolve("req/release-verification.json"));
       gradle(
           worktree,
           userHome,
@@ -124,10 +132,42 @@ public final class ReleaseVerifierMain {
     run(project, command.toArray(String[]::new));
   }
 
-  private static void requireIsolation(List<String> command, boolean offline) {
+  static void requireIsolation(List<String> command, boolean offline) {
     if (!command.contains("--gradle-user-home") || (offline && !command.contains("--offline"))) {
       throw new IllegalStateException(
           "refusing to launch a candidate Gradle command without required isolation flags");
+    }
+  }
+
+  private static void verifyEnvironment(Path source) throws Exception {
+    int requiredJdk =
+        contractInt(source.resolve("req/release-verification.json"), JDK_MAJOR, "jdkMajor");
+    if (Runtime.version().feature() != requiredJdk) {
+      throw new IllegalStateException(
+          "required JDK major " + requiredJdk + ", got " + Runtime.version().feature());
+    }
+    String expectedNode =
+        match(source.resolve("upstream/upstream-lock.json"), NODE_VERSION, "nodeVersion");
+    String actualNode = output(source, "node", "--version").trim();
+    if (!expectedNode.equals(actualNode))
+      throw new IllegalStateException("required Node " + expectedNode + ", got " + actualNode);
+  }
+
+  private static void verifyRequiredTaskEvidence(Path worktree, Path contract) throws Exception {
+    java.util.Map<String, String> evidence =
+        java.util.Map.of(
+            "upstreamVerify",
+            "build/upstreamVerify/verified",
+            "corpusCoverage",
+            "build/reports/corpus-coverage.md",
+            "formatGoldenVerify",
+            "build/formatGoldenVerify/verified");
+    for (String task : stringArray(contract, "requiredTasks")) {
+      String relative = evidence.get(task);
+      if (relative == null)
+        throw new IllegalStateException("no evidence mapping for required task: " + task);
+      if (!Files.isRegularFile(worktree.resolve(relative)))
+        throw new IllegalStateException("required verification evidence is missing: " + relative);
     }
   }
 
@@ -170,6 +210,7 @@ public final class ReleaseVerifierMain {
       Files.writeString(
           consumer.resolve("gradle.properties"),
           "org.gradle.java.installations.auto-download=false\n");
+      verifyConsumerStructure(consumer, candidate, repository);
       Path source = consumer.resolve("src/main/java/consumer/ConsumerMain.java");
       Files.createDirectories(source.getParent());
       Files.writeString(
@@ -184,27 +225,50 @@ public final class ReleaseVerifierMain {
           """);
       String wrapper =
           System.getProperty("os.name").toLowerCase().contains("win") ? "gradlew.bat" : "gradlew";
-      run(
-          consumer,
-          candidate.resolve(wrapper).toString(),
-          "--gradle-user-home",
-          userHome.toString(),
-          "consumerVerify");
+      List<String> consumerCommand =
+          new ArrayList<>(
+              List.of(
+                  candidate.resolve(wrapper).toString(),
+                  "-Dorg.gradle.java.installations.auto-download=false",
+                  "--gradle-user-home",
+                  userHome.toString(),
+                  "consumerVerify"));
+      requireIsolation(consumerCommand, false);
+      run(consumer, consumerCommand.toArray(String[]::new));
       try (var files = Files.list(consumer.resolve("build/resolved"))) {
-        Path resolved =
+        List<Path> resolved =
             files
                 .filter(
                     path ->
                         path.getFileName().toString().startsWith(coordinate[1] + "-")
                             && path.getFileName().toString().endsWith(".jar"))
-                .findFirst()
-                .orElseThrow(
-                    () -> new IllegalStateException("consumer did not resolve the candidate JAR"));
-        return sha256(resolved);
+                .toList();
+        if (resolved.size() != 1)
+          throw new IllegalStateException(
+              "consumer runtime graph must contain only the candidate JAR: " + resolved);
+        return sha256(resolved.getFirst());
       }
     } finally {
       deleteTree(consumer);
     }
+  }
+
+  private static void verifyConsumerStructure(Path consumer, Path candidate, Path repository)
+      throws Exception {
+    String settings = Files.readString(consumer.resolve("settings.gradle"));
+    String build = Files.readString(consumer.resolve("build.gradle"));
+    String properties = Files.readString(consumer.resolve("gradle.properties"));
+    if (!settings.contains("pluginManagement { repositories { } }")
+        || !build.contains(repository.toUri().toString())
+        || build.contains("mavenCentral")
+        || build.contains("mavenLocal")
+        || !properties.contains("org.gradle.java.installations.auto-download=false")) {
+      throw new IllegalStateException("consumer structural network-isolation contract is invalid");
+    }
+    String wrapper =
+        System.getProperty("os.name").toLowerCase().contains("win") ? "gradlew.bat" : "gradlew";
+    if (!Files.isRegularFile(candidate.resolve(wrapper)))
+      throw new IllegalStateException("consumer must use the candidate worktree wrapper");
   }
 
   private static Path publishedJar(Path repository, String coordinates) throws Exception {
@@ -250,15 +314,10 @@ public final class ReleaseVerifierMain {
     String javaVersion =
         System.getProperty("java.vendor") + " " + System.getProperty("java.version");
     String nodeVersion = output(source, "node", "--version").trim();
-    String reviewInputs =
-        digests(
-            source,
-            List.of(
-                "NOTICE",
-                "CHANGELOG.md",
-                "req/model-fixture-policy.md",
-                "req/release-checklist.md",
-                "upstream/upstream-lock.json"));
+    List<String> policyInputs =
+        stringArray(source.resolve("req/release-verification.json"), "policyInputs");
+    policyInputs.add("upstream/upstream-lock.json");
+    String reviewInputs = digests(source, policyInputs);
     String body =
         "# Release verification\n\nStatus: "
             + candidate
@@ -300,9 +359,29 @@ public final class ReleaseVerifierMain {
   }
 
   private static String contractCoordinates(Path contract) throws Exception {
-    Matcher match = COORDINATES.matcher(Files.readString(contract));
-    if (!match.find()) throw new IllegalStateException("release contract has no coordinates");
-    return match.group(1);
+    return match(contract, COORDINATES, "coordinates");
+  }
+
+  private static int contractInt(Path contract, Pattern pattern, String name) throws Exception {
+    return Integer.parseInt(match(contract, pattern, name));
+  }
+
+  private static String match(Path file, Pattern pattern, String name) throws Exception {
+    Matcher matcher = pattern.matcher(Files.readString(file));
+    if (!matcher.find()) throw new IllegalStateException("missing " + name + " in " + file);
+    return matcher.group(1);
+  }
+
+  static List<String> stringArray(Path file, String name) throws Exception {
+    Matcher array =
+        Pattern.compile(ARRAY.pattern().formatted(name), Pattern.DOTALL)
+            .matcher(Files.readString(file));
+    if (!array.find()) throw new IllegalStateException("missing " + name + " in " + file);
+    List<String> result = new ArrayList<>();
+    Matcher value = JSON_STRING.matcher(array.group(1));
+    while (value.find()) result.add(value.group(1));
+    if (result.isEmpty()) throw new IllegalStateException(name + " must not be empty");
+    return result;
   }
 
   private static void prepareReport(Path report, Path retainedEvidence) throws Exception {
