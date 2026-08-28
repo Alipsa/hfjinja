@@ -86,6 +86,8 @@ class CorpusDifferentialTest {
             + error.category()
             + ": "
             + error.getMessage());
+    if (record.expected().errorMessage() != null)
+      assertEquals(record.expected().errorMessage(), error.getMessage(), label + " error message");
   }
 
   private static TemplateOptions templateOptions(CorpusFixtures.Record record) {
@@ -109,7 +111,7 @@ class CorpusDifferentialTest {
             java.util.Map.of(),
             null,
             null,
-            new CorpusFixtures.Expected("y", null),
+            new CorpusFixtures.Expected("y", null, null),
             false,
             7);
     var textFailure = assertThrows(AssertionError.class, () -> render(text));
@@ -125,11 +127,27 @@ class CorpusDifferentialTest {
             java.util.Map.of(),
             null,
             null,
-            new CorpusFixtures.Expected(null, ErrorCategory.SYNTAX),
+            new CorpusFixtures.Expected(null, ErrorCategory.SYNTAX, null),
             false,
             8);
     var errorFailure = assertThrows(AssertionError.class, () -> render(successWhenErrorExpected));
     assertTrue(errorFailure.getMessage().contains("expected-error"));
+
+    var wrongErrorMessage =
+        new CorpusFixtures.Record(
+            "wrong-error-message",
+            "synthetic",
+            "{{ raise_exception('actual') }}",
+            java.util.Map.of(),
+            false,
+            java.util.Map.of(),
+            null,
+            null,
+            new CorpusFixtures.Expected(null, ErrorCategory.EXPLICIT_RAISE, "expected"),
+            false,
+            9);
+    var messageFailure = assertThrows(AssertionError.class, () -> render(wrongErrorMessage));
+    assertTrue(messageFailure.getMessage().contains("wrong-error-message"));
 
     var defaultTime =
         new CorpusFixtures.Record(
@@ -141,9 +159,9 @@ class CorpusDifferentialTest {
             java.util.Map.of(),
             null,
             null,
-            new CorpusFixtures.Expected("2000-01-02 03:04", null),
+            new CorpusFixtures.Expected("2000-01-02 03:04", null, null),
             false,
-            9);
+            10);
     assertThrows(
         AssertionError.class,
         () ->

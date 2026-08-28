@@ -56,6 +56,16 @@ for (const [index, record] of records.entries()) {
     if (!record.expected?.errorCategory) {
       fail(label, `unexpected upstream error: ${message}`);
     } else {
+      if (record.expected.errorMessage !== undefined) {
+        if (message !== record.expected.errorMessage) {
+          fail(label, `error message mismatch; expected=${JSON.stringify(record.expected.errorMessage)}, actual=${JSON.stringify(message)}`);
+        } else {
+          // Exact-message records intentionally cover messages that are not stable classifier
+          // patterns, such as the pinned converted-function source.
+          console.log(`PASS ${record.id} error=${record.expected.errorCategory} message=exact`);
+        }
+        continue;
+      }
       try {
         const constructorName = error !== null && typeof error === 'object'
           ? error.constructor?.name

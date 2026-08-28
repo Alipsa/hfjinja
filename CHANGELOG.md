@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Permit differential-corpus error records to pin exact upstream diagnostic messages in addition
+  to their stable error categories.
 - Add isolated clean-checkout release verification, publication metadata checks, and release-only
   reproducible archive evidence.
 

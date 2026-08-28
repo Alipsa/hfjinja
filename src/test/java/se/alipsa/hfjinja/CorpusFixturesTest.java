@@ -26,6 +26,17 @@ class CorpusFixturesTest {
   }
 
   @Test
+  void parsesExactErrorMessageExpectations() {
+    var record =
+        CorpusFixtures.readContent(
+                "{\"id\":\"exact-error\",\"source\":\"test\",\"template\":\"x\",\"context\":{},\"expected\":{\"errorCategory\":\"EXPLICIT_RAISE\",\"errorMessage\":\"x\"}}",
+                "synthetic.jsonl")
+            .getFirst();
+    assertEquals(ErrorCategory.EXPLICIT_RAISE, record.expected().errorCategory());
+    assertEquals("x", record.expected().errorMessage());
+  }
+
+  @Test
   void rejectsMalformedSchemaAndUnsupportedGlobalsWithPhysicalLine() {
     var malformed =
         assertThrows(

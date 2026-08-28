@@ -191,8 +191,8 @@ public sealed interface Value
                 return convertToRuntimeValues(result);
               }""";
 
-    // TODO: Close the remaining callable-rendering parity work tracked by WP7 in
-    // req/implementation-plan.md (namespace, member builtins, macros, and call blocks).
+    // TODO: Close the remaining callable-rendering parity work in "WP7 — pinned-upstream parity
+    // closure" of req/implementation-plan.md (namespace, member builtins, macros, and call blocks).
     /**
      * Explicit marker for Java-created callable forms whose exact upstream function source has not
      * yet been ported (namespace, member builtins, macros, and call blocks).
