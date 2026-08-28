@@ -1118,14 +1118,23 @@ public final class Interpreter {
 
   private static ExecResult evaluateIf(Statement.If n, Environment e, RenderBudget b) {
     return evaluateBlock(
-        truthy(evaluateExpression(n.test(), e, b)) ? n.body() : n.alternate(), e, b);
+        truthy(evaluateExpression(n.test(), e, b), n.test().location()) ? n.body() : n.alternate(),
+        e,
+        b);
   }
 
   static boolean truthy(Value v) {
+    return truthy(v, null);
+  }
+
+  private static boolean truthy(Value v, SourceLocation location) {
     return switch (v) {
       case Value.NullValue ignored -> false;
       case Value.UndefinedValue ignored -> false;
-      case Value.DeferredUndefinedValue ignored -> false;
+      case Value.DeferredUndefinedValue ignored -> {
+        if (location == null) yield false;
+        throw filterType("Cannot read properties of undefined (reading '__bool__')", location);
+      }
       case Value.BooleanValue x -> x.value();
       case Value.IntegerValue x -> x.value() != 0 && !Double.isNaN(x.value());
       case Value.FloatValue x -> x.value() != 0 && !Double.isNaN(x.value());

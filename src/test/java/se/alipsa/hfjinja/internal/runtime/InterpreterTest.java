@@ -238,6 +238,12 @@ class InterpreterTest {
                     + "{{ 'abc'[5] is defined }}")
             .render(Map.of()));
     assertEquals("a-b-c", Template.parse("{{ 'abc' | join('-') }}").render(Map.of()));
+    var emptyFirst =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% if [] | first %}x{% endif %}").render(Map.of()));
+    assertEquals(
+        "Cannot read properties of undefined (reading '__bool__')", emptyFirst.getMessage());
     assertEquals("null", Template.parse("{{ (1.0 / 0.0) | tojson }}").render(Map.of()));
     assertEquals(
         "1|1.0|1|-2|Infinity|Infinity",
