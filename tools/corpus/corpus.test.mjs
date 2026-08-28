@@ -71,7 +71,7 @@ test('fails loudly for an unmatched upstream error', async () => {
   const lock = JSON.parse(await readFile('upstream/upstream-lock.json', 'utf8'));
   const classify = await errorClassifier('tools/corpus/error-patterns-0.5.9.json', `${lock.package}@${lock.version}`);
   assert.equal(classify('Unknown variable: absent'), 'UNDEFINED_OR_ACCESS');
-  for (const type of ['ArrayValue', 'StringValue', 'NumericValue', 'ObjectValue', 'BooleanValue']) {
+  for (const type of ['ArrayValue', 'StringValue', 'NumericValue', 'ObjectValue', 'BooleanValue', 'FunctionValue']) {
     assert.equal(classify(`Unknown ${type} filter: frob`), 'TYPE');
   }
   assert.equal(classify('Cannot apply filter "abs" to type: FloatValue'), 'TYPE');
@@ -85,9 +85,27 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify('maxsplit argument must be a number'), 'TYPE');
   assert.equal(classify('replace() arguments must be strings'), 'TYPE');
   assert.equal(classify('replace() requires at least two arguments'), 'TYPE');
+  assert.equal(classify('Missing positional argument: a'), 'ARITY');
   assert.equal(classify('Object key must be a string: got KeywordArgumentsValue'), 'TYPE');
   assert.equal(classify('Positional arguments must come before keyword arguments'), 'SYNTAX');
-  assert.throws(() => classify('Unknown FunctionValue filter: frob'), /Unmatched upstream error/);
+  assert.equal(classify('', 'BreakControl'), 'SYNTAX');
+  assert.equal(classify('', 'ContinueControl'), 'SYNTAX');
+  assert.throws(() => classify('', 'Error'), /Unmatched upstream error/);
+  assert.equal(classify("Cannot read properties of undefined (reading 'toLowerCase')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'toString')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'type')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'value')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading '__bool__')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'builtins')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'includes')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'at')"), 'TYPE');
+  assert.equal(classify("Cannot read properties of undefined (reading 'length')"), 'TYPE');
+  assert.equal(classify('undefined is not iterable'), 'TYPE');
+  assert.equal(
+    classify('undefined is not iterable (cannot read property Symbol(Symbol.iterator))'),
+    'TYPE',
+  );
+  assert.equal(classify('format2.replace is not a function'), 'TYPE');
   assert.throws(() => classify('Cannot apply filter abs to type: FloatValue'), /Unmatched upstream error/);
   assert.throws(() => classify('selectattr can only be applied to array of objects'), /Unmatched upstream error/);
   assert.throws(() => classify('`map` expressions without attribute set are not currently supported.'), /Unmatched upstream error/);

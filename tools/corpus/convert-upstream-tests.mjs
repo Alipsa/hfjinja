@@ -5,34 +5,80 @@ import vm from 'node:vm';
 import { readCorpus, validateCorpus, validateRecord } from './corpus.mjs';
 
 const sourcePath = 'upstream/vendor/test/templates.test.js';
+const interpreterSourcePath = 'upstream/vendor/test/interpreter.test.js';
 const corpusPath = 'src/test/resources/corpus/v1.jsonl';
 const lockPath = 'upstream/upstream-lock.json';
-const selected = new Map([
-  ['NO_TEMPLATE', 'templates.no-template'],
-  ['FOR_LOOP', 'templates.for-loop'],
-  ['FILTER_OPERATOR_2', 'templates.filter-operator-2'],
+const sourceInventoryPath = 'upstream/corpus-source-inventory.json';
+const runtimeSourcePath = 'upstream/vendor/src/runtime.ts';
+const errorPatternsPath = 'tools/corpus/error-patterns-0.5.9.json';
+// These upstream fixtures inject JavaScript functions through the render context. The public
+// differential-corpus schema intentionally does not serialize functions: its `globals` field is
+// reserved until the pinned Template API can inject non-built-in globals. Keep the exclusions
+// named here, rather than silently dropping them, so the coverage report remains reviewable.
+const unsupportedContextFixtures = new Map([
+  ['NUMBERS', 'context supplies the add JavaScript function'],
+  ['FUNCTIONS', 'context supplies JavaScript functions'],
+  ['OBJ_METHODS', 'context supplies JavaScript methods'],
+  ['IS_OPERATOR_4', 'context supplies the custom testFunction JavaScript function'],
 ]);
 const options = new Set(process.argv.slice(2));
-if (![...options].every((option) => option === '--check' || option.startsWith('--report='))) {
-  throw new Error('Usage: convert-upstream-tests.mjs --check [--report=<path>]');
+if (![...options].every((option) => option === '--check' || option === '--write' || option.startsWith('--report='))) {
+  throw new Error('Usage: convert-upstream-tests.mjs --check [--write] [--report=<path>]');
 }
-if (!options.has('--check')) throw new Error('Usage: convert-upstream-tests.mjs --check [--report=<path>]');
+if (!options.has('--check') && !options.has('--write')) {
+  throw new Error('Usage: convert-upstream-tests.mjs --check [--write] [--report=<path>]');
+}
 
 const source = await readFile(sourcePath, 'utf8');
 const capture = extractConstants(source);
 const upstreamFixtureCount = Object.keys(capture.templates).length;
+const functionContextFixtures = new Set(
+  Object.entries(capture.contexts)
+    .filter(([, context]) => containsFunction(context))
+    .map(([name]) => name),
+);
+const declaredExclusions = new Set(unsupportedContextFixtures.keys());
+if (!sameSet(functionContextFixtures, declaredExclusions)) {
+  throw new Error(
+    `Function-context exclusions differ from upstream: expected ${[...functionContextFixtures].join(', ') || '(none)'}, `
+      + `declared ${[...declaredExclusions].join(', ') || '(none)'}`,
+  );
+}
 const templateStringsEnd = source.indexOf('\nconst TEST_PARSED', source.indexOf('const TEST_STRINGS = {'));
 if (templateStringsEnd < 0) throw new Error(`Could not locate TEST_STRINGS boundary in ${sourcePath}`);
-const generated = [...selected].map(([upstreamName, id]) => ({
-  id,
-  source: `${sourcePath}:${propertyLine(source, upstreamName, templateStringsEnd)}`,
-  template: capture.templates[upstreamName],
-  context: capture.contexts[upstreamName],
-  expected: {text: capture.outputs[upstreamName]},
-}));
+const generated = Object.keys(capture.templates)
+  .filter((name) => !unsupportedContextFixtures.has(name))
+  .map((upstreamName) => ({
+    id: `templates.${fixtureId(upstreamName)}`,
+    source: `${sourcePath}:${propertyLine(source, upstreamName, templateStringsEnd)}`,
+    template: capture.templates[upstreamName],
+    context: capture.contexts[upstreamName],
+    expected: {text: capture.outputs[upstreamName]},
+  }));
+const interpreterSource = await readFile(interpreterSourcePath, 'utf8');
+const interpreterGenerated = extractWhitespaceCases(interpreterSource).map(
+  (test, index) => ({
+    id: `interpreter.whitespace-control-${index + 1}`,
+    source: `${interpreterSourcePath}:${whitespaceCaseLine(interpreterSource, index)}`,
+    template: test.template,
+    templateOptions: {
+      ...(test.options.trim_blocks === undefined ? {} : {trimBlocks: test.options.trim_blocks}),
+      ...(test.options.lstrip_blocks === undefined ? {} : {lstripBlocks: test.options.lstrip_blocks}),
+    },
+    context: test.data,
+    expected: {text: test.target},
+  }),
+);
+generated.push(...interpreterGenerated);
 for (const record of generated) validateRecord(record, record.id);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
+
+if (options.has('--write')) {
+  const retained = records.filter(
+    (record) => !record.id.startsWith('templates.') && !record.id.startsWith('interpreter.'));
+  await writeFile(corpusPath, [...generated, ...retained].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+}
 
 if (options.has('--check')) {
   const actual = new Map(records.map((record) => [record.id, record]));
@@ -43,7 +89,8 @@ if (options.has('--check')) {
     }
   }
   const generatedIds = new Set(generated.map((record) => record.id));
-  const staleIds = [...actual.keys()].filter((id) => id.startsWith('templates.') && !generatedIds.has(id));
+  const staleIds = [...actual.keys()].filter(
+    (id) => (id.startsWith('templates.') || id.startsWith('interpreter.')) && !generatedIds.has(id));
   if (staleIds.length) throw new Error(`${corpusPath}: stale extracted fixtures: ${staleIds.join(', ')}`);
 }
 
@@ -67,11 +114,39 @@ function extractConstants(source) {
   return {templates: capture.TEST_STRINGS, contexts: capture.TEST_CONTEXT, outputs: capture.EXPECTED_OUTPUTS};
 }
 
+function extractWhitespaceCases(source) {
+  const executable = source
+    .replace(/^(?:import[\s\S]*?;\s*)+/, '')
+    .replace(
+      'for (const test of TESTS) {',
+      'globalThis.captureWhitespace = TESTS; return; for (const test of TESTS) {',
+    );
+  const context = {describe: (_, callback) => callback(), it: (_, callback) => callback()};
+  try {
+    vm.runInNewContext(executable, context, {filename: interpreterSourcePath});
+  } catch (error) {
+    throw new Error(`Could not extract whitespace fixtures from ${interpreterSourcePath}: ${error.message}`);
+  }
+  if (!Array.isArray(context.captureWhitespace)) {
+    throw new Error(`Could not extract whitespace fixtures from ${interpreterSourcePath}`);
+  }
+  return context.captureWhitespace;
+}
+
 function propertyLine(source, name, end) {
   const templateStrings = source.slice(0, end);
   const match = new RegExp(`^[^\\S\\r\\n]*${name}:`, 'm').exec(templateStrings);
   if (!match) throw new Error(`Could not locate ${name} in ${sourcePath}`);
   return source.slice(0, match.index).split('\n').length;
+}
+
+function whitespaceCaseLine(source, index) {
+  const testsStart = source.indexOf('const TESTS = [');
+  if (testsStart < 0) throw new Error(`Could not locate TESTS in ${interpreterSourcePath}`);
+  const cases = [...source.slice(testsStart).matchAll(/^\s*\{\s*$/gm)];
+  const match = cases[index];
+  if (!match) throw new Error(`Could not locate whitespace case ${index + 1} in ${interpreterSourcePath}`);
+  return source.slice(0, testsStart + match.index).split('\n').length;
 }
 
 function sameFixture(actual, generated) {
@@ -90,26 +165,159 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+function fixtureId(name) {
+  return name.toLowerCase().replaceAll('_', '-');
+}
+
+function containsFunction(value) {
+  if (typeof value === 'function') return true;
+  if (Array.isArray(value)) return value.some(containsFunction);
+  return value !== null && typeof value === 'object' && Object.values(value).some(containsFunction);
+}
+
+function sameSet(left, right) {
+  return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
 async function writeCoverage(path, generated, upstreamFixtureCount, committedRecords) {
   const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+  const inventory = JSON.parse(await readFile(sourceInventoryPath, 'utf8'));
   const committedTemplateRecords = committedRecords.filter((record) => typeof record.template === 'string').length;
   const testFiles = await testSources('upstream/vendor/test');
   const excludedTestFiles = Object.keys(lock.excludedFiles ?? {})
     .filter((file) => file.startsWith('test/') && file.endsWith('.test.js'));
+  validateSourceInventory(inventory, testFiles, excludedTestFiles);
+  const runtimeCoverage = runtimeSurfaceCoverage(await readFile(runtimeSourcePath, 'utf8'), committedRecords);
+  const errorCoverage = errorFamilyCoverage(
+    JSON.parse(await readFile(errorPatternsPath, 'utf8')),
+    committedRecords,
+  );
   const lines = [
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
     `Vendored template fixture definitions: ${upstreamFixtureCount}`,
-    `Automatically extracted fixture definitions: ${generated.length}`,
+    `Automatically extracted fixture definitions: ${generated.length} (${interpreterGenerated.length} interpreter whitespace vectors)`,
+    `Schema-excluded fixture definitions: ${unsupportedContextFixtures.size}`,
     `Committed template-bearing corpus records: ${committedTemplateRecords} (executed by both the pinned Node oracle and Java differential runner)`,
     `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',
     '## Extracted fixtures', '', '| Corpus id | Upstream source |', '| --- | --- |',
     ...generated.map((record) => `| \`${record.id}\` | \`${record.source}\` |`), '',
-    'The remaining vendored unit cases require supported structural extraction or a reviewed manual transcription; committed-record execution does not complete that inventory.', '',
+    '## Schema exclusions', '', '| Upstream fixture | Reason |', '| --- | --- |',
+    ...[...unsupportedContextFixtures].map(([name, reason]) => `| \`${name}\` | ${reason} |`), '',
+    '## Source inventory', '', '| Upstream source | Coverage | Evidence |', '| --- | --- | --- |',
+    ...Object.entries(inventory.sources).map(([source, entry]) => `| \`${source}\` | ${entry.coverage} | ${entry.evidence ?? entry.reason} |`), '',
+    'Every vendored unit source and every policy-excluded test source is represented above.', '',
   ];
+  lines.splice(
+    lines.length - 1,
+    0,
+    '## Runtime surface inventory', '',
+    '| Surface | Name | Differential-corpus evidence |', '| --- | --- | --- |',
+    ...runtimeCoverage.flatMap(([surface, entries]) => entries.map(([name, evidence]) =>
+      '| ' + surface + ' | ' + name + ' | ' + evidence.join(', ') + ' |')),
+    '',
+    '## Error-family inventory', '', '| Category | Differential-corpus evidence |', '| --- | --- |',
+    ...errorCoverage.map(([category, evidence]) => '| ' + category + ' | ' + evidence + ' |'), '',
+  );
   const reportPath = resolve(path);
   await mkdir(dirname(reportPath), {recursive: true});
   await writeFile(reportPath, lines.join('\n'), 'utf8');
+}
+
+function errorFamilyCoverage(patterns, records) {
+  const excluded = new Map([
+    ['UNDEFINED_OR_ACCESS', 'Excluded: unknown variables and missing members render as undefined in the pinned public Template API.'],
+  ]);
+  const categories = [...new Set(patterns.patterns.map((pattern) => pattern.category))].sort();
+  return categories.map((category) => {
+    const evidence = records.filter((record) => record.expected.errorCategory === category).map((record) => record.id);
+    if (evidence.length === 0 && !excluded.has(category)) {
+      throw new Error('Pinned error family lacks differential-corpus coverage: ' + category);
+    }
+    return [category, evidence.length === 0 ? excluded.get(category) : evidence.join(', ')];
+  });
+}
+
+function validateSourceInventory(inventory, testFiles, excludedTestFiles) {
+  if (inventory?.version !== 1 || inventory.sources === null || typeof inventory.sources !== 'object') {
+    throw new Error(`Invalid corpus source inventory: ${sourceInventoryPath}`);
+  }
+  const expected = new Set([...testFiles.map((file) => `test/${file}`), ...excludedTestFiles]);
+  const actual = new Set(Object.keys(inventory.sources));
+  if (!sameSet(expected, actual)) {
+    throw new Error(
+      `Corpus source inventory differs from vendored tests: expected ${[...expected].sort().join(', ')}, `
+        + `actual ${[...actual].sort().join(', ')}`,
+    );
+  }
+  for (const [source, entry] of Object.entries(inventory.sources)) {
+    if (!['differential-corpus', 'format-golden', 'direct-unit', 'policy-excluded'].includes(entry?.coverage)
+        || typeof entry.reason !== 'string' || entry.reason.length === 0) {
+      throw new Error(`Invalid corpus source inventory entry: ${source}`);
+    }
+  }
+}
+
+function runtimeSurfaceCoverage(runtimeSource, records) {
+  const between = (start, end) => {
+    const from = runtimeSource.indexOf(start);
+    const to = runtimeSource.indexOf(end, from);
+    if (from < 0 || to < 0) throw new Error('Could not extract pinned runtime surface');
+    return runtimeSource.slice(from, to);
+  };
+  const mapEntries = (source) => [...source.matchAll(/\[\s*"([^"]+)"\s*,/g)].map((match) => match[1]);
+  const cases = (source) => [...source.matchAll(/case "([^"]+)"/g)].map((match) => match[1]);
+  const unique = (names) => [...new Set(names)].sort();
+  const tests = unique(mapEntries(between('private static readonly TESTS', 'tests: ReadonlyMap')));
+  const globals = unique([...between('export function setupGlobals', '/**\n * Helper function').matchAll(/env\.set\("([^"]+)"/g)]
+    .map((match) => match[1]));
+  const stringMembers = unique(mapEntries(between('export class StringValue', 'export class BooleanValue')));
+  const objectMembers = unique(
+    mapEntries(between('export class ObjectValue', '\n\titems():')).filter((name) => name !== 'key'),
+  );
+  const arrayMembers = unique(mapEntries(between('export class ArrayValue', 'export class TupleValue')));
+  const filtersSource = between('private applyFilter', 'private evaluateFilterExpression');
+  const filters = unique([
+    ...cases(filtersSource),
+    ...[...filtersSource.matchAll(/filter(?:Name|\.value) === "([^"]+)"/g)].map((match) => match[1]),
+    ...objectMembers,
+  ]);
+  const surfaces = [
+    ['filter', filters], ['test', tests], ['string member', stringMembers],
+    ['object member', objectMembers], ['array member', arrayMembers], ['global', globals],
+  ];
+  return surfaces.map(([surface, names]) => [surface, names.map((name) => {
+      const usage = runtimeUsage(surface, name);
+      const evidence = records.filter((record) => typeof record.template === 'string' && usage.test(record.template))
+        .map((record) => record.id);
+      if (evidence.length === 0) {
+        throw new Error('Pinned runtime ' + surface + ' lacks differential-corpus coverage: ' + name);
+      }
+      return [name, evidence];
+    })]);
+}
+
+function runtimeUsage(surface, name) {
+  const escaped = escapeRegex(name);
+  const terminator = '(?=\\s|\\(|\\}|\\||\\)|,|\\]|$)';
+  switch (surface) {
+    case 'filter':
+      return new RegExp(`(?:\\|\\s*${escaped}${terminator}|\\bfilter\\s+${escaped}${terminator})`);
+    case 'test':
+      return new RegExp(`\\bis\\s+(?:not\\s+)?${escaped}${terminator}`);
+    case 'string member':
+    case 'object member':
+    case 'array member':
+      return new RegExp(`(?:\\.${escaped}(?=\\s*\\(|\\s|\\}|\\||\\)|,|\\]|$)|\\|\\s*${escaped}${terminator})`);
+    case 'global':
+      return new RegExp(`\\b${escaped}(?=\\s*\\(|\\s|\\}|\\||\\)|,|\\]|$)`);
+    default:
+      throw new Error(`Unknown runtime surface: ${surface}`);
+  }
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&');
 }
 
 async function testSources(directory, relative = '', seen = new Set()) {

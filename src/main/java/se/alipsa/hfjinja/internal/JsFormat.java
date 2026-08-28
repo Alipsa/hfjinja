@@ -96,6 +96,9 @@ public final class JsFormat {
     return switch (value) {
       case Value.NullValue ignored -> "null";
       case Value.UndefinedValue ignored -> convertUndefinedToNull ? "null" : "undefined";
+      case Value.DeferredUndefinedValue ignored ->
+          throw new TemplateRenderException(
+              "Cannot read properties of undefined (reading 'type')", ErrorCategory.TYPE, location);
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.IntegerValue x -> jsonString(x.value());
       case Value.FloatValue x -> jsonString(x.value());

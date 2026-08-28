@@ -9,11 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a dependency-free local `tokenizer_config.json` consumer example that parses and renders a
+  chat template with the published JPMS module.
 - Run every checked-in template-bearing differential-corpus record against hfjinja's public Java
   API as well as the pinned Node oracle.
+- Extract all serializable upstream `templates.test.js` rendering fixtures into the differential
+  corpus, with the four JavaScript-function-context cases explicitly reported as schema
+  exclusions.
+- Represent parse-time whitespace options in corpus records and extract the upstream interpreter
+  whitespace-control vectors through both runtimes.
+- Require an explicit coverage or policy decision for every vendored upstream test source.
+- Add pinned-oracle vectors for runtime filters and object members, including `reverse`, `bool`,
+  `abs`, `keys`, `values`, and `dictsort`.
 
 ### Fixed
 
+- Align `namespace(...)` values with the pinned runtime's object members, filters, containment,
+  deferred builtin fallback, and public render-error contract.
+- Preserve stable identity for bound string, object, and namespace member builtins.
+- Match pinned JavaScript coercion and TypeError behavior for undefined-backed string filters,
+  members, and operators.
+- Preserve the pinned runtime's deferred undefined behavior for empty `first`/`last`, including
+  container reads, boolean and member dereferences, and filter/macro default arguments;
+  also align case-sensitive sorting and undefined-backed string tests.
+- Classify the pinned runtime's `Unknown FunctionValue filter` diagnostics as `TYPE` in the
+  differential oracle.
+- Classify the pinned runtime's undefined `value` access diagnostic as `TYPE`, covering the
+  `equalto` and `eq` test aliases when invoked without their required comparison value.
+- Compare raw upstream macro/call-block `break` and `continue` diagnostics by their documented
+  `SYNTAX` category.
+- Match upstream `TYPE` failures for empty `first`/`last` and undefined-backed `dictsort` and
+  `is lower` inputs.
 - Report `SourceLocation`s in terms of the caller's original template string: preprocessing
   removals (`trim_blocks`, `lstrip_blocks`, the trailing newline strip, and `{% generation %}`
   tag stripping) no longer shift the locations of later diagnostics, mapping stays linear for

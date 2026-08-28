@@ -16,6 +16,7 @@ import se.alipsa.hfjinja.internal.runtime.Environment;
 @SuppressWarnings("doclint:missing")
 public sealed interface Value
     permits Value.UndefinedValue,
+        Value.DeferredUndefinedValue,
         Value.NullValue,
         Value.BooleanValue,
         Value.IntegerValue,
@@ -26,7 +27,17 @@ public sealed interface Value
         Value.ObjectValue,
         Value.KeywordArgumentsValue,
         Value.CallableValue {
+  /** Materializes a deferred sequence-filter result when it becomes part of another value. */
+  static Value materialize(Value value) {
+    return value instanceof DeferredUndefinedValue ? UndefinedValue.INSTANCE : value;
+  }
+
   enum UndefinedValue implements Value {
+    INSTANCE
+  }
+
+  /** Undefined returned by a sequence filter and dereferenced only by a subsequent operation. */
+  enum DeferredUndefinedValue implements Value {
     INSTANCE
   }
 
@@ -41,14 +52,50 @@ public sealed interface Value
   record FloatValue(double value) implements Value {}
 
   /** A string value, optionally backed by JavaScript {@code undefined}. */
-  record StringValue(String value, boolean undefinedBacked) implements Value {
+  final class StringValue implements Value {
+    private final String value;
+    private final boolean undefinedBacked;
+    // Values are rebuilt from host data for each render, so this render-local cache is not shared
+    // across concurrent renders. Keep it lazy: most string values never access a member builtin.
+    private Map<String, CallableValue> builtins;
+
+    public StringValue(String value, boolean undefinedBacked) {
+      this.value = Objects.requireNonNull(value, "value");
+      this.undefinedBacked = undefinedBacked;
+    }
+
     public StringValue(String value) {
       this(value, false);
+    }
+
+    public String value() {
+      return value;
+    }
+
+    public boolean undefinedBacked() {
+      return undefinedBacked;
+    }
+
+    public Map<String, CallableValue> builtins() {
+      if (builtins == null) builtins = new LinkedHashMap<>();
+      return builtins;
     }
 
     /** Returns the string-shaped value produced by out-of-range string indexing. */
     public static StringValue undefined() {
       return new StringValue("undefined", true);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+      return object instanceof StringValue other
+          && undefinedBacked == other.undefinedBacked
+          && value.equals(other.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(value, undefinedBacked);
     }
   }
 
@@ -69,7 +116,8 @@ public sealed interface Value
   /** Mutable by design for template member assignment; never use as a hash-based key. */
   final class ObjectValue implements Value {
     private final Map<Object, Value> values;
-    private CallableValue itemsBuiltin;
+    // Values are rebuilt from host data for each render, so this cache is never shared by renders.
+    private Map<String, CallableValue> builtins;
 
     public ObjectValue(Map<?, Value> values) {
       this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
@@ -79,12 +127,9 @@ public sealed interface Value
       return values;
     }
 
-    public CallableValue itemsBuiltin() {
-      return itemsBuiltin;
-    }
-
-    public void setItemsBuiltin(CallableValue itemsBuiltin) {
-      this.itemsBuiltin = itemsBuiltin;
+    public Map<String, CallableValue> builtins() {
+      if (builtins == null) builtins = new LinkedHashMap<>();
+      return builtins;
     }
 
     @Override
@@ -104,9 +149,22 @@ public sealed interface Value
   }
 
   /** Object-like call keyword arguments, distinct because they are not JSON-renderable upstream. */
-  record KeywordArgumentsValue(Map<String, Value> values) implements Value {
-    public KeywordArgumentsValue {
-      values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
+  final class KeywordArgumentsValue implements Value {
+    private final Map<String, Value> values;
+    // Values are rebuilt from host data for each render, so this cache is never shared by renders.
+    private Map<String, CallableValue> builtins;
+
+    public KeywordArgumentsValue(Map<String, Value> values) {
+      this.values = new LinkedHashMap<>(Objects.requireNonNull(values, "values"));
+    }
+
+    public Map<String, Value> values() {
+      return values;
+    }
+
+    public Map<String, CallableValue> builtins() {
+      if (builtins == null) builtins = new LinkedHashMap<>();
+      return builtins;
     }
   }
 

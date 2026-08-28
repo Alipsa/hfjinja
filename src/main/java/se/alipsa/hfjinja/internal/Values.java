@@ -3,6 +3,7 @@ package se.alipsa.hfjinja.internal;
 import static se.alipsa.hfjinja.internal.Value.ArrayValue;
 import static se.alipsa.hfjinja.internal.Value.BooleanValue;
 import static se.alipsa.hfjinja.internal.Value.CallableValue;
+import static se.alipsa.hfjinja.internal.Value.DeferredUndefinedValue;
 import static se.alipsa.hfjinja.internal.Value.FloatValue;
 import static se.alipsa.hfjinja.internal.Value.IntegerValue;
 import static se.alipsa.hfjinja.internal.Value.KeywordArgumentsValue;
@@ -77,6 +78,8 @@ public final class Values {
       IdentityHashMap<Value, Boolean> visiting) {
     return switch (value) {
       case UndefinedValue ignored ->
+          throw new UndefinedHostValueException("undefined value at " + path.describe());
+      case DeferredUndefinedValue ignored ->
           throw new UndefinedHostValueException("undefined value at " + path.describe());
       case NullValue ignored -> null;
       case BooleanValue booleanValue -> booleanValue.value();

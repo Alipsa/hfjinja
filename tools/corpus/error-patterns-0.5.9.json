@@ -47,7 +47,11 @@
       "category": "TYPE"
     },
     {
-      "regex": "^Unknown (?<type>ArrayValue|StringValue|NumericValue|ObjectValue|BooleanValue) filter: (?<name>.+)$",
+      "regex": "^Missing positional argument: (?<name>.+)$",
+      "category": "ARITY"
+    },
+    {
+      "regex": "^Unknown (?<type>ArrayValue|StringValue|NumericValue|ObjectValue|BooleanValue|FunctionValue) filter: (?<name>.+)$",
       "category": "TYPE"
     },
     {
@@ -97,6 +101,24 @@
     {
       "regex": "^Positional arguments must come before keyword arguments$",
       "category": "SYNTAX"
+    },
+    {
+      "regex": "^$",
+      "category": "SYNTAX",
+      "constructors": ["BreakControl", "ContinueControl"],
+      "comment": "Raw BreakControl/ContinueControl escaping an upstream macro or call block outside a loop"
+    },
+    {
+      "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|toUpperCase|toString|type|value|__bool__|builtins|includes|at|length)'\\)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^undefined is not iterable(?: \\(cannot read property Symbol\\(Symbol\\.iterator\\)\\))?$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^(?:format2\\.replace is not a function|Cannot read properties of undefined \\(reading 'replace'\\))$",
+      "category": "TYPE"
     }
   ]
 }

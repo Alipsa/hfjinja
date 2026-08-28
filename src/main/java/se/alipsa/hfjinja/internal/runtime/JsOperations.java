@@ -73,6 +73,7 @@ final class JsOperations {
       case Value.BooleanValue x -> Boolean.toString(x.value());
       case Value.NullValue ignored -> "undefined";
       case Value.UndefinedValue ignored -> "undefined";
+      case Value.DeferredUndefinedValue ignored -> undefinedPayload(location);
       case Value.ArrayValue x -> arrayPayloadText(x.values(), location);
       case Value.TupleValue x -> arrayPayloadText(x.values(), location);
       case Value.ObjectValue ignored -> "[object Map]";
@@ -116,6 +117,9 @@ final class JsOperations {
     return switch (value) {
       case Value.NullValue ignored -> false;
       case Value.UndefinedValue ignored -> false;
+      case Value.DeferredUndefinedValue ignored ->
+          throw new TemplateRenderException(
+              "Cannot read properties of undefined (reading '__bool__')", ErrorCategory.TYPE, null);
       case Value.BooleanValue x -> x.value();
       case Value.IntegerValue x -> x.value() != 0 && !Double.isNaN(x.value());
       case Value.FloatValue x -> x.value() != 0 && !Double.isNaN(x.value());
@@ -186,7 +190,7 @@ final class JsOperations {
 
   private static String undefinedPayload(SourceLocation location) {
     throw new TemplateRenderException(
-        "Cannot stringify undefined value", ErrorCategory.UNDEFINED_OR_ACCESS, location);
+        "Cannot read properties of undefined (reading 'toString')", ErrorCategory.TYPE, location);
   }
 
   private static double stringNumber(String value) {

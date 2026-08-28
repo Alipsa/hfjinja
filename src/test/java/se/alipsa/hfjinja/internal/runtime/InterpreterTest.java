@@ -136,7 +136,12 @@ class InterpreterTest {
 
     // Upstream throws TypeError: undefined is not iterable (cannot read property
     // Symbol(Symbol.iterator)).
-    assertEquals("", Template.parse("{{ 'abc'[9][0:1] }}").render(Map.of()));
+    var undefinedSlice =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{{ 'abc'[9][0:1] }}").render(Map.of()));
+    assertEquals(ErrorCategory.TYPE, undefinedSlice.category());
+    assertEquals("undefined is not iterable", undefinedSlice.getMessage());
     var undefinedProperty =
         assertThrows(
             TemplateRenderException.class,
@@ -192,7 +197,9 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ 'abc'[5] ~ '' }}").render(Map.of()));
-    assertEquals(ErrorCategory.UNDEFINED_OR_ACCESS, directUndefined.category());
+    assertEquals(ErrorCategory.TYPE, directUndefined.category());
+    assertEquals(
+        "Cannot read properties of undefined (reading 'toString')", directUndefined.getMessage());
     var nestedTuple =
         assertThrows(
             TemplateRenderException.class,
@@ -232,12 +239,18 @@ class InterpreterTest {
                     + "{{ [1] is iterable }}{{ {'x': 1} is sequence }}{{ (1, 2) is iterable }}")
             .render(Map.of()));
     assertEquals(
-        "fallback|true|false",
+        "undefined|false|true",
         Template.parse(
                 "{{ 'abc'[5] | default('fallback') }}|{{ 'abc'[5] is undefined }}|"
                     + "{{ 'abc'[5] is defined }}")
             .render(Map.of()));
     assertEquals("a-b-c", Template.parse("{{ 'abc' | join('-') }}").render(Map.of()));
+    var emptyFirst =
+        assertThrows(
+            TemplateRenderException.class,
+            () -> Template.parse("{% if [] | first %}x{% endif %}").render(Map.of()));
+    assertEquals(
+        "Cannot read properties of undefined (reading '__bool__')", emptyFirst.getMessage());
     assertEquals("null", Template.parse("{{ (1.0 / 0.0) | tojson }}").render(Map.of()));
     assertEquals(
         "1|1.0|1|-2|Infinity|Infinity",
@@ -493,7 +506,7 @@ class InterpreterTest {
   }
 
   @Test
-  void strftimeNowRejectsMissingOrKeywordOnlyFormatWithArity() {
+  void strftimeNowRejectsMissingOrKeywordOnlyFormatWithType() {
     // {{ strftime_now() }}: no arguments at all, so `a.isEmpty()` is true and the
     // `a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue` guard in
     // Interpreter.strftime throws directly -- argument(a, 0) is never called for this case.
@@ -501,7 +514,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ strftime_now() }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, missingArgumentError.category());
+    assertEquals(ErrorCategory.TYPE, missingArgumentError.category());
     assertEquals("strftime_now() expected one string argument", missingArgumentError.getMessage());
 
     // {% call strftime_now() %}...{% endcall %}: evaluateCallStatement appends a
@@ -513,7 +526,7 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{% call strftime_now() %}{% endcall %}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, callBlockError.category());
+    assertEquals(ErrorCategory.TYPE, callBlockError.category());
     assertEquals("strftime_now() expected one string argument", callBlockError.getMessage());
 
     // strftime_now(fmt='%Y'): a keyword-only call expression. evaluateCallExpression's `call()`
@@ -524,24 +537,23 @@ class InterpreterTest {
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ strftime_now(fmt='%Y') }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, keywordOnlyError.category());
+    assertEquals(ErrorCategory.TYPE, keywordOnlyError.category());
     assertEquals("strftime_now() expected one string argument", keywordOnlyError.getMessage());
   }
 
   @Test
-  void strftimeNowArityGuardHasAcceptedFalsePositiveForNamespaceValues() {
+  void strftimeNowMissingFormatGuardNormalizesNamespaceValuesToType() {
     // `namespace` returns its keyword bag verbatim when given keywords (Environment.namespace),
     // so `strftime_now(namespace(a=1))` reaches Interpreter.strftime as `a=[KeywordArgumentsValue],
     // k=false` -- structurally identical to `{% call strftime_now() %}` even though a real
-    // positional argument was supplied. The ARITY guard cannot tell these apart (see the comment
-    // above Interpreter.strftime's guard) and resolves the ambiguity toward ARITY rather than
-    // TYPE. This test pins that accepted, documented false positive so a future refactor of the
-    // guard changes it deliberately rather than by accident.
+    // positional argument was supplied. The missing-format guard cannot tell these apart (see the
+    // comment above Interpreter.strftime's guard), and normalizes the ambiguity to TYPE to match
+    // upstream's TypeError family. This test pins that intentional category decision.
     var namespaceWithKeywordsError =
         assertThrows(
             TemplateRenderException.class,
             () -> Template.parse("{{ strftime_now(namespace(a=1)) }}").render(Map.of()));
-    assertEquals(ErrorCategory.ARITY, namespaceWithKeywordsError.category());
+    assertEquals(ErrorCategory.TYPE, namespaceWithKeywordsError.category());
     assertEquals(
         "strftime_now() expected one string argument", namespaceWithKeywordsError.getMessage());
 
@@ -605,10 +617,11 @@ class InterpreterTest {
   }
 
   // The message "strftime_now() format must be a string" is deliberately distinct from the
-  // ARITY message ("strftime_now() expected one string argument") asserted above: a
+  // missing-format message ("strftime_now() expected one string argument") asserted above: a
   // message-based assertion -- such as `getMessage()` and `raisedMessage(...)` here -- can only
-  // tell TYPE and ARITY failures apart if their texts differ, not merely their ErrorCategory.
-  // `none` and an undefined-backed value like `x.missing` both pass the ARITY guard (`a` is
+  // distinguish the two TYPE branches if their texts differ, not merely their ErrorCategory.
+  // `none` and an undefined-backed value like `x.missing` both pass the missing-format guard (`a`
+  // is
   // non-empty and `a.get(0)` is not a KeywordArgumentsValue) but then fail the
   // `instanceof Value.StringValue` check in Interpreter.strftime, so both land on the TYPE
   // branch below.
@@ -1200,9 +1213,9 @@ class InterpreterTest {
   }
 
   @Test
-  void macroBareBreak_isKnownDivergenceFromUpstream() {
-    // Upstream throws raw blank-message BreakControl here, which cannot enter v1.jsonl without a
-    // catch-all classifier. WP7 Slice 4 documents Java's stable SYNTAX safety contract instead.
+  void macroBareBreak_hasCorpusComparableSyntaxContract() {
+    // The pinned upstream exposes a raw blank-message BreakControl; the versioned classifier maps
+    // that diagnostic family to SYNTAX, which makes this Java contract corpus-comparable.
     var source = "{% macro f() %}{% break %}{% endmacro %}{{ f() }}";
     var error =
         assertThrows(TemplateRenderException.class, () -> Template.parse(source).render(Map.of()));
@@ -1295,7 +1308,7 @@ class InterpreterTest {
 
   @Test
   void callBlockBareBreak_isKnownDivergenceFromUpstream() {
-    // See macroBareBreak_isKnownDivergenceFromUpstream and WP7 Slice 4's raw-control note.
+    // See macroBareBreak_hasCorpusComparableSyntaxContract.
     var source =
         "{% macro f() %}[{{ caller() }}]{% endmacro %}" + "{% call f() %}{% break %}{% endcall %}";
     var error =
@@ -2211,17 +2224,22 @@ class InterpreterTest {
   }
 
   @Test
-  void documentsAcceptedUpstreamDivergences() {
-    // The pinned upstream produces raw TypeErrors for the undefined-key dictsort and undefined
-    // lower-test cases; these assertions pin hfjinja's deliberate contracts described in WP7.
+  void matchesUpstreamUndefinedBackedFailures() {
     assertAll(
-        () -> assertEquals("|", Template.parse("{{ []|first }}|{{ []|last }}").render(Map.of())),
         () ->
-            assertEquals(
-                "[[, 1], [\"z\", 2]]",
-                Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
-                    .render(Map.of())),
-        () -> assertEquals("false", Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())));
+            assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ []|first }}|{{ []|last }}").render(Map.of())),
+        () ->
+            assertThrows(
+                TemplateRenderException.class,
+                () ->
+                    Template.parse("{% set u = {('ab'[9]): 1, 'z': 2} %}{{ u.dictsort() }}")
+                        .render(Map.of())),
+        () ->
+            assertThrows(
+                TemplateRenderException.class,
+                () -> Template.parse("{{ 'ab'[9] is lower }}").render(Map.of())));
   }
 
   @Test

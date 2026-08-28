@@ -169,7 +169,7 @@ public final class Interpreter {
       case Expression.MemberExpression x -> member(x, env, budget);
       case Expression.CallExpression x -> call(x, env, budget);
       case Expression.SelectExpression x ->
-          truthy(evaluateExpression(x.test(), env, budget))
+          truthy(evaluateExpression(x.test(), env, budget), x.test().location())
               ? evaluateExpression(x.lhs(), env, budget)
               : Value.UndefinedValue.INSTANCE;
       case Expression.BinaryExpression x -> binary(x, env, budget);
@@ -202,7 +202,9 @@ public final class Interpreter {
 
   private static Value ternary(
       Expression.Ternary expression, Environment env, RenderBudget budget) {
-    return truthy(evaluateExpression(expression.condition(), env, budget))
+    return truthy(
+            evaluateExpression(expression.condition(), env, budget),
+            expression.condition().location())
         ? evaluateExpression(expression.trueExpr(), env, budget)
         : evaluateExpression(expression.falseExpr(), env, budget);
   }
@@ -217,11 +219,17 @@ public final class Interpreter {
     var left = evaluateExpression(expression.left(), env, budget);
     var operator = expression.operator().value();
     if (operator.equals("and"))
-      return truthy(left) ? evaluateExpression(expression.right(), env, budget) : left;
+      return truthy(left, expression.left().location())
+          ? evaluateExpression(expression.right(), env, budget)
+          : left;
     if (operator.equals("or"))
-      return truthy(left) ? left : evaluateExpression(expression.right(), env, budget);
+      return truthy(left, expression.left().location())
+          ? left
+          : evaluateExpression(expression.right(), env, budget);
 
     var right = evaluateExpression(expression.right(), env, budget);
+    deferredValue(left, "value", expression.location());
+    deferredValue(right, "value", expression.location());
     if (operator.equals("==") || operator.equals("!=")) {
       boolean equal = JsOperations.looseEquals(left, right);
       return new Value.BooleanValue(operator.equals("==") ? equal : !equal);
@@ -264,6 +272,9 @@ public final class Interpreter {
     }
     if (left instanceof Value.StringValue string && right instanceof Value.StringValue other) {
       if (operator.equals("in") || operator.equals("not in")) {
+        if (other.undefinedBacked())
+          throw filterType(
+              "Cannot read properties of undefined (reading 'includes')", expression.location());
         boolean present = JsOperations.contains(string, other);
         return new Value.BooleanValue(operator.equals("in") ? present : !present);
       }
@@ -271,6 +282,13 @@ public final class Interpreter {
     if (left instanceof Value.StringValue string && right instanceof Value.ObjectValue object) {
       if (operator.equals("in") || operator.equals("not in")) {
         boolean present = JsOperations.contains(string, object);
+        return new Value.BooleanValue(operator.equals("in") ? present : !present);
+      }
+    }
+    if (left instanceof Value.StringValue string
+        && right instanceof Value.KeywordArgumentsValue object) {
+      if (operator.equals("in") || operator.equals("not in")) {
+        boolean present = object.values().containsKey(string.value());
         return new Value.BooleanValue(operator.equals("in") ? present : !present);
       }
     }
@@ -290,6 +308,7 @@ public final class Interpreter {
   private static Value unary(
       Expression.UnaryExpression expression, Environment env, RenderBudget budget) {
     var argument = evaluateExpression(expression.argument(), env, budget);
+    deferredValue(argument, "value", expression.location());
     if (expression.operator().value().equals("not"))
       return new Value.BooleanValue(!JsOperations.rawTruthy(argument));
     throw operatorUnsupportedUnary(expression.operator().value(), argument, expression.location());
@@ -309,11 +328,14 @@ public final class Interpreter {
       Environment env,
       RenderBudget budget,
       SourceLocation location) {
-    if (filterNode instanceof Expression.Identifier identifier)
+    if (filterNode instanceof Expression.Identifier identifier) {
+      if (!absorbsDeferredOperand(identifier.value())) deferredValue(operand, location);
       return applyBareFilter(operand, identifier.value(), location, budget);
+    }
     if (!(filterNode instanceof Expression.CallExpression call)
         || !(call.callee() instanceof Expression.Identifier identifier))
       throw filterType("Unknown filter: " + filterNode.getClass().getSimpleName(), location);
+    if (!absorbsDeferredOperand(identifier.value())) deferredValue(operand, location);
     return applyCallFilter(operand, identifier.value(), call, env, budget, location);
   }
 
@@ -330,7 +352,11 @@ public final class Interpreter {
       case "upper" ->
           filterString(operand, filter, location, value -> value.toUpperCase(Locale.ROOT));
       case "trim" -> filterString(operand, filter, location, JsOperations::trimEcmaWhitespace);
-      case "join" -> filterJoin(operand, filter, location);
+      // Upstream's bare string join returns its operand without reading .value. The call form
+      // (including |join()) instead builds an array from .value, which matters for
+      // undefined-backed strings.
+      case "join" ->
+          operand instanceof Value.StringValue ? operand : filterJoin(operand, filter, location);
       case "list" -> filterList(operand, location);
       case "items" -> filterItems(operand, location);
       case "first" -> filterFirstLast(operand, filter, location, false);
@@ -352,6 +378,11 @@ public final class Interpreter {
       case "float" -> filterNumber(operand, filter, location, false);
       default -> throw unknownBareFilter(filter.name(), operand, location);
     };
+  }
+
+  /** Filters whose upstream implementation returns the operand before reading its properties. */
+  private static boolean absorbsDeferredOperand(String name) {
+    return name.equals("default") || name.equals("safe");
   }
 
   private static Value applyCallFilter(
@@ -409,6 +440,15 @@ public final class Interpreter {
         return filterObjectBuiltin(object, filterArguments(name, call, env, budget), location);
       throw unknownCallFilter(name, operand, location);
     }
+    if (operand instanceof Value.KeywordArgumentsValue object) {
+      if (name.equals("get")
+          || name.equals("items")
+          || name.equals("keys")
+          || name.equals("values")
+          || name.equals("dictsort"))
+        return filterObjectBuiltin(object, filterArguments(name, call, env, budget), location);
+      throw unknownCallFilter(name, operand, location);
+    }
     throw filterReceiver(name, operand, location);
   }
 
@@ -457,28 +497,40 @@ public final class Interpreter {
   private static Value test(
       Expression.TestExpression expression, Environment env, RenderBudget budget) {
     var operand = evaluateExpression(expression.operand(), env, budget);
-    boolean result = namedTest(expression.test().value(), operand, null, expression.location());
+    String name = expression.test().value();
+    if (testReadsDeferredValue(name)) deferredValue(operand, expression.location());
+    boolean result = namedTest(name, operand, null, expression.location());
     return new Value.BooleanValue(expression.negate() ? !result : result);
+  }
+
+  /** Tests implemented as {@code instanceof} checks do not read an upstream value property. */
+  private static boolean testReadsDeferredValue(String name) {
+    return switch (name) {
+      case "callable", "integer", "mapping", "number", "sequence" -> false;
+      default -> true;
+    };
   }
 
   private static Value filterToJson(
       Value operand, NamedArguments filter, SourceLocation location, RenderBudget budget) {
-    Value indent = filter.keywords().getOrDefault("indent", Value.NullValue.INSTANCE);
+    Value indent = absentFilterArgument(filter.keywords().get("indent"), Value.NullValue.INSTANCE);
     if (!(indent instanceof Value.NullValue || indent instanceof Value.IntegerValue))
       throw new TemplateRenderException(
           "If set, indent must be a number", ErrorCategory.TYPE, location);
     Double indentValue = indent instanceof Value.IntegerValue number ? number.value() : null;
 
     Value ensureAscii =
-        filter.keywords().getOrDefault("ensure_ascii", new Value.BooleanValue(false));
+        absentFilterArgument(filter.keywords().get("ensure_ascii"), new Value.BooleanValue(false));
     if (!(ensureAscii instanceof Value.BooleanValue ensureAsciiValue))
       throw new TemplateRenderException(
           "If set, ensure_ascii must be a boolean", ErrorCategory.TYPE, location);
-    Value sortKeys = filter.keywords().getOrDefault("sort_keys", new Value.BooleanValue(false));
+    Value sortKeys =
+        absentFilterArgument(filter.keywords().get("sort_keys"), new Value.BooleanValue(false));
     if (!(sortKeys instanceof Value.BooleanValue sortKeysValue))
       throw new TemplateRenderException(
           "If set, sort_keys must be a boolean", ErrorCategory.TYPE, location);
-    Value separators = filter.keywords().getOrDefault("separators", Value.NullValue.INSTANCE);
+    Value separators =
+        absentFilterArgument(filter.keywords().get("separators"), Value.NullValue.INSTANCE);
     JsFormat.JsonSeparators separatorValues = null;
     if (separators instanceof Value.ArrayValue array)
       separatorValues = jsonSeparators(array.values(), location);
@@ -515,15 +567,20 @@ public final class Interpreter {
   private static Value filterDefault(
       Value operand, NamedArguments filter, SourceLocation location) {
     var fallback =
-        filter.positional().isEmpty() ? new Value.StringValue("") : filter.positional().get(0);
+        filter.positional().isEmpty()
+            ? new Value.StringValue("")
+            : absentFilterArgument(filter.positional().get(0), new Value.StringValue(""));
     Value booleanFlag =
         filter.positional().size() > 1
-            ? filter.positional().get(1)
-            : filter.keywords().get("boolean");
-    if (booleanFlag == null) booleanFlag = new Value.BooleanValue(false);
+            ? absentFilterArgument(filter.positional().get(1), new Value.BooleanValue(false))
+            : absentFilterArgument(filter.keywords().get("boolean"), new Value.BooleanValue(false));
     if (!(booleanFlag instanceof Value.BooleanValue flag))
       throw new TemplateRenderException(
           "`default` filter flag must be a boolean", ErrorCategory.TYPE, location);
+    if (operand instanceof Value.DeferredUndefinedValue) {
+      if (flag.value()) deferredValue(operand, "__bool__", location);
+      deferredValue(operand, location);
+    }
     return undefinedLike(operand) || flag.value() && !truthy(operand) ? fallback : operand;
   }
 
@@ -534,6 +591,7 @@ public final class Interpreter {
     else if (operand instanceof Value.StringValue string && !string.undefinedBacked())
       length = string.value().length();
     else if (operand instanceof Value.ObjectValue object) length = object.values().size();
+    else if (operand instanceof Value.KeywordArgumentsValue object) length = object.values().size();
     else throw filterReceiver("length", operand, location);
     return new Value.IntegerValue(length);
   }
@@ -553,13 +611,15 @@ public final class Interpreter {
         filter.positional().isEmpty()
             ? filter.keywords().get("separator")
             : filter.positional().get(0);
-    if (separator == null) separator = new Value.StringValue("");
-    if (!(separator instanceof Value.StringValue string) || string.undefinedBacked())
+    if (separator == null || separator instanceof Value.DeferredUndefinedValue)
+      separator = new Value.StringValue("");
+    if (!(separator instanceof Value.StringValue string))
       throw new TemplateRenderException("separator must be a string", ErrorCategory.TYPE, location);
     List<Value> values;
     if (operand instanceof Value.ArrayValue array) values = array.values();
     else if (operand instanceof Value.TupleValue tuple) values = tuple.values();
-    else if (operand instanceof Value.StringValue value && !value.undefinedBacked()) {
+    else if (operand instanceof Value.StringValue value) {
+      if (value.undefinedBacked()) throw filterType("undefined is not iterable", location);
       values =
           value
               .value()
@@ -567,10 +627,11 @@ public final class Interpreter {
               .mapToObj(c -> (Value) new Value.StringValue(new String(Character.toChars(c))))
               .toList();
     } else throw filterReceiver("join", operand, location);
+    String separatorText = string.undefinedBacked() ? "," : string.value();
     return new Value.StringValue(
         values.stream()
             .map(v -> joinText(v, location))
-            .collect(java.util.stream.Collectors.joining(string.value())));
+            .collect(java.util.stream.Collectors.joining(separatorText)));
   }
 
   private static Value filterList(Value operand, SourceLocation location) {
@@ -580,9 +641,9 @@ public final class Interpreter {
   }
 
   private static Value filterItems(Value operand, SourceLocation location) {
-    if (!(operand instanceof Value.ObjectValue object))
-      throw filterReceiver("items", operand, location);
-    return itemsOf(object);
+    if (operand instanceof Value.ObjectValue object) return itemsOf(object.values());
+    if (operand instanceof Value.KeywordArgumentsValue object) return itemsOf(object.values());
+    throw filterReceiver("items", operand, location);
   }
 
   private static List<Value> sequence(Value operand, String name, SourceLocation location) {
@@ -594,9 +655,15 @@ public final class Interpreter {
   private static Value filterFirstLast(
       Value operand, NamedArguments filter, SourceLocation location, boolean last) {
     var values = sequence(operand, filter.name(), location);
-    return values.isEmpty()
-        ? Value.UndefinedValue.INSTANCE
-        : values.get(last ? values.size() - 1 : 0);
+    if (values.isEmpty()) return Value.DeferredUndefinedValue.INSTANCE;
+    return values.get(last ? values.size() - 1 : 0);
+  }
+
+  private static boolean lowerTest(Value value, SourceLocation location) {
+    if (!(value instanceof Value.StringValue string)) return false;
+    if (string.undefinedBacked())
+      throw filterType("Cannot read properties of undefined (reading 'toLowerCase')", location);
+    return string.value().equals(string.value().toLowerCase(Locale.ROOT));
   }
 
   private static Value filterReverse(
@@ -608,9 +675,11 @@ public final class Interpreter {
 
   private static Value filterUnique(Value operand, NamedArguments filter, SourceLocation location) {
     var result = new ArrayList<Value>();
-    for (var value : sequence(operand, filter.name(), location))
+    for (var value : sequence(operand, filter.name(), location)) {
+      deferredValue(value, location);
       if (result.stream().noneMatch(existing -> JsOperations.strictValueEquals(existing, value)))
         result.add(value);
+    }
     return new Value.ArrayValue(result);
   }
 
@@ -649,7 +718,8 @@ public final class Interpreter {
           "`map` expressions without `attribute` set are not currently supported.", location);
     if (!(attribute instanceof Value.StringValue string) || string.undefinedBacked())
       throw filterType("attribute must be a string", location);
-    Value fallback = filter.keywords().getOrDefault("default", Value.UndefinedValue.INSTANCE);
+    Value fallback =
+        absentFilterArgument(filter.keywords().get("default"), Value.UndefinedValue.INSTANCE);
     var values = new ArrayList<Value>();
     for (var item : sequence(operand, filter.name(), location)) {
       if (!(item instanceof Value.ObjectValue))
@@ -698,9 +768,11 @@ public final class Interpreter {
   }
 
   private static Value filterArgument(NamedArguments filter, int index, String key) {
-    return filter.positional().size() > index
-        ? filter.positional().get(index)
-        : filter.keywords().get(key);
+    Value value =
+        filter.positional().size() > index
+            ? filter.positional().get(index)
+            : filter.keywords().get(key);
+    return value instanceof Value.DeferredUndefinedValue ? null : value;
   }
 
   private static boolean filterBoolean(
@@ -717,17 +789,28 @@ public final class Interpreter {
     return value == null ? fallback : JsOperations.rawTruthy(value);
   }
 
+  private static Value absentFilterArgument(Value value, Value fallback) {
+    return value == null || value instanceof Value.DeferredUndefinedValue ? fallback : value;
+  }
+
   private static Value filterObjectBuiltin(
       Value operand, NamedArguments filter, SourceLocation location) {
-    if (!(operand instanceof Value.ObjectValue object))
-      throw filterReceiver(filter.name(), operand, location);
+    Map<?, Value> values;
+    Map<String, Value.CallableValue> builtins;
+    if (operand instanceof Value.ObjectValue object) {
+      values = object.values();
+      builtins = object.builtins();
+    } else if (operand instanceof Value.KeywordArgumentsValue object) {
+      values = object.values();
+      builtins = object.builtins();
+    } else throw filterReceiver(filter.name(), operand, location);
     var arguments = new ArrayList<>(filter.positional());
     if (!filter.keywords().isEmpty())
       arguments.add(new Value.KeywordArgumentsValue(filter.keywords()));
     var builtin =
         filter.name().equals("items")
-            ? objectItemsBuiltin(object)
-            : objectBuiltin(object, filter.name());
+            ? objectItemsBuiltin(builtins, values)
+            : objectBuiltin(builtins, values, filter.name());
     return ((Value.CallableValue) builtin)
         .callable()
         .invoke(arguments, !filter.keywords().isEmpty(), location, null);
@@ -745,13 +828,14 @@ public final class Interpreter {
   private static Value attribute(Value value, String path) {
     for (var part : path.split("\\.")) {
       if (value instanceof Value.ObjectValue object)
-        value = object.values().getOrDefault(part, Value.UndefinedValue.INSTANCE);
+        value =
+            Value.materialize(object.values().getOrDefault(part, Value.UndefinedValue.INSTANCE));
       else if (value instanceof Value.ArrayValue array) {
         try {
           int index = Integer.parseInt(part);
           value =
               index >= 0 && index < array.values().size()
-                  ? array.values().get(index)
+                  ? Value.materialize(array.values().get(index))
                   : Value.UndefinedValue.INSTANCE;
         } catch (NumberFormatException ignored) {
           return Value.UndefinedValue.INSTANCE;
@@ -815,7 +899,7 @@ public final class Interpreter {
     Value comparison = filter.positional().size() > 2 ? filter.positional().get(2) : null;
     var result = new ArrayList<Value>();
     for (var item : values) {
-      var attrValue = ((Value.ObjectValue) item).values().get(attr.value());
+      var attrValue = Value.materialize(((Value.ObjectValue) item).values().get(attr.value()));
       boolean matched =
           attrValue != null
               && (testName == null
@@ -852,27 +936,19 @@ public final class Interpreter {
       case "odd" -> integerTest(value, true, location);
       case "even" -> integerTest(value, false, location);
       case "integer" -> value instanceof Value.IntegerValue;
-      case "lower" ->
-          value instanceof Value.StringValue string
-              && !string.undefinedBacked()
-              && string.value().equals(string.value().toLowerCase(Locale.ROOT));
-      case "upper" ->
-          value instanceof Value.StringValue string
-              && !string.undefinedBacked()
-              && string.value().equals(string.value().toUpperCase(Locale.ROOT));
+      case "lower" -> lowerTest(value, location);
+      case "upper" -> upperTest(value, location);
       case "number" -> JsOperations.numeric(value);
-      case "string" -> value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "string" -> value instanceof Value.StringValue;
       case "mapping" ->
           value instanceof Value.ObjectValue || value instanceof Value.KeywordArgumentsValue;
-      case "iterable" ->
-          value instanceof Value.ArrayValue
-              || value instanceof Value.StringValue string && !string.undefinedBacked();
+      case "iterable" -> value instanceof Value.ArrayValue || value instanceof Value.StringValue;
       case "sequence" ->
           value instanceof Value.ArrayValue
               || value instanceof Value.TupleValue
               || value instanceof Value.ObjectValue
               || value instanceof Value.KeywordArgumentsValue
-              || value instanceof Value.StringValue string && !string.undefinedBacked();
+              || value instanceof Value.StringValue;
       default -> throw filterType("Unknown test: " + name, location);
     };
   }
@@ -883,10 +959,19 @@ public final class Interpreter {
     return (number.value() % 2 != 0) == odd;
   }
 
+  private static boolean upperTest(Value value, SourceLocation location) {
+    if (!(value instanceof Value.StringValue string)) return false;
+    if (string.undefinedBacked())
+      throw filterType("Cannot read properties of undefined (reading 'toUpperCase')", location);
+    return string.value().equals(string.value().toUpperCase(Locale.ROOT));
+  }
+
   private static String joinText(Value value, SourceLocation location) {
     return switch (value) {
       case Value.NullValue ignored -> "";
       case Value.UndefinedValue ignored -> "";
+      case Value.DeferredUndefinedValue ignored ->
+          throw filterType("Cannot read properties of undefined (reading 'type')", location);
       case Value.StringValue string -> string.undefinedBacked() ? "" : string.value();
       case Value.ArrayValue array ->
           array.values().stream()
@@ -906,7 +991,9 @@ public final class Interpreter {
         filter.positional().isEmpty()
             ? filter.keywords().get("default")
             : filter.positional().get(0);
-    if (fallback == null) fallback = integer ? new Value.IntegerValue(0) : new Value.FloatValue(0);
+    fallback =
+        absentFilterArgument(
+            fallback, integer ? new Value.IntegerValue(0) : new Value.FloatValue(0));
     if (operand instanceof Value.IntegerValue value)
       return integer ? value : new Value.FloatValue(value.value());
     if (operand instanceof Value.FloatValue value)
@@ -915,7 +1002,7 @@ public final class Interpreter {
       return integer
           ? new Value.IntegerValue(value.value() ? 1 : 0)
           : new Value.FloatValue(value.value() ? 1 : 0);
-    if (!(operand instanceof Value.StringValue string) || string.undefinedBacked())
+    if (!(operand instanceof Value.StringValue string))
       throw filterReceiver(filter.name(), operand, location);
     var parsed = integer ? parseInt(string.value()) : parseFloat(string.value());
     return Double.isNaN(parsed)
@@ -998,7 +1085,18 @@ public final class Interpreter {
 
   private static TemplateRenderException filterReceiver(
       String name, Value value, SourceLocation location) {
+    deferredValue(value, location);
     return filterType("Cannot apply filter \"" + name + "\" to type: " + type(value), location);
+  }
+
+  private static void deferredValue(Value value, SourceLocation location) {
+    deferredValue(value, "type", location);
+  }
+
+  private static void deferredValue(Value value, String property, SourceLocation location) {
+    if (value instanceof Value.DeferredUndefinedValue)
+      throw filterType(
+          "Cannot read properties of undefined (reading '" + property + "')", location);
   }
 
   private static TemplateRenderException unknownBareFilter(
@@ -1015,8 +1113,10 @@ public final class Interpreter {
       case Value.ObjectValue ignored -> filterType("Unknown ObjectValue filter: " + name, location);
       case Value.NullValue ignored -> filterReceiver(name, value, location);
       case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
+      case Value.DeferredUndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.CallableValue ignored -> filterReceiver(name, value, location);
-      case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
+      case Value.KeywordArgumentsValue ignored ->
+          filterType("Unknown ObjectValue filter: " + name, location);
     };
   }
 
@@ -1027,18 +1127,16 @@ public final class Interpreter {
       case Value.TupleValue ignored -> filterType("Unknown ArrayValue filter: " + name, location);
       case Value.StringValue ignored -> filterType("Unknown StringValue filter: " + name, location);
       case Value.ObjectValue ignored -> filterType("Unknown ObjectValue filter: " + name, location);
-      case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
+      case Value.KeywordArgumentsValue ignored ->
+          filterType("Unknown ObjectValue filter: " + name, location);
       case Value.IntegerValue ignored -> filterReceiver(name, value, location);
       case Value.FloatValue ignored -> filterReceiver(name, value, location);
       case Value.BooleanValue ignored -> filterReceiver(name, value, location);
       case Value.NullValue ignored -> filterReceiver(name, value, location);
       case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
+      case Value.DeferredUndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.CallableValue ignored -> filterReceiver(name, value, location);
     };
-  }
-
-  private static AssertionError unreachableValue(Value value) {
-    return new AssertionError("unreachable value: " + value.getClass().getSimpleName());
   }
 
   private static TemplateRenderException filterType(String message, SourceLocation location) {
@@ -1046,8 +1144,7 @@ public final class Interpreter {
   }
 
   private static boolean undefinedLike(Value value) {
-    return value instanceof Value.UndefinedValue
-        || value instanceof Value.StringValue string && string.undefinedBacked();
+    return value instanceof Value.UndefinedValue || value instanceof Value.DeferredUndefinedValue;
   }
 
   private static TemplateRenderException operatorUndefined(
@@ -1101,13 +1198,22 @@ public final class Interpreter {
 
   private static ExecResult evaluateIf(Statement.If n, Environment e, RenderBudget b) {
     return evaluateBlock(
-        truthy(evaluateExpression(n.test(), e, b)) ? n.body() : n.alternate(), e, b);
+        truthy(evaluateExpression(n.test(), e, b), n.test().location()) ? n.body() : n.alternate(),
+        e,
+        b);
   }
 
   static boolean truthy(Value v) {
+    return truthy(v, null);
+  }
+
+  private static boolean truthy(Value v, SourceLocation location) {
     return switch (v) {
       case Value.NullValue ignored -> false;
       case Value.UndefinedValue ignored -> false;
+      case Value.DeferredUndefinedValue ignored -> {
+        throw filterType("Cannot read properties of undefined (reading '__bool__')", location);
+      }
       case Value.BooleanValue x -> x.value();
       case Value.IntegerValue x -> x.value() != 0 && !Double.isNaN(x.value());
       case Value.FloatValue x -> x.value() != 0 && !Double.isNaN(x.value());
@@ -1122,6 +1228,7 @@ public final class Interpreter {
 
   private static Value member(Expression.MemberExpression n, Environment e, RenderBudget b) {
     var target = evaluateExpression(n.object(), e, b);
+    deferredValue(target, "builtins", n.location());
     if (n.computed() && n.property() instanceof Expression.SliceExpression slice)
       return slice(target, slice, e, b, n.location());
     var p =
@@ -1132,20 +1239,33 @@ public final class Interpreter {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
       var key = objectKey(s);
-      if (x.values().containsKey(key)) return x.values().get(key);
-      if (!s.undefinedBacked() && "items".equals(s.value())) return objectItemsBuiltin(x);
+      Value memberValue = x.values().get(key);
+      if (memberValue != null && !(memberValue instanceof Value.DeferredUndefinedValue))
+        return Value.materialize(memberValue);
+      if (!s.undefinedBacked() && "items".equals(s.value()))
+        return objectItemsBuiltin(x.builtins(), x.values());
       if (!s.undefinedBacked()
           && (s.value().equals("get")
               || s.value().equals("keys")
               || s.value().equals("values")
-              || s.value().equals("dictsort"))) return objectBuiltin(x, s.value());
+              || s.value().equals("dictsort")))
+        return objectBuiltin(x.builtins(), x.values(), s.value());
       return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
       if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
-      return x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE);
+      Value memberValue = x.values().get(s.value());
+      if (memberValue != null && !(memberValue instanceof Value.DeferredUndefinedValue))
+        return Value.materialize(memberValue);
+      if (s.value().equals("items")) return objectItemsBuiltin(x.builtins(), x.values());
+      if (s.value().equals("get")
+          || s.value().equals("keys")
+          || s.value().equals("values")
+          || s.value().equals("dictsort"))
+        return objectBuiltin(x.builtins(), x.values(), s.value());
+      return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.ArrayValue x) {
       if (p instanceof Value.StringValue property
@@ -1160,17 +1280,14 @@ public final class Interpreter {
       return memberIndex(x.values(), p, n.location());
     }
     if (target instanceof Value.StringValue x) {
-      if (x.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
+      if (x.undefinedBacked())
+        throw filterType("Cannot read properties of undefined (reading 'at')", n.location());
       if (p instanceof Value.StringValue property) {
-        if (!property.undefinedBacked()
-            && (property.value().equals("startswith") || property.value().equals("endswith")))
-          return stringBoundaryBuiltin(
-              x.value(),
-              property.value(),
-              property.value().equals("startswith") ? String::startsWith : String::endsWith);
         if (!property.undefinedBacked() && property.value().equals("length"))
           return new Value.IntegerValue(x.value().length());
         if (List.of(
+                "startswith",
+                "endswith",
                 "upper",
                 "lower",
                 "strip",
@@ -1180,7 +1297,7 @@ public final class Interpreter {
                 "lstrip",
                 "split",
                 "replace")
-            .contains(property.value())) return stringBuiltin(x.value(), property.value());
+            .contains(property.value())) return stringBuiltin(x, property.value());
         return Value.UndefinedValue.INSTANCE;
       }
       if (!(p instanceof Value.IntegerValue))
@@ -1204,7 +1321,7 @@ public final class Interpreter {
             throw new TemplateRenderException(
                 name + "() requires at least one argument", ErrorCategory.ARITY, location);
           var pattern = arguments.getFirst();
-          if (pattern instanceof Value.StringValue string && !string.undefinedBacked())
+          if (pattern instanceof Value.StringValue string)
             return new Value.BooleanValue(matches.test(receiver, string.value()));
           if (pattern instanceof Value.ArrayValue array)
             return stringBoundaryTuple(receiver, name, matches, array.values(), location);
@@ -1217,19 +1334,28 @@ public final class Interpreter {
         });
   }
 
-  private static Value stringBuiltin(String receiver, String name) {
+  private static Value stringBuiltin(Value.StringValue receiver, String name) {
+    return receiver.builtins().computeIfAbsent(name, ignored -> stringBuiltinValue(receiver, name));
+  }
+
+  private static Value.CallableValue stringBuiltinValue(Value.StringValue receiver, String name) {
+    String text = receiver.value();
+    if (name.equals("startswith") || name.equals("endswith"))
+      return (Value.CallableValue)
+          stringBoundaryBuiltin(
+              text, name, name.equals("startswith") ? String::startsWith : String::endsWith);
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
           return switch (name) {
-            case "upper" -> new Value.StringValue(receiver.toUpperCase(Locale.ROOT));
-            case "lower" -> new Value.StringValue(receiver.toLowerCase(Locale.ROOT));
-            case "strip" -> new Value.StringValue(JsOperations.trimEcmaWhitespace(receiver));
-            case "rstrip" -> new Value.StringValue(JsOperations.trimEndEcmaWhitespace(receiver));
-            case "lstrip" -> new Value.StringValue(JsOperations.trimStartEcmaWhitespace(receiver));
-            case "title" -> new Value.StringValue(titleCase(receiver));
-            case "capitalize" -> new Value.StringValue(capitalize(receiver));
-            case "split" -> stringSplit(receiver, arguments, location);
-            case "replace" -> stringReplace(receiver, arguments, location);
+            case "upper" -> new Value.StringValue(text.toUpperCase(Locale.ROOT));
+            case "lower" -> new Value.StringValue(text.toLowerCase(Locale.ROOT));
+            case "strip" -> new Value.StringValue(JsOperations.trimEcmaWhitespace(text));
+            case "rstrip" -> new Value.StringValue(JsOperations.trimEndEcmaWhitespace(text));
+            case "lstrip" -> new Value.StringValue(JsOperations.trimStartEcmaWhitespace(text));
+            case "title" -> new Value.StringValue(titleCase(text));
+            case "capitalize" -> new Value.StringValue(capitalize(text));
+            case "split" -> stringSplit(text, arguments, location);
+            case "replace" -> stringReplace(text, arguments, location);
             default -> throw new AssertionError(name);
           };
         });
@@ -1243,12 +1369,16 @@ public final class Interpreter {
 
   private static Value stringSplit(
       String receiver, List<Value> arguments, SourceLocation location) {
-    Value separator = arguments.isEmpty() ? Value.NullValue.INSTANCE : arguments.getFirst();
+    Value separator =
+        arguments.isEmpty()
+            ? Value.NullValue.INSTANCE
+            : absentFilterArgument(arguments.getFirst(), Value.NullValue.INSTANCE);
     if (!(separator instanceof Value.StringValue) && !(separator instanceof Value.NullValue))
       throw filterType("sep argument must be a string or null", location);
     int max = -1;
-    if (arguments.size() > 1) {
-      if (!(arguments.get(1) instanceof Value.IntegerValue number))
+    Value maxSplit = arguments.size() > 1 ? absentFilterArgument(arguments.get(1), null) : null;
+    if (maxSplit != null) {
+      if (!(maxSplit instanceof Value.IntegerValue number))
         throw filterType("maxsplit argument must be a number", location);
       max = (int) number.value();
     }
@@ -1298,10 +1428,17 @@ public final class Interpreter {
     if (!(arguments.get(0) instanceof Value.StringValue oldValue)
         || !(arguments.get(1) instanceof Value.StringValue newValue))
       throw filterType("replace() arguments must be strings", location);
-    Value count =
-        arguments.size() > 2 && !(arguments.get(2) instanceof Value.KeywordArgumentsValue)
-            ? arguments.get(2)
-            : keyword(arguments, "count");
+    if (oldValue.undefinedBacked())
+      throw filterType("Cannot read properties of undefined (reading 'length')", location);
+    Value count;
+    if (arguments.size() > 2) {
+      Value thirdArgument = arguments.get(2);
+      deferredValue(thirdArgument, "type", location);
+      count =
+          thirdArgument instanceof Value.KeywordArgumentsValue
+              ? absentFilterArgument(keyword(arguments, "count"), Value.NullValue.INSTANCE)
+              : thirdArgument;
+    } else count = Value.NullValue.INSTANCE;
     if (count != null
         && !(count instanceof Value.IntegerValue)
         && !(count instanceof Value.NullValue))
@@ -1342,7 +1479,12 @@ public final class Interpreter {
         : null;
   }
 
-  private static Value objectBuiltin(Value.ObjectValue object, String name) {
+  private static Value objectBuiltin(
+      Map<String, Value.CallableValue> builtins, Map<?, Value> values, String name) {
+    return builtins.computeIfAbsent(name, ignored -> objectBuiltinValue(values, name));
+  }
+
+  private static Value.CallableValue objectBuiltinValue(Map<?, Value> values, String name) {
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
           var positional = positional(arguments);
@@ -1353,33 +1495,37 @@ public final class Interpreter {
                     "Object key must be a string: got "
                         + (arguments.isEmpty() ? "UndefinedValue" : type(arguments.getFirst())),
                     location);
-              yield object
-                  .values()
-                  .getOrDefault(
-                      key.value(),
-                      arguments.size() > 1 ? arguments.get(1) : Value.NullValue.INSTANCE);
+              yield values.getOrDefault(
+                  key.value(),
+                  arguments.size() > 1
+                      ? Value.materialize(arguments.get(1))
+                      : Value.NullValue.INSTANCE);
             }
             case "keys" ->
                 new Value.ArrayValue(
-                    object.values().keySet().stream()
-                        .map(key -> (Value) objectKeyValue(key))
-                        .toList());
-            case "values" -> new Value.ArrayValue(new ArrayList<>(object.values().values()));
-            case "dictsort" -> dictSort(object, positional, arguments, location);
+                    values.keySet().stream().map(key -> (Value) objectKeyValue(key)).toList());
+            case "values" -> new Value.ArrayValue(new ArrayList<>(values.values()));
+            case "dictsort" -> dictSort(values, positional, arguments, location);
             default -> throw new AssertionError(name);
           };
         });
   }
 
   private static Value dictSort(
-      Value.ObjectValue object,
+      Map<?, Value> values,
       List<Value> positional,
       List<Value> arguments,
       SourceLocation location) {
     Value caseValue =
-        positional.isEmpty() ? keyword(arguments, "case_sensitive") : positional.getFirst();
-    Value byValue = positional.size() < 2 ? keyword(arguments, "by") : positional.get(1);
-    Value reverseValue = positional.size() < 3 ? keyword(arguments, "reverse") : positional.get(2);
+        absentFilterArgument(
+            positional.isEmpty() ? keyword(arguments, "case_sensitive") : positional.getFirst(),
+            null);
+    Value byValue =
+        absentFilterArgument(
+            positional.size() < 2 ? keyword(arguments, "by") : positional.get(1), null);
+    Value reverseValue =
+        absentFilterArgument(
+            positional.size() < 3 ? keyword(arguments, "reverse") : positional.get(2), null);
     boolean caseSensitive =
         caseValue == null ? false : booleanValue(caseValue, "case_sensitive", location);
     String by = byValue == null ? "key" : stringValue(byValue, "by", location);
@@ -1387,7 +1533,7 @@ public final class Interpreter {
       throw filterType("by must be either 'key' or 'value'", location);
     boolean reverse = reverseValue != null && booleanValue(reverseValue, "reverse", location);
     var entries = new ArrayList<Value>();
-    for (var entry : object.values().entrySet()) {
+    for (var entry : values.entrySet()) {
       entries.add(new Value.ArrayValue(List.of(objectKeyValue(entry.getKey()), entry.getValue())));
     }
     int index = by.equals("key") ? 0 : 1;
@@ -1419,6 +1565,9 @@ public final class Interpreter {
     if (numericLike(left) && numericLike(right))
       return Double.compare(JsOperations.toNumber(left), JsOperations.toNumber(right));
     if (left instanceof Value.StringValue a && right instanceof Value.StringValue b) {
+      if (!caseSensitive && (a.undefinedBacked() || b.undefinedBacked()))
+        throw filterType("Cannot read properties of undefined (reading 'toLowerCase')", location);
+      if (caseSensitive && (a.undefinedBacked() || b.undefinedBacked())) return 0;
       String aText = caseSensitive ? a.value() : a.value().toLowerCase(Locale.ROOT);
       String bText = caseSensitive ? b.value() : b.value().toLowerCase(Locale.ROOT);
       return aText.compareTo(bText);
@@ -1449,20 +1598,18 @@ public final class Interpreter {
     return new Value.BooleanValue(false);
   }
 
-  private static Value objectItemsBuiltin(Value.ObjectValue object) {
-    if (object.itemsBuiltin() != null) return object.itemsBuiltin();
-    var builtin =
-        new Value.CallableValue(
-            (arguments, hasKeywords, location, environment) -> {
-              return itemsOf(object);
-            });
-    object.setItemsBuiltin(builtin);
-    return builtin;
+  private static Value objectItemsBuiltin(
+      Map<String, Value.CallableValue> builtins, Map<?, Value> values) {
+    return builtins.computeIfAbsent(
+        "items",
+        ignored ->
+            new Value.CallableValue(
+                (arguments, hasKeywords, location, environment) -> itemsOf(values)));
   }
 
-  private static Value.ArrayValue itemsOf(Value.ObjectValue object) {
+  private static Value.ArrayValue itemsOf(Map<?, Value> values) {
     var pairs = new ArrayList<Value>();
-    for (var entry : object.values().entrySet()) {
+    for (var entry : values.entrySet()) {
       var key = objectKeyValue(entry.getKey());
       pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
     }
@@ -1488,7 +1635,7 @@ public final class Interpreter {
     Double stopValue = sliceBound(stop, expression.stop(), "stop");
     Double stepValue = sliceBound(step, expression.step(), "step");
     if (target instanceof Value.StringValue string && string.undefinedBacked())
-      return Value.UndefinedValue.INSTANCE;
+      throw filterType("undefined is not iterable", memberLocation);
     if (arrayLike(target))
       return new Value.ArrayValue(
           JsSlice.slice(arrayValues(target), startValue, stopValue, stepValue));
@@ -1531,7 +1678,7 @@ public final class Interpreter {
 
   private static Value indexed(List<Value> values, Value p) {
     int i = index(values.size(), p);
-    return i < 0 ? Value.UndefinedValue.INSTANCE : values.get(i);
+    return i < 0 ? Value.UndefinedValue.INSTANCE : Value.materialize(values.get(i));
   }
 
   private static int index(int size, Value p) {
@@ -1556,6 +1703,7 @@ public final class Interpreter {
   }
 
   private static String type(Value v) {
+    if (v instanceof Value.DeferredUndefinedValue) return "UndefinedValue";
     return v instanceof Value.CallableValue ? "FunctionValue" : v.getClass().getSimpleName();
   }
 
@@ -1601,7 +1749,7 @@ public final class Interpreter {
                   var nodeArg = n.args().get(i);
                   Value passed = i < positional.size() ? positional.get(i) : null;
                   if (nodeArg instanceof Expression.Identifier id) {
-                    if (passed == null)
+                    if (passed == null || passed instanceof Value.DeferredUndefinedValue)
                       throw new TemplateRenderException(
                           "Missing positional argument: " + id.value(), ErrorCategory.ARITY, l);
                     macroScope.setVariable(id.value(), passed);
@@ -1609,9 +1757,10 @@ public final class Interpreter {
                     Value fromKwargs =
                         kwargs == null ? null : kwargs.values().get(kwarg.key().value());
                     Value value =
-                        passed != null
+                        passed != null && !(passed instanceof Value.DeferredUndefinedValue)
                             ? passed
                             : fromKwargs != null
+                                    && !(fromKwargs instanceof Value.DeferredUndefinedValue)
                                 ? fromKwargs
                                 : evaluateExpression(kwarg.value(), macroScope, b);
                     macroScope.setVariable(kwarg.key().value(), value);
@@ -1819,7 +1968,8 @@ public final class Interpreter {
       b.chargeLoopIteration(n.location());
       var filterScope = new Environment(e);
       bind(n.loopVariable(), item, filterScope, n.location());
-      if (test == null || truthy(evaluateExpression(test, filterScope, b))) filtered.add(item);
+      if (test == null || truthy(evaluateExpression(test, filterScope, b), test.location()))
+        filtered.add(item);
     }
     items = filtered;
     var out = new StringBuilder();
@@ -1890,6 +2040,8 @@ public final class Interpreter {
       case Value.CallableValue ignored -> "<function>";
       case Value.NullValue ignored -> throw new AssertionError("unreachable: " + v);
       case Value.UndefinedValue ignored -> throw new AssertionError("unreachable: " + v);
+      case Value.DeferredUndefinedValue ignored ->
+          throw filterType("Cannot read properties of undefined (reading 'type')", l);
     };
   }
 
@@ -1905,6 +2057,9 @@ public final class Interpreter {
     Value current = argument(a, 0);
     Value stop = argument(a, 1);
     Value step = argument(a, 2);
+    deferredValue(current, "value", l);
+    deferredValue(stop, "value", l);
+    deferredValue(step, "value", l);
     if (step instanceof Value.UndefinedValue) step = new Value.IntegerValue(1);
     if (stop instanceof Value.UndefinedValue) {
       stop = current;
@@ -1951,6 +2106,7 @@ public final class Interpreter {
     return switch (value) {
       case Value.NullValue ignored -> "";
       case Value.UndefinedValue ignored -> "";
+      case Value.DeferredUndefinedValue ignored -> "";
       case Value.ArrayValue array ->
           array.values().stream()
               .map(Interpreter::nestedExceptionText)
@@ -1975,6 +2131,7 @@ public final class Interpreter {
     return switch (value) {
       case Value.NullValue ignored -> "undefined";
       case Value.UndefinedValue ignored -> "undefined";
+      case Value.DeferredUndefinedValue ignored -> "undefined";
       case Value.ArrayValue array ->
           array.values().stream()
               .map(Interpreter::nestedExceptionText)
@@ -1998,7 +2155,8 @@ public final class Interpreter {
   }
 
   private static Value strftime(List<Value> a, boolean k, SourceLocation l, RenderOptions o) {
-    // ARITY means "no positional format argument was supplied," which is not the same test as
+    // A missing format means "no positional format argument was supplied," which is not the same
+    // test as
     // `a.isEmpty()`: two call shapes reach here with a non-empty `a` yet no positional value.
     // `{% call strftime_now() %}...{% endcall %}` has evaluateCallStatement append a
     // KeywordArgumentsValue bag as the last element of `a` even when there are no keywords,
@@ -2007,26 +2165,24 @@ public final class Interpreter {
     // reason -- its bag exists at all because its keywords are non-empty. Guard on the shape, not
     // just the count, before calling argument(a, 0) at all.
     //
-    // Known false positive: this guard cannot distinguish "no positional value was supplied" from
+    // This guard cannot distinguish "no positional value was supplied" from
     // "a positional value was supplied whose runtime type happens to be KeywordArgumentsValue" --
     // e.g. `strftime_now(namespace(a=1))`, where `namespace` returns its keyword bag verbatim
     // (Environment.namespace). Both shapes arrive here as `a=[KeywordArgumentsValue], k=false`;
     // the Callable protocol carries no positional-arity signal that could tell them apart. This
-    // guard resolves that ambiguity toward ARITY rather than TYPE. No corpus or oracle record pins
-    // either category for this shape, so it is an accepted internal-consistency gap, not a parity
-    // regression -- fixing it would require carrying positional count through the Callable
-    // signature project-wide, which is out of proportion to this edge case.
+    // guard resolves that ambiguity as a missing-format TYPE error. That matches the upstream
+    // TypeError family for each of these call shapes; preserving positional count through the
+    // Callable signature would only improve the local message, not its observable category.
     if (a.isEmpty() || a.get(0) instanceof Value.KeywordArgumentsValue)
       throw new TemplateRenderException(
-          "strftime_now() expected one string argument", ErrorCategory.ARITY, l);
+          "strftime_now() expected one string argument", ErrorCategory.TYPE, l);
     var format = argument(a, 0);
     // Upstream's convertToRuntimeValues unwraps every argument shape to its raw .value before
     // calling strftime_now, so an absent/undefined-backed argument and an explicit `none` both
     // reach the same unguarded format.replace(...) call there and only differ in which
     // "Cannot read properties of ... (reading 'replace')" message surfaces -- never a single
-    // shared message, and never a distinguishable category. hfjinja's ARITY/TYPE split below is a
-    // deliberate category decision upstream cannot express, so it has no matching oracle error
-    // record; retain this comment as that record's rationale.
+    // shared message. hfjinja normalizes all of these failures into the TYPE category, matching
+    // the upstream TypeError family while retaining stable local messages.
     if (!(format instanceof Value.StringValue f))
       throw new TemplateRenderException(
           "strftime_now() format must be a string", ErrorCategory.TYPE, l);

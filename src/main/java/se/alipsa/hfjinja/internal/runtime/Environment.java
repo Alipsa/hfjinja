@@ -29,7 +29,7 @@ public final class Environment {
   }
 
   void setVariable(String name, Value value) {
-    variables.put(name, value);
+    variables.put(name, Value.materialize(value));
   }
 
   Value lookupVariable(String name) {

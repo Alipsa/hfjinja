@@ -19,6 +19,11 @@ java {
   withJavadocJar()
 }
 
+tasks.withType(AbstractArchiveTask).configureEach {
+  preserveFileTimestamps = false
+  reproducibleFileOrder = true
+}
+
 repositories {
   mavenCentral()
 }
@@ -32,7 +37,7 @@ dependencies {
 
 spotless {
   java {
-    target 'src/*/java/**/*.java'
+    target 'src/*/java/**/*.java', 'examples/tokenizer-config/**/*.java'
     googleJavaFormat('1.28.0')
   }
   format('gradle') {
@@ -184,7 +189,8 @@ tasks.register('corpusCoverage', Exec) {
   executable = 'node'
   args 'tools/corpus/convert-upstream-tests.mjs', '--check', "--report=${corpusCoverageReport.absolutePath}"
   inputs.files('tools/corpus/convert-upstream-tests.mjs', 'tools/corpus/corpus.mjs', 'tools/corpus/iana-time-zones.txt',
-      'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json',
+      'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json', 'upstream/corpus-source-inventory.json',
+      'upstream/vendor/src/runtime.ts',
       fileTree('upstream/vendor/test') { include '**/*.test.js' })
   outputs.file(corpusCoverageReport)
 }
@@ -192,7 +198,30 @@ tasks.register('corpusCoverage', Exec) {
 tasks.named('check') {
   dependsOn tasks.named('nodeCorpusTest'), tasks.named('nodeOracleVersion'), tasks.named('nodeCorpusVerify'),
       tasks.named('corpusCoverage'), tasks.named('upstreamVerify'), tasks.named('astSnapshotVerify'),
-      tasks.named('fuzzParserTest'), tasks.named('fuzzParserVerify'), tasks.named('formatGoldenVerify'), tasks.named('codenarcBuildScripts')
+      tasks.named('fuzzParserTest'), tasks.named('fuzzParserVerify'), tasks.named('formatGoldenVerify'), tasks.named('codenarcBuildScripts'), tasks.named('compileTokenizerConfigExample')
+}
+
+abstract class ExampleModulePathArguments implements CommandLineArgumentProvider {
+  @Classpath
+  abstract RegularFileProperty getModuleJar()
+
+  @Override
+  Iterable<String> asArguments() {
+    ['--module-path', moduleJar.get().asFile.absolutePath, '--add-modules', 'se.alipsa.hfjinja']
+  }
+}
+
+tasks.register('compileTokenizerConfigExample', JavaCompile) {
+  group = 'verification'
+  description = 'Compiles the tokenizer-config example against the published JPMS jar.'
+  dependsOn tasks.named('jar')
+  source = fileTree('examples/tokenizer-config') { include '**/*.java' }
+  destinationDirectory = layout.buildDirectory.dir('examples/tokenizer-config/classes')
+  classpath = files()
+  options.release = 21
+  def modulePathArguments = objects.newInstance(ExampleModulePathArguments)
+  modulePathArguments.moduleJar.set(tasks.named('jar').flatMap { it.archiveFile })
+  options.compilerArgumentProviders.add(modulePathArguments)
 }
 
 def upstreamLockFile = layout.projectDirectory.file('upstream/upstream-lock.json').asFile
@@ -476,11 +505,23 @@ publishing {
       pom {
         name = 'hfjinja'
         description = 'Dependency-free Java port of @huggingface/jinja.'
+        url = 'https://github.com/Alipsa/hfjinja'
         licenses {
           license {
             name = 'MIT License'
             url = 'https://opensource.org/license/mit'
           }
+        }
+        developers {
+          developer {
+            id = 'pernyfelt'
+            name = 'Per Nyfelt'
+          }
+        }
+        scm {
+          connection = 'scm:git:https://github.com/Alipsa/hfjinja.git'
+          developerConnection = 'scm:git:ssh://git@github.com/Alipsa/hfjinja.git'
+          url = 'https://github.com/Alipsa/hfjinja'
         }
       }
     }
