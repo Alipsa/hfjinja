@@ -180,6 +180,13 @@ test('compares opted-in exact upstream error messages', async () => {
   }]);
   assert.equal(mismatching.status, 1);
   assert.match(mismatching.stderr, /error message mismatch; expected="expected", actual="actual"/);
+
+  const miscategorised = await runOracle([{
+    id: 'miscategorised-exact', source: 'test', template: '{{ [1]|nosuchfilter }}', context: {},
+    expected: {errorCategory: 'SYNTAX', errorMessage: 'Unknown ArrayValue filter: nosuchfilter'},
+  }]);
+  assert.equal(miscategorised.status, 1);
+  assert.match(miscategorised.stderr, /error category mismatch; expected=SYNTAX, actual=TYPE/);
 });
 
 test('reports skipped hash-only records and rejects an all-hash-only run', async () => {

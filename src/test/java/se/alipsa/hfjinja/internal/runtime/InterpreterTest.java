@@ -675,6 +675,19 @@ class InterpreterTest {
         Template.parse("{{ range ~ '!' }}|{{ range + '!' }}|{{ [range]|join(',') }}")
             .render(Map.of()));
     assertEquals(source, raisedMessage("{{ raise_exception(range) }}", Map.of()));
+    assertEquals(source, raisedMessage("{{ raise_exception([range]) }}", Map.of()));
+  }
+
+  @Test
+  void retainsTheKnownMarkerForUnportedCallableForms() {
+    assertEquals(
+        "<function>!|<function>!|<function>!|<function>!",
+        Template.parse(
+                "{{ namespace ~ '!' }}|{{ 'ab'.upper ~ '!' }}|"
+                    + "{% macro f() %}x{% endmacro %}{{ f ~ '!' }}|"
+                    + "{% macro wrap() %}{{ caller ~ '!' }}{% endmacro %}{% call wrap() %}x{% endcall %}")
+            .render(Map.of()));
+    assertEquals("<function>", raisedMessage("{{ raise_exception(namespace) }}", Map.of()));
   }
 
   @Test

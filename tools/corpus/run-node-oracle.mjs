@@ -56,28 +56,25 @@ for (const [index, record] of records.entries()) {
     if (!record.expected?.errorCategory) {
       fail(label, `unexpected upstream error: ${message}`);
     } else {
-      if (record.expected.errorMessage !== undefined) {
-        if (message !== record.expected.errorMessage) {
-          fail(label, `error message mismatch; expected=${JSON.stringify(record.expected.errorMessage)}, actual=${JSON.stringify(message)}`);
-        } else {
-          // Exact-message records intentionally cover messages that are not stable classifier
-          // patterns, such as the pinned converted-function source.
-          console.log(`PASS ${record.id} error=${record.expected.errorCategory} message=exact`);
-        }
-        continue;
-      }
+      const constructorName = error !== null && typeof error === 'object'
+        ? error.constructor?.name
+        : undefined;
+      let category;
       try {
-        const constructorName = error !== null && typeof error === 'object'
-          ? error.constructor?.name
-          : undefined;
-        const category = classifyError(message, constructorName);
-        if (category === record.expected.errorCategory) {
-          console.log(`PASS ${record.id} error=${category}`);
-        } else {
-          fail(label, `error category mismatch; expected=${record.expected.errorCategory}, actual=${category}; message=${message}`);
-        }
+        category = classifyError(message, constructorName);
       } catch (classificationError) {
-        fail(label, classificationError instanceof Error ? classificationError.message : String(classificationError));
+        if (record.expected.errorMessage === undefined)
+          fail(label, classificationError instanceof Error ? classificationError.message : String(classificationError));
+      }
+      if (record.expected.errorMessage !== undefined && message !== record.expected.errorMessage) {
+        fail(label, `error message mismatch; expected=${JSON.stringify(record.expected.errorMessage)}, actual=${JSON.stringify(message)}`);
+      } else if (category !== undefined && category !== record.expected.errorCategory) {
+        fail(label, `error category mismatch; expected=${record.expected.errorCategory}, actual=${category}; message=${message}`);
+      } else if (record.expected.errorMessage !== undefined) {
+        // Exact-message records allow pinned diagnostics that deliberately have no category pattern.
+        console.log(`PASS ${record.id} error=${record.expected.errorCategory} message=exact`);
+      } else if (category !== undefined) {
+        console.log(`PASS ${record.id} error=${category}`);
       }
     }
   }

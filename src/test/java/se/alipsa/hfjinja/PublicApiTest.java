@@ -14,7 +14,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import se.alipsa.hfjinja.internal.Value;
 
 class PublicApiTest {
   @Test
@@ -53,17 +52,14 @@ class PublicApiTest {
   }
 
   @Test
-  void convertedCallablesShareThePinnedFunctionSource() {
+  void convertedHostCallableSharesTheBuiltinFunctionSource() {
     // JSONL corpus fixtures cannot inject RenderOptions host functions, so this public-boundary
     // assertion covers the Java-only host-function registration path.
     var options = RenderOptions.builder().hostFunction("host", arguments -> null).build();
-    var rendered =
-        Template.parse("{{ range }}|{{ raise_exception }}|{{ strftime_now }}|{{ host }}")
-            .render(Map.of(), options);
+    var rendered = Template.parse("{{ range }}|{{ host }}").render(Map.of(), options);
     var functions = rendered.split("\\|", -1);
-    assertEquals(4, functions.length);
-    for (var function : functions)
-      assertEquals(Value.CallableValue.CONVERTED_FUNCTION_SOURCE, function);
+    assertEquals(2, functions.length);
+    assertEquals(functions[0], functions[1]);
   }
 
   @Test

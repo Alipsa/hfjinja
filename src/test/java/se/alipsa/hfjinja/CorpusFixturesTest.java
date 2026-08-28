@@ -34,6 +34,14 @@ class CorpusFixturesTest {
             .getFirst();
     assertEquals(ErrorCategory.EXPLICIT_RAISE, record.expected().errorCategory());
     assertEquals("x", record.expected().errorMessage());
+    var invalid =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                CorpusFixtures.readContent(
+                    "{\"id\":\"invalid-error\",\"source\":\"test\",\"template\":\"x\",\"context\":{},\"expected\":{\"errorCategory\":\"EXPLICIT_RAISE\",\"errorMessage\":1}}",
+                    "synthetic.jsonl"));
+    assertTrue(invalid.getMessage().contains("errorMessage must be a string"));
   }
 
   @Test

@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Permit differential-corpus error records to pin exact upstream diagnostic messages in addition
-  to their stable error categories.
 - Add isolated clean-checkout release verification, publication metadata checks, and release-only
   reproducible archive evidence.
 
@@ -29,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Render Java-native callable forms that still have no ported upstream source (namespace, member
+  builtins, macros, and call blocks) consistently as `<function>` in coercion and exception paths.
 - Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
   `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
   concatenation, joining, and explicit exception messages.

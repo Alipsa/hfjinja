@@ -87,9 +87,8 @@ milestone ledger are complete; the model fixture form is approved. WP1a blocks W
    The `strftime_now` entry is illustrative only: it is a built-in and the runner always supplies
    a fixed instant/zone/locale (defaulting to `2000-01-02T03:04:05Z`, `UTC`, and `en-US`).
    `instant` and `zone` override that pair together; `globals` is reserved until the pinned Template API can inject
-   non-built-in globals. Expected failures carry an `ErrorCategory`; a text-bearing failure may
-   also pin the exact upstream message with `errorMessage` when the diagnostic itself is part of
-   the compatibility contract.
+   non-built-in globals. Expected failures carry an `ErrorCategory`; a failure whose diagnostic
+   text is itself part of the compatibility contract may also pin it with `errorMessage`.
 2. Implement the versioned Node-message-to-`ErrorCategory` pattern mapping table as part of the
    oracle shim. Patterns extract interpolated message values (for example a filter name) rather
    than matching literals. Every known upstream error maps explicitly; an unmatched message fails
