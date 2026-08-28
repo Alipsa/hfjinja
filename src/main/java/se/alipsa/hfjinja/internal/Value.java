@@ -168,9 +168,21 @@ public sealed interface Value
     }
   }
 
-  record CallableValue(Callable callable) implements Value {
+  /**
+   * A callable together with the pinned runtime's observable JavaScript source representation.
+   *
+   * <p>The runtime renders a {@code FunctionValue} by calling JavaScript {@code String} on its
+   * backing function. Preserve that text separately from Java's lambda implementation so filters
+   * such as {@code safe} and {@code default} do not turn a callable into a Java-specific marker.
+   */
+  record CallableValue(Callable callable, String renderedText) implements Value {
     public CallableValue {
       Objects.requireNonNull(callable);
+      Objects.requireNonNull(renderedText);
+    }
+
+    public CallableValue(Callable callable) {
+      this(callable, "<function>");
     }
 
     @FunctionalInterface

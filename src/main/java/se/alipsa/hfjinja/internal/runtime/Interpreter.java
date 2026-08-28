@@ -112,7 +112,15 @@ public final class Interpreter {
     env.set("False", new Value.BooleanValue(false));
     env.set("True", new Value.BooleanValue(true));
     env.set("None", Value.NullValue.INSTANCE);
-    env.set("range", new Value.CallableValue((a, k, x, s) -> range(a, k, x, budget)));
+    env.set(
+        "range",
+        new Value.CallableValue(
+            (a, k, x, s) -> range(a, k, x, budget),
+            """
+            (args, _scope) => {
+                    const result = input(...args.map((x) => x.value)) ?? null;
+                    return convertToRuntimeValues(result);
+                  }"""));
     env.set("raise_exception", new Value.CallableValue((a, k, x, s) -> raise(a, k, x)));
     env.set("strftime_now", new Value.CallableValue((a, k, x, s) -> strftime(a, k, x, o)));
     for (var e : o.hostFunctions().entrySet())
@@ -2037,7 +2045,7 @@ public final class Interpreter {
       case Value.ObjectValue ignored -> renderJson(v, l);
       case Value.TupleValue ignored -> renderJson(v, l);
       case Value.KeywordArgumentsValue ignored -> renderJson(v, l);
-      case Value.CallableValue ignored -> "<function>";
+      case Value.CallableValue x -> x.renderedText();
       case Value.NullValue ignored -> throw new AssertionError("unreachable: " + v);
       case Value.UndefinedValue ignored -> throw new AssertionError("unreachable: " + v);
       case Value.DeferredUndefinedValue ignored ->

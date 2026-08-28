@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve the pinned JavaScript source rendering of the built-in `range` callable through
+  filters such as `safe` and `default`.
 - Align `namespace(...)` values with the pinned runtime's object members, filters, containment,
   deferred builtin fallback, and public render-error contract.
 - Preserve stable identity for bound string, object, and namespace member builtins.
