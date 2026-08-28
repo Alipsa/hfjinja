@@ -282,6 +282,13 @@ public final class Interpreter {
         return new Value.BooleanValue(operator.equals("in") ? present : !present);
       }
     }
+    if (left instanceof Value.StringValue string
+        && right instanceof Value.KeywordArgumentsValue object) {
+      if (operator.equals("in") || operator.equals("not in")) {
+        boolean present = object.values().containsKey(string.value());
+        return new Value.BooleanValue(operator.equals("in") ? present : !present);
+      }
+    }
     throw operatorUnsupportedTypes(operator, left, right, expression.location());
   }
 
@@ -418,6 +425,15 @@ public final class Interpreter {
         default -> throw unknownCallFilter(name, operand, location);
       };
     if (operand instanceof Value.ObjectValue object) {
+      if (name.equals("get")
+          || name.equals("items")
+          || name.equals("keys")
+          || name.equals("values")
+          || name.equals("dictsort"))
+        return filterObjectBuiltin(object, filterArguments(name, call, env, budget), location);
+      throw unknownCallFilter(name, operand, location);
+    }
+    if (operand instanceof Value.KeywordArgumentsValue object) {
       if (name.equals("get")
           || name.equals("items")
           || name.equals("keys")
@@ -568,6 +584,7 @@ public final class Interpreter {
     else if (operand instanceof Value.StringValue string && !string.undefinedBacked())
       length = string.value().length();
     else if (operand instanceof Value.ObjectValue object) length = object.values().size();
+    else if (operand instanceof Value.KeywordArgumentsValue object) length = object.values().size();
     else throw filterReceiver("length", operand, location);
     return new Value.IntegerValue(length);
   }
@@ -615,9 +632,9 @@ public final class Interpreter {
   }
 
   private static Value filterItems(Value operand, SourceLocation location) {
-    if (!(operand instanceof Value.ObjectValue object))
-      throw filterReceiver("items", operand, location);
-    return itemsOf(object);
+    if (operand instanceof Value.ObjectValue object) return itemsOf(object.values());
+    if (operand instanceof Value.KeywordArgumentsValue object) return itemsOf(object.values());
+    throw filterReceiver("items", operand, location);
   }
 
   private static List<Value> sequence(Value operand, String name, SourceLocation location) {
@@ -769,15 +786,17 @@ public final class Interpreter {
 
   private static Value filterObjectBuiltin(
       Value operand, NamedArguments filter, SourceLocation location) {
-    if (!(operand instanceof Value.ObjectValue object))
-      throw filterReceiver(filter.name(), operand, location);
+    Map<?, Value> values;
+    if (operand instanceof Value.ObjectValue object) values = object.values();
+    else if (operand instanceof Value.KeywordArgumentsValue object) values = object.values();
+    else throw filterReceiver(filter.name(), operand, location);
     var arguments = new ArrayList<>(filter.positional());
     if (!filter.keywords().isEmpty())
       arguments.add(new Value.KeywordArgumentsValue(filter.keywords()));
     var builtin =
         filter.name().equals("items")
-            ? objectItemsBuiltin(object)
-            : objectBuiltin(object, filter.name());
+            ? objectItemsBuiltin(values)
+            : objectBuiltin(values, filter.name());
     return ((Value.CallableValue) builtin)
         .callable()
         .invoke(arguments, !filter.keywords().isEmpty(), location, null);
@@ -1082,7 +1101,8 @@ public final class Interpreter {
       case Value.UndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.DeferredUndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.CallableValue ignored -> filterReceiver(name, value, location);
-      case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
+      case Value.KeywordArgumentsValue ignored ->
+          filterType("Unknown ObjectValue filter: " + name, location);
     };
   }
 
@@ -1093,7 +1113,8 @@ public final class Interpreter {
       case Value.TupleValue ignored -> filterType("Unknown ArrayValue filter: " + name, location);
       case Value.StringValue ignored -> filterType("Unknown StringValue filter: " + name, location);
       case Value.ObjectValue ignored -> filterType("Unknown ObjectValue filter: " + name, location);
-      case Value.KeywordArgumentsValue ignored -> throw unreachableValue(value);
+      case Value.KeywordArgumentsValue ignored ->
+          filterType("Unknown ObjectValue filter: " + name, location);
       case Value.IntegerValue ignored -> filterReceiver(name, value, location);
       case Value.FloatValue ignored -> filterReceiver(name, value, location);
       case Value.BooleanValue ignored -> filterReceiver(name, value, location);
@@ -1102,10 +1123,6 @@ public final class Interpreter {
       case Value.DeferredUndefinedValue ignored -> filterReceiver(name, value, location);
       case Value.CallableValue ignored -> filterReceiver(name, value, location);
     };
-  }
-
-  private static AssertionError unreachableValue(Value value) {
-    return new AssertionError("unreachable value: " + value.getClass().getSimpleName());
   }
 
   private static TemplateRenderException filterType(String message, SourceLocation location) {
@@ -1216,14 +1233,22 @@ public final class Interpreter {
           && (s.value().equals("get")
               || s.value().equals("keys")
               || s.value().equals("values")
-              || s.value().equals("dictsort"))) return objectBuiltin(x, s.value());
+              || s.value().equals("dictsort"))) return objectBuiltin(x.values(), s.value());
       return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.KeywordArgumentsValue x) {
       if (!(p instanceof Value.StringValue s))
         throw access("Cannot access property with non-string: got " + type(p), n.location());
       if (s.undefinedBacked()) return Value.UndefinedValue.INSTANCE;
-      return Value.materialize(x.values().getOrDefault(s.value(), Value.UndefinedValue.INSTANCE));
+      Value memberValue = x.values().get(s.value());
+      if (memberValue != null && !(memberValue instanceof Value.DeferredUndefinedValue))
+        return Value.materialize(memberValue);
+      if (s.value().equals("items")) return objectItemsBuiltin(x.values());
+      if (s.value().equals("get")
+          || s.value().equals("keys")
+          || s.value().equals("values")
+          || s.value().equals("dictsort")) return objectBuiltin(x.values(), s.value());
+      return Value.UndefinedValue.INSTANCE;
     }
     if (target instanceof Value.ArrayValue x) {
       if (p instanceof Value.StringValue property
@@ -1429,7 +1454,7 @@ public final class Interpreter {
         : null;
   }
 
-  private static Value objectBuiltin(Value.ObjectValue object, String name) {
+  private static Value objectBuiltin(Map<?, Value> values, String name) {
     return new Value.CallableValue(
         (arguments, hasKeywords, location, environment) -> {
           var positional = positional(arguments);
@@ -1440,28 +1465,24 @@ public final class Interpreter {
                     "Object key must be a string: got "
                         + (arguments.isEmpty() ? "UndefinedValue" : type(arguments.getFirst())),
                     location);
-              yield object
-                  .values()
-                  .getOrDefault(
-                      key.value(),
-                      arguments.size() > 1
-                          ? Value.materialize(arguments.get(1))
-                          : Value.NullValue.INSTANCE);
+              yield values.getOrDefault(
+                  key.value(),
+                  arguments.size() > 1
+                      ? Value.materialize(arguments.get(1))
+                      : Value.NullValue.INSTANCE);
             }
             case "keys" ->
                 new Value.ArrayValue(
-                    object.values().keySet().stream()
-                        .map(key -> (Value) objectKeyValue(key))
-                        .toList());
-            case "values" -> new Value.ArrayValue(new ArrayList<>(object.values().values()));
-            case "dictsort" -> dictSort(object, positional, arguments, location);
+                    values.keySet().stream().map(key -> (Value) objectKeyValue(key)).toList());
+            case "values" -> new Value.ArrayValue(new ArrayList<>(values.values()));
+            case "dictsort" -> dictSort(values, positional, arguments, location);
             default -> throw new AssertionError(name);
           };
         });
   }
 
   private static Value dictSort(
-      Value.ObjectValue object,
+      Map<?, Value> values,
       List<Value> positional,
       List<Value> arguments,
       SourceLocation location) {
@@ -1482,7 +1503,7 @@ public final class Interpreter {
       throw filterType("by must be either 'key' or 'value'", location);
     boolean reverse = reverseValue != null && booleanValue(reverseValue, "reverse", location);
     var entries = new ArrayList<Value>();
-    for (var entry : object.values().entrySet()) {
+    for (var entry : values.entrySet()) {
       entries.add(new Value.ArrayValue(List.of(objectKeyValue(entry.getKey()), entry.getValue())));
     }
     int index = by.equals("key") ? 0 : 1;
@@ -1552,15 +1573,20 @@ public final class Interpreter {
     var builtin =
         new Value.CallableValue(
             (arguments, hasKeywords, location, environment) -> {
-              return itemsOf(object);
+              return itemsOf(object.values());
             });
     object.setItemsBuiltin(builtin);
     return builtin;
   }
 
-  private static Value.ArrayValue itemsOf(Value.ObjectValue object) {
+  private static Value objectItemsBuiltin(Map<?, Value> values) {
+    return new Value.CallableValue(
+        (arguments, hasKeywords, location, environment) -> itemsOf(values));
+  }
+
+  private static Value.ArrayValue itemsOf(Map<?, Value> values) {
     var pairs = new ArrayList<Value>();
-    for (var entry : object.values().entrySet()) {
+    for (var entry : values.entrySet()) {
       var key = objectKeyValue(entry.getKey());
       pairs.add(new Value.ArrayValue(List.of(key, entry.getValue())));
     }
