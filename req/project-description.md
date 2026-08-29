@@ -311,7 +311,7 @@ no remaining milestone exemptions.
 
 - Document API, limits, errors, and tokenizer-client integration.
 - Add a minimal local example; do not add a Hub client.
-- Complete clean-room dependency and license review, then publish `0.1.0`.
+- Complete clean-room dependency and license review, then publish `0.5.0`.
 
 Exit: a consumer adds one JAR, parses once, renders safely from several threads, and reproduces
 documented model-template output.
