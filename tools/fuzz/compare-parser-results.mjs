@@ -44,12 +44,17 @@ function discrepancy(candidate, node, jvm) {
   }
   if (node.result === 'LIMIT' || jvm.result === 'LIMIT') return null;
   if ((node.result === 'PARSED') !== (jvm.result === 'PARSED')) return { kind: 'PARITY', reason: `${node.result} versus ${jvm.result}` };
-  // Parser diagnostics are category-level compatibility evidence. Keep exact messages for
-  // non-syntax outcomes, whose constructor/detail can identify a harness or safety regression.
-  if (node.result !== 'PARSED' && node.result !== 'SYNTAX' && node.message !== jvm.message) {
+  if (node.result === 'SYNTAX' && intentionalEndOfInputDiagnostic(jvm.message)) return null;
+  if (node.result !== 'PARSED' && node.message !== jvm.message) {
     return { kind: 'PARITY', reason: `error message differs: Node ${JSON.stringify(node.message)} versus Java ${JSON.stringify(jvm.message)}` };
   }
   return null;
+}
+
+function intentionalEndOfInputDiagnostic(message) {
+  return message === 'Unexpected end of template'
+    || message === 'Unknown statement, got end of template'
+    || /^Parser Error: .+\. End of template !== /.test(message);
 }
 
 // These delimiters and a numeric literal cover the parser transitions exercised by substitutions

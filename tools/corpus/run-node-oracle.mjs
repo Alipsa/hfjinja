@@ -42,7 +42,7 @@ for (const [index, record] of records.entries()) {
     continue;
   }
   executed++;
-  let phase = 'parse';
+  let phase = 'setup';
   try {
     const output = render(record, upstream, (nextPhase) => { phase = nextPhase; });
     if (Object.hasOwn(record.expected, 'errorCategory')) {
@@ -107,17 +107,15 @@ function render(record, upstreamRuntime, setPhase) {
       return nativeLocaleCompare.call(this, other, locales ?? defaultLocale, options);
     };
     process.env.TZ = record.zone ?? defaultZone;
-    if (record.templateOptions === undefined) {
-      setPhase('parse');
-      const template = new upstreamRuntime.Template(record.template);
-      setPhase('render');
-      return template.render(record.context);
-    }
-    setPhase('tokenize');
+    setPhase('setup');
     const environment = new upstreamRuntime.Environment();
     setupGlobals(environment);
     for (const [key, value] of Object.entries(record.context)) environment.set(key, value);
-    const tokens = upstreamRuntime.tokenize(record.template, nodeTemplateOptions(record.templateOptions));
+    setPhase('tokenize');
+    const tokens = upstreamRuntime.tokenize(
+      record.template,
+      nodeTemplateOptions(record.templateOptions),
+    );
     setPhase('parse');
     const program = upstreamRuntime.parse(tokens);
     setPhase('render');

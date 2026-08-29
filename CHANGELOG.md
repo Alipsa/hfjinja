@@ -27,13 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Change parser diagnostic wording for loop variables and expected tokens; truncated templates
+  retain hfjinja's descriptive end-of-input diagnostics rather than upstream's TypeError text.
+
 - Render Java-native callable forms that still have no ported upstream source (namespace, member
   builtins, macros, and call blocks) consistently as `<function>` in coercion and exception paths.
 
 ### Fixed
 
-- Classify the pinned parser's truncated-statement, expression-syntax, and invalid-loop-variable
-  failures as syntax errors while preserving hfjinja's descriptive end-of-input diagnostics.
 - Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
   `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
   concatenation, joining, and explicit exception messages.

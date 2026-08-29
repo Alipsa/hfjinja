@@ -43,8 +43,10 @@ const upstreamErrorMessages = new Map([
   ['Unclosed string literal', 'Unexpected end of input'],
   ['Unexpected character', 'Unexpected character: !'],
   ['Invalid quote character', 'Unexpected character: ‘'],
-  ['Unclosed statement', "Cannot read properties of undefined (reading 'type')"],
-  ['Unclosed expression', "Cannot read properties of undefined (reading 'type')"],
+  // The upstream parser leaks this TypeError, but hfjinja intentionally retains descriptive
+  // end-of-input diagnostics. These fixtures therefore compare category only.
+  ['Unclosed statement', null],
+  ['Unclosed expression', null],
   ['Unmatched control structure', 'Unknown statement type: endfor'],
   ['Missing variable in for loop', 'Unexpected token: CloseStatement'],
   ['Unclosed parentheses in expression', 'Parser Error: Expected closing parenthesis, got ${tokens[current].type} instead.. CloseExpression !== CloseParen.'],
@@ -63,9 +65,6 @@ const syntaxRuntimeErrorCases = new Set(['Invalid variable assignment']);
 // installs that built-in, so retaining the injected context would test a deliberate collision
 // error rather than the upstream test's attempted call of BooleanValue.
 const publicApiErrorContextOverrides = new Map([['Incorrect function call', {}]]);
-// The upstream parser leaks a TypeError for these end-of-input cases. hfjinja deliberately keeps
-// its useful syntax diagnostics; only category parity is part of the public compatibility contract.
-const categoryOnlyErrorCases = new Set(['Unclosed statement', 'Unclosed expression']);
 const options = new Set(process.argv.slice(2));
 if (![...options].every((option) => option === '--check' || option === '--write' || option.startsWith('--report='))) {
   throw new Error('Usage: convert-upstream-tests.mjs --check [--write] [--report=<path>]');
@@ -119,10 +118,10 @@ generated.push(...extractErrorCases(source));
 for (const record of generated) validateRecord(record, record.id);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
-const retained = records.filter(
-  (record) => !record.id.startsWith('templates.') && !record.id.startsWith('interpreter.'));
 
 if (options.has('--write')) {
+  const retained = records.filter(
+    (record) => !record.id.startsWith('templates.') && !record.id.startsWith('interpreter.'));
   await writeFile(corpusPath, [...generated, ...retained].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 }
 
@@ -282,6 +281,7 @@ function extractErrorCases(source) {
     if (typeof entry.template !== 'string') {
       throw new Error(`Could not capture template for upstream error case: ${entry.name}`);
     }
+    const errorMessage = upstreamErrorMessages.get(entry.name);
     return {
       id: `templates.error-${fixtureId(entry.name)}`,
       source: `${sourcePath}:${errorCaseLine(source, entry.name)}`,
@@ -289,7 +289,7 @@ function extractErrorCases(source) {
       context: publicApiErrorContextOverrides.get(entry.name) ?? entry.context,
       expected: {
         errorCategory: upstreamErrorCategories.get(entry.name),
-        ...(categoryOnlyErrorCases.has(entry.name) ? {} : {errorMessage: upstreamErrorMessages.get(entry.name)}),
+        ...(errorMessage === null ? {} : {errorMessage}),
       },
     };
   });
@@ -348,7 +348,6 @@ function containsFunction(value) {
 function sameSet(left, right) {
   return left.size === right.size && [...left].every((value) => right.has(value));
 }
-
 
 async function writeCoverage(path, generated, upstreamFixtureCount, committedRecords) {
   const lock = JSON.parse(await readFile(lockPath, 'utf8'));
