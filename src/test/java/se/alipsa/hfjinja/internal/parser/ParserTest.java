@@ -8,15 +8,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
+import se.alipsa.hfjinja.SourceLocation;
 import se.alipsa.hfjinja.TemplateOptions;
 import se.alipsa.hfjinja.TemplateRenderException;
 import se.alipsa.hfjinja.TemplateSyntaxException;
 import se.alipsa.hfjinja.internal.ast.Expression;
 import se.alipsa.hfjinja.internal.ast.Statement;
 import se.alipsa.hfjinja.internal.lexer.Lexer;
+import se.alipsa.hfjinja.internal.lexer.Token;
+import se.alipsa.hfjinja.internal.lexer.TokenType;
 
 class ParserTest {
   private static final TemplateOptions RAW =
@@ -34,6 +38,27 @@ class ParserTest {
     var error = assertThrows(TemplateSyntaxException.class, () -> parse("{{ variable }}{{"));
     assertEquals(ErrorCategory.SYNTAX, error.category());
     assertEquals(14, error.location().orElseThrow().offset());
+  }
+
+  @Test
+  void preservesDescriptiveEndOfInputDiagnostics() {
+    assertEquals(
+        "Unexpected end of template",
+        assertThrows(TemplateSyntaxException.class, () -> parse("{{")).getMessage());
+    assertEquals(
+        "Unknown statement, got end of template",
+        assertThrows(TemplateSyntaxException.class, () -> parse("{%")).getMessage());
+    assertEquals(
+        "Parser Error: Expected closing expression token. End of template !== CloseExpression.",
+        assertThrows(
+                TemplateSyntaxException.class,
+                () ->
+                    Parser.parse(
+                        List.of(
+                            new Token(TokenType.OpenExpression, "{{", new SourceLocation(0, 1, 1)),
+                            new Token(TokenType.NumericLiteral, "1", new SourceLocation(2, 1, 3))),
+                        RAW))
+            .getMessage());
   }
 
   @Test
