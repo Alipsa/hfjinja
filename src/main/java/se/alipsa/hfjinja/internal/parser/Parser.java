@@ -74,9 +74,7 @@ public final class Parser {
 
     Statement parseJinjaStatement() {
       var start = expect(TokenType.OpenStatement, "Expected opening statement token").start();
-      if (current >= tokens.size())
-        throw syntax("Unknown statement, got " + typeHere(), locationHere());
-      if (peek().type() != TokenType.Identifier)
+      if (current >= tokens.size() || peek().type() != TokenType.Identifier)
         throw syntax("Unknown statement, got " + typeHere(), locationHere());
       var nameToken = peek();
       var name = nameToken.value();

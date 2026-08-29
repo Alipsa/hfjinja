@@ -149,7 +149,7 @@ function captureGlobals(upstreamRuntime) {
 }
 
 function nodeTemplateOptions(options) {
-  if (options === undefined) return undefined;
+  if (options === undefined) return {trim_blocks: true, lstrip_blocks: true};
   return {
     ...(options.trimBlocks === undefined ? {} : {trim_blocks: options.trimBlocks}),
     ...(options.lstripBlocks === undefined ? {} : {lstrip_blocks: options.lstripBlocks}),

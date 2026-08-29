@@ -61,9 +61,9 @@ const syntaxErrorGroups = new Set(['Lexing errors', 'Parsing errors']);
 // runtime.ts evaluates the invalid assignment after parsing it, but Java rejects the left-hand
 // side during parsing. Both public APIs expose it as SYNTAX despite that detection-phase split.
 const syntaxRuntimeErrorCases = new Set(['Invalid variable assignment']);
-// templates.test.js injects `true` into a bare Environment. Template's public render API already
-// installs that built-in, so retaining the injected context would test a deliberate collision
-// error rather than the upstream test's attempted call of BooleanValue.
+// templates.test.js injects `true` into a bare Environment. The oracle's setupGlobals path already
+// installs that built-in, so retaining the injected context would test a deliberate collision error
+// rather than the upstream test's attempted call of BooleanValue.
 const publicApiErrorContextOverrides = new Map([['Incorrect function call', {}]]);
 const options = new Set(process.argv.slice(2));
 if (![...options].every((option) => option === '--check' || option === '--write' || option.startsWith('--report='))) {

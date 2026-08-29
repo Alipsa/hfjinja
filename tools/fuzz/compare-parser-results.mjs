@@ -44,7 +44,9 @@ function discrepancy(candidate, node, jvm) {
   }
   if (node.result === 'LIMIT' || jvm.result === 'LIMIT') return null;
   if ((node.result === 'PARSED') !== (jvm.result === 'PARSED')) return { kind: 'PARITY', reason: `${node.result} versus ${jvm.result}` };
-  if (node.result === 'SYNTAX' && intentionalEndOfInputDiagnostic(jvm.message)) return null;
+  if (node.result === 'SYNTAX'
+      && node.message === "Cannot read properties of undefined (reading 'type')"
+      && intentionalEndOfInputDiagnostic(jvm.message)) return null;
   if (node.result !== 'PARSED' && node.message !== jvm.message) {
     return { kind: 'PARITY', reason: `error message differs: Node ${JSON.stringify(node.message)} versus Java ${JSON.stringify(jvm.message)}` };
   }

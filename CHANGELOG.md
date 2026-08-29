@@ -29,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Change parser diagnostic wording for loop variables and expected tokens; truncated templates
   retain hfjinja's descriptive end-of-input diagnostics rather than upstream's TypeError text.
-
 - Render Java-native callable forms that still have no ported upstream source (namespace, member
   builtins, macros, and call blocks) consistently as `<function>` in coercion and exception paths.
 
