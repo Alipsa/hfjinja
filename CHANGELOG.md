@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Sign the primary, source, Javadoc, and POM artifacts in the Maven publication.
 - Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
   `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
   concatenation, joining, and explicit exception messages.
