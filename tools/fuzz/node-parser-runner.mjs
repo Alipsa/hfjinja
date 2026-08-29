@@ -21,7 +21,7 @@ for await (const line of readline.createInterface({ input: process.stdin, crlfDe
       const message = String(error.message ?? error);
       const result = error instanceof RangeError ? 'LIMIT' : error instanceof SyntaxError
         || (error instanceof Error && (message.startsWith('Parser Error:') || message === UPSTREAM_MISSING_TOKEN_MESSAGE)) ? 'SYNTAX' : 'OTHER_ERROR';
-      reply({ id: candidate.id, result, message });
+      reply({ id: candidate.id, result, message, ...(result === 'OTHER_ERROR' ? {detail: String(error)} : {}) });
     }
   } catch (error) {
     reply({ id: null, result: 'HARNESS', detail: String(error) });

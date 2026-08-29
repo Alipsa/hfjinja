@@ -32,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Match the pinned parser's diagnostics for truncated statements, expression syntax, and invalid
-  loop variables, including its missing-token TypeError text, punctuation, and AST node types.
+- Classify the pinned parser's truncated-statement, expression-syntax, and invalid-loop-variable
+  failures as syntax errors while preserving hfjinja's descriptive end-of-input diagnostics.
 - Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
   `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
   concatenation, joining, and explicit exception messages.

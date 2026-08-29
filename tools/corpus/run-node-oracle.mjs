@@ -42,8 +42,9 @@ for (const [index, record] of records.entries()) {
     continue;
   }
   executed++;
+  let phase = 'parse';
   try {
-    const output = render(record, upstream);
+    const output = render(record, upstream, (nextPhase) => { phase = nextPhase; });
     if (Object.hasOwn(record.expected, 'errorCategory')) {
       fail(label, `expected error=${record.expected.errorCategory}, got output=${JSON.stringify(output)}`);
     } else if (output !== record.expected.text) {
@@ -61,7 +62,7 @@ for (const [index, record] of records.entries()) {
         : undefined;
       let category;
       try {
-        category = classifyError(message, constructorName, record.id);
+        category = classifyError(message, constructorName, phase);
       } catch (classificationError) {
         if (record.expected.errorMessage === undefined)
           fail(label, classificationError instanceof Error ? classificationError.message : String(classificationError));
@@ -88,7 +89,7 @@ function fail(label, message) {
   console.error(`FAIL ${label}: ${message}`);
 }
 
-function render(record, upstreamRuntime) {
+function render(record, upstreamRuntime, setPhase) {
   const nativeDate = globalThis.Date;
   const nativeDateTimeFormat = Intl.DateTimeFormat;
   const nativeLocaleCompare = String.prototype.localeCompare;
@@ -107,18 +108,20 @@ function render(record, upstreamRuntime) {
     };
     process.env.TZ = record.zone ?? defaultZone;
     if (record.templateOptions === undefined) {
-      return new upstreamRuntime.Template(record.template).render(record.context);
+      setPhase('parse');
+      const template = new upstreamRuntime.Template(record.template);
+      setPhase('render');
+      return template.render(record.context);
     }
+    setPhase('tokenize');
     const environment = new upstreamRuntime.Environment();
     setupGlobals(environment);
     for (const [key, value] of Object.entries(record.context)) environment.set(key, value);
-    return new upstreamRuntime.Interpreter(environment)
-      .run(
-        upstreamRuntime.parse(
-          upstreamRuntime.tokenize(record.template, nodeTemplateOptions(record.templateOptions)),
-        ),
-      )
-      .value;
+    const tokens = upstreamRuntime.tokenize(record.template, nodeTemplateOptions(record.templateOptions));
+    setPhase('parse');
+    const program = upstreamRuntime.parse(tokens);
+    setPhase('render');
+    return new upstreamRuntime.Interpreter(environment).run(program).value;
   } finally {
     globalThis.Date = nativeDate;
     Intl.DateTimeFormat = nativeDateTimeFormat;

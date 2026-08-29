@@ -117,7 +117,7 @@ test('fails loudly for an unmatched upstream error', async () => {
     classify(
       "Cannot read properties of undefined (reading 'type')",
       'TypeError',
-      'templates.error-unclosed-statement',
+      'parse',
     ),
     'SYNTAX',
   );
@@ -158,9 +158,9 @@ test('rejects malformed error-pattern selectors', async () => {
     await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
     await writePatterns({...pattern, constructors: ['']});
     await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
-    await writePatterns({...pattern, recordIds: []});
+    await writePatterns({...pattern, phases: []});
     await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
-    await writePatterns({...pattern, recordIds: ['']});
+    await writePatterns({...pattern, phases: ['']});
     await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
   } finally {
     await rm(directory, {recursive: true, force: true});

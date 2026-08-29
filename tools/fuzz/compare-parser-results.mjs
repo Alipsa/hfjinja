@@ -44,7 +44,9 @@ function discrepancy(candidate, node, jvm) {
   }
   if (node.result === 'LIMIT' || jvm.result === 'LIMIT') return null;
   if ((node.result === 'PARSED') !== (jvm.result === 'PARSED')) return { kind: 'PARITY', reason: `${node.result} versus ${jvm.result}` };
-  if (node.result !== 'PARSED' && node.message !== jvm.message) {
+  // Parser diagnostics are category-level compatibility evidence. Keep exact messages for
+  // non-syntax outcomes, whose constructor/detail can identify a harness or safety regression.
+  if (node.result !== 'PARSED' && node.result !== 'SYNTAX' && node.message !== jvm.message) {
     return { kind: 'PARITY', reason: `error message differs: Node ${JSON.stringify(node.message)} versus Java ${JSON.stringify(jvm.message)}` };
   }
   return null;
@@ -63,15 +65,15 @@ async function mutations() {
       if (record.template[offset] === replacement) continue;
       const source = record.template.slice(0, offset) + replacement + record.template.slice(offset + 1);
       candidates.push({ id: `mutation-${record.id}-${offset}-${Buffer.from(replacement, 'utf16le').toString('hex')}`,
-        family: 'mutation', source: encode(source), trimBlocks: options.trimBlocks ?? true,
-        lstripBlocks: options.lstripBlocks ?? true, sourceCodeUnits: source.length });
+        family: 'mutation', source: encode(source), trimBlocks: record.templateOptions === undefined ? true : (options.trimBlocks ?? false),
+        lstripBlocks: record.templateOptions === undefined ? true : (options.lstripBlocks ?? false), sourceCodeUnits: source.length });
     }
     // Prefixes cover truncation and end-of-input paths independently of substitutions.
     for (let length = 1; length <= record.template.length; length++) {
       const source = record.template.slice(0, length);
       candidates.push({ id: `mutation-${record.id}-prefix-${length}`, family: 'mutation',
-        source: encode(source), trimBlocks: options.trimBlocks ?? true,
-        lstripBlocks: options.lstripBlocks ?? true, sourceCodeUnits: source.length });
+        source: encode(source), trimBlocks: record.templateOptions === undefined ? true : (options.trimBlocks ?? false),
+        lstripBlocks: record.templateOptions === undefined ? true : (options.lstripBlocks ?? false), sourceCodeUnits: source.length });
     }
   }
   return candidates;
@@ -110,7 +112,10 @@ try {
     if (candidate.family === 'mutation') mutationTotal++;
     if (candidate.family === 'hostile') {
       if (result.nodeResult.result === 'LIMIT' || result.javaResult.result === 'LIMIT') limits++;
-      for (const [runtime, value] of [['node', result.nodeResult], ['java', result.javaResult]]) if (value.result === 'OTHER_ERROR') otherErrors.push(`${candidate.id} ${runtime}${value.message ? `: ${value.message}` : ''}`);
+      for (const [runtime, value] of [['node', result.nodeResult], ['java', result.javaResult]]) if (value.result === 'OTHER_ERROR') {
+        const detail = value.detail ?? value.message;
+        otherErrors.push(`${candidate.id} ${runtime}${detail ? `: ${detail}` : ''}`);
+      }
     }
     if (result.issue) {
       let minimized;

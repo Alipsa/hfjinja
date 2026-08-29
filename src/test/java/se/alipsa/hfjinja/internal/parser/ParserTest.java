@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.TemplateOptions;
@@ -92,15 +94,18 @@ class ParserTest {
   }
 
   @Test
-  void expressionRecordNamesUsedInDiagnosticsArePinnedUpstreamAstNodes() throws Exception {
-    var lock = Files.readString(Path.of("upstream/upstream-lock.json"));
+  void expressionRecordNamesUsedInDiagnosticsMatchVendoredAstDiscriminators() throws Exception {
+    var astSource = Files.readString(Path.of("upstream/vendor/src/ast.ts"));
+    var upstreamTypes = new HashSet<String>();
+    var matcher = Pattern.compile("type\\s*=\\s*\\\"([^\\\"]+)\\\"").matcher(astSource);
+    while (matcher.find()) upstreamTypes.add(matcher.group(1));
     for (var expressionType : Expression.class.getDeclaredClasses()) {
       if (Expression.class.isAssignableFrom(expressionType)) {
         assertTrue(
-            lock.contains("\"" + expressionType.getSimpleName() + "\""),
+            upstreamTypes.contains(expressionType.getSimpleName()),
             () ->
                 expressionType.getSimpleName()
-                    + " is absent from the pinned upstream AST inventory");
+                    + " is absent from the vendored upstream AST discriminators");
       }
     }
   }

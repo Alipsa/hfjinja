@@ -32,10 +32,6 @@ public final class Parser {
   }
 
   private static final class Cursor {
-    // Deliberately reproduces the pinned parser's uncaught missing-token TypeError, distinct
-    // from the lexer's designed "Unexpected end of input" diagnostic.
-    private static final String UPSTREAM_MISSING_TOKEN_MESSAGE =
-        "Cannot read properties of undefined (reading 'type')";
     private final List<Token> tokens;
     private final TemplateOptions options;
     private final SourceLocation endLocation;
@@ -78,9 +74,8 @@ public final class Parser {
 
     Statement parseJinjaStatement() {
       var start = expect(TokenType.OpenStatement, "Expected opening statement token").start();
-      if (current >= tokens.size()) throw syntax(UPSTREAM_MISSING_TOKEN_MESSAGE, endLocation);
       if (peek().type() != TokenType.Identifier)
-        throw syntax("Unknown statement, got " + typeHere(), locationHere());
+        throw syntax("Unknown statement, got " + peek().type(), peek().start());
       var nameToken = peek();
       var name = nameToken.value();
       next();
@@ -518,7 +513,7 @@ public final class Parser {
     }
 
     Token peek() {
-      if (current >= tokens.size()) throw syntax(UPSTREAM_MISSING_TOKEN_MESSAGE, endLocation);
+      if (current >= tokens.size()) throw syntax("Unexpected end of template", endLocation);
       return tokens.get(current);
     }
 
@@ -529,7 +524,8 @@ public final class Parser {
     }
 
     Token expect(TokenType type, String error) {
-      if (current >= tokens.size()) throw syntax(UPSTREAM_MISSING_TOKEN_MESSAGE, endLocation);
+      if (current >= tokens.size())
+        throw syntax("Parser Error: " + error + ". End of template !== " + type + ".", endLocation);
       var t = tokens.get(current++);
       if (t.type() != type)
         throw syntax("Parser Error: " + error + ". " + t.type() + " !== " + type + ".", t.start());
@@ -565,10 +561,6 @@ public final class Parser {
 
     SourceLocation locationHere() {
       return current < tokens.size() ? tokens.get(current).start() : endLocation;
-    }
-
-    String typeHere() {
-      return current < tokens.size() ? tokens.get(current).type().toString() : "end of template";
     }
 
     <T> T nested(Supplier<T> production) {
