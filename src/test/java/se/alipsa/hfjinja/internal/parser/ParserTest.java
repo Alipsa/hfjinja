@@ -3,7 +3,12 @@ package se.alipsa.hfjinja.internal.parser;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import se.alipsa.hfjinja.ErrorCategory;
 import se.alipsa.hfjinja.TemplateOptions;
@@ -29,6 +34,19 @@ class ParserTest {
     var error = assertThrows(TemplateSyntaxException.class, () -> parse("{{ variable }}{{"));
     assertEquals(ErrorCategory.SYNTAX, error.category());
     assertEquals(14, error.location().orElseThrow().offset());
+  }
+
+  @Test
+  void preservesDescriptiveEndOfInputDiagnostics() {
+    assertEquals(
+        "Unexpected end of template",
+        assertThrows(TemplateSyntaxException.class, () -> parse("{{")).getMessage());
+    assertEquals(
+        "Unknown statement, got end of template",
+        assertThrows(TemplateSyntaxException.class, () -> parse("{%")).getMessage());
+    assertEquals(
+        "Parser Error: Expected closing expression token. End of template !== CloseExpression.",
+        assertThrows(TemplateSyntaxException.class, () -> parse("{{''")).getMessage());
   }
 
   @Test
@@ -74,6 +92,35 @@ class ParserTest {
     assertThrows(TemplateSyntaxException.class, () -> expression("{{ (1,) }}"));
     assertInstanceOf(
         Statement.FilterStatement.class, parse("{% filter 42 %}x{% endfilter %}").body().get(0));
+  }
+
+  @Test
+  void reportsUpstreamLoopVariableNodeTypes() {
+    var integer = assertThrows(TemplateSyntaxException.class, () -> parse("{% for 1 in values %}"));
+    assertEquals(
+        "Expected identifier/tuple for the loop variable, got IntegerLiteral instead",
+        integer.getMessage());
+    var object = assertThrows(TemplateSyntaxException.class, () -> parse("{% for {} in values %}"));
+    assertEquals(
+        "Expected identifier/tuple for the loop variable, got ObjectLiteral instead",
+        object.getMessage());
+  }
+
+  @Test
+  void expressionRecordNamesUsedInDiagnosticsMatchVendoredAstDiscriminators() throws Exception {
+    var astSource = Files.readString(Path.of("upstream/vendor/src/ast.ts"));
+    var upstreamTypes = new HashSet<String>();
+    var matcher = Pattern.compile("type\\s*=\\s*\\\"([^\\\"]+)\\\"").matcher(astSource);
+    while (matcher.find()) upstreamTypes.add(matcher.group(1));
+    for (var expressionType : Expression.class.getDeclaredClasses()) {
+      if (Expression.class.isAssignableFrom(expressionType)) {
+        assertTrue(
+            upstreamTypes.contains(expressionType.getSimpleName()),
+            () ->
+                expressionType.getSimpleName()
+                    + " is absent from the vendored upstream AST discriminators");
+      }
+    }
   }
 
   @Test

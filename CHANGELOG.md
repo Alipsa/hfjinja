@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   chat template with the published JPMS module.
 - Run every checked-in template-bearing differential-corpus record against hfjinja's public Java
   API as well as the pinned Node oracle.
-- Extract all serializable upstream `templates.test.js` rendering fixtures into the differential
-  corpus, with the four JavaScript-function-context cases explicitly reported as schema
-  exclusions.
+- Extract all serializable upstream `templates.test.js` rendering and error fixtures into the
+  differential corpus, with the four JavaScript-function-context rendering cases explicitly
+  reported as schema exclusions.
 - Represent parse-time whitespace options in corpus records and extract the upstream interpreter
   whitespace-control vectors through both runtimes.
 - Require an explicit coverage or policy decision for every vendored upstream test source.
@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Change parser diagnostic wording for loop variables and expected tokens; truncated templates
+  retain hfjinja's descriptive end-of-input diagnostics rather than upstream's TypeError text.
 - Render Java-native callable forms that still have no ported upstream source (namespace, member
   builtins, macros, and call blocks) consistently as `<function>` in coercion and exception paths.
 

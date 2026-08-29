@@ -21,6 +21,50 @@ const unsupportedContextFixtures = new Map([
   ['OBJ_METHODS', 'context supplies JavaScript methods'],
   ['IS_OPERATOR_4', 'context supplies the custom testFunction JavaScript function'],
 ]);
+const upstreamErrorCategories = new Map([
+  ['Missing closing curly brace', 'SYNTAX'],
+  ['Unclosed string literal', 'SYNTAX'],
+  ['Unexpected character', 'SYNTAX'],
+  ['Invalid quote character', 'SYNTAX'],
+  ['Unclosed statement', 'SYNTAX'],
+  ['Unclosed expression', 'SYNTAX'],
+  ['Unmatched control structure', 'SYNTAX'],
+  ['Missing variable in for loop', 'SYNTAX'],
+  ['Unclosed parentheses in expression', 'SYNTAX'],
+  ['Invalid variable name', 'SYNTAX'],
+  ['Invalid control structure usage', 'SYNTAX'],
+  ['Undefined function call', 'TYPE'],
+  ['Incorrect function call', 'TYPE'],
+  ['Looping over non-iterable', 'TYPE'],
+  ['Invalid variable assignment', 'SYNTAX'],
+]);
+const upstreamErrorMessages = new Map([
+  ['Missing closing curly brace', 'Unexpected end of input'],
+  ['Unclosed string literal', 'Unexpected end of input'],
+  ['Unexpected character', 'Unexpected character: !'],
+  ['Invalid quote character', 'Unexpected character: ‘'],
+  // The upstream parser leaks this TypeError, but hfjinja intentionally retains descriptive
+  // end-of-input diagnostics. These fixtures therefore compare category only.
+  ['Unclosed statement', null],
+  ['Unclosed expression', null],
+  ['Unmatched control structure', 'Unknown statement type: endfor'],
+  ['Missing variable in for loop', 'Unexpected token: CloseStatement'],
+  ['Unclosed parentheses in expression', 'Parser Error: Expected closing parenthesis, got ${tokens[current].type} instead.. CloseExpression !== CloseParen.'],
+  ['Invalid variable name', 'Parser Error: Expected closing expression token. Identifier !== CloseExpression.'],
+  ['Invalid control structure usage', 'Unexpected token: CloseStatement'],
+  ['Undefined function call', 'Cannot call something that is not a function: got UndefinedValue'],
+  ['Incorrect function call', 'Cannot call something that is not a function: got BooleanValue'],
+  ['Looping over non-iterable', 'Expected iterable or object type in for loop: got IntegerValue'],
+  ['Invalid variable assignment', 'Invalid LHS inside assignment expression: {"type":"IntegerLiteral","value":42}'],
+]);
+const syntaxErrorGroups = new Set(['Lexing errors', 'Parsing errors']);
+// runtime.ts evaluates the invalid assignment after parsing it, but Java rejects the left-hand
+// side during parsing. Both public APIs expose it as SYNTAX despite that detection-phase split.
+const syntaxRuntimeErrorCases = new Set(['Invalid variable assignment']);
+// templates.test.js injects `true` into a bare Environment. The oracle's setupGlobals path already
+// installs that built-in, so retaining the injected context would test a deliberate collision error
+// rather than the upstream test's attempted call of BooleanValue.
+const publicApiErrorContextOverrides = new Map([['Incorrect function call', {}]]);
 const options = new Set(process.argv.slice(2));
 if (![...options].every((option) => option === '--check' || option === '--write' || option.startsWith('--report='))) {
   throw new Error('Usage: convert-upstream-tests.mjs --check [--write] [--report=<path>]');
@@ -70,6 +114,7 @@ const interpreterGenerated = extractWhitespaceCases(interpreterSource).map(
   }),
 );
 generated.push(...interpreterGenerated);
+generated.push(...extractErrorCases(source));
 for (const record of generated) validateRecord(record, record.id);
 const records = await readCorpus(corpusPath);
 validateCorpus(records, corpusPath);
@@ -133,6 +178,123 @@ function extractWhitespaceCases(source) {
   return context.captureWhitespace;
 }
 
+function extractErrorCases(source) {
+  const captured = [];
+  const describeStack = [];
+  let currentName;
+  let currentTemplate;
+  let currentEnvironment;
+  class Environment {
+    values = {};
+
+    constructor() {
+      currentEnvironment = this;
+    }
+
+    set(name, value) {
+      this.values[name] = value;
+    }
+  }
+  class Interpreter {
+    constructor(environment) {
+      currentEnvironment = environment;
+    }
+
+    run(ast) {
+      currentTemplate = ast.template;
+      return {value: ''};
+    }
+  }
+  const tokenize = (template) => {
+    currentTemplate = template;
+    return {template};
+  };
+  const parse = (tokens) => tokens;
+  const expect = (actual) => ({
+    toMatchObject: () => {},
+    toEqual: () => {},
+    toThrowError: () => {
+      if (!describeStack.includes('Error checking')) return;
+      actual();
+      captured.push({
+        name: currentName,
+        template: currentTemplate,
+        context: currentEnvironment?.values ?? {},
+        group: describeStack.at(-1),
+      });
+    },
+  });
+  const executable = source.replace(/^(?:import[\s\S]*?;\s*)+/, '');
+  try {
+    vm.runInNewContext(executable, {
+      describe: (name, callback) => {
+        describeStack.push(name);
+        try {
+          callback();
+        } finally {
+          describeStack.pop();
+        }
+      },
+      it: (name, callback) => {
+        currentName = name;
+        currentTemplate = undefined;
+        currentEnvironment = undefined;
+        callback();
+      },
+      expect,
+      tokenize,
+      parse,
+      setupGlobals: () => {},
+      Environment,
+      Interpreter,
+      Template: class {
+        render() {
+          return '';
+        }
+
+        format() {
+          return '';
+        }
+      },
+      console: {error: () => {}, warn: () => {}},
+    }, {filename: sourcePath});
+  } catch (error) {
+    throw new Error(`Could not extract upstream error cases from ${sourcePath}: ${error.message}`);
+  }
+  if (!sameSet(new Set(captured.map((entry) => entry.name)), new Set(upstreamErrorCategories.keys()))) {
+    throw new Error(`Upstream error cases differ from reviewed category mapping in ${sourcePath}`);
+  }
+  if (!sameSet(new Set(captured.map((entry) => entry.name)), new Set(upstreamErrorMessages.keys()))) {
+    throw new Error(`Upstream error cases differ from reviewed message mapping in ${sourcePath}`);
+  }
+  for (const entry of captured) {
+    const category = upstreamErrorCategories.get(entry.name);
+    if (syntaxErrorGroups.has(entry.group) && category !== 'SYNTAX') {
+      throw new Error(`Upstream ${entry.group} case must map to SYNTAX: ${entry.name}`);
+    }
+    if (entry.group === 'Runtime errors'
+        && (category === 'SYNTAX') !== syntaxRuntimeErrorCases.has(entry.name)) {
+      throw new Error(`Upstream Runtime errors category mapping is not declared: ${entry.name}`);
+    }
+  }
+  return captured.map((entry) => {
+    if (typeof entry.template !== 'string') {
+      throw new Error(`Could not capture template for upstream error case: ${entry.name}`);
+    }
+    const errorMessage = upstreamErrorMessages.get(entry.name);
+    return {
+      id: `templates.error-${fixtureId(entry.name)}`,
+      source: `${sourcePath}:${errorCaseLine(source, entry.name)}`,
+      template: entry.template,
+      context: publicApiErrorContextOverrides.get(entry.name) ?? entry.context,
+      expected: {
+        errorCategory: upstreamErrorCategories.get(entry.name),
+        ...(errorMessage === null ? {} : {errorMessage}),
+      },
+    };
+  });
+}
+
 function propertyLine(source, name, end) {
   const templateStrings = source.slice(0, end);
   const match = new RegExp(`^[^\\S\\r\\n]*${name}:`, 'm').exec(templateStrings);
@@ -149,12 +311,20 @@ function whitespaceCaseLine(source, index) {
   return source.slice(0, testsStart + match.index).split('\n').length;
 }
 
+function errorCaseLine(source, name) {
+  const quotedName = JSON.stringify(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`^[^\\S\\r\\n]*it\\(${quotedName},`, 'm').exec(source);
+  if (!match) throw new Error(`Could not locate upstream error case: ${name}`);
+  return source.slice(0, match.index).split('\n').length;
+}
+
 function sameFixture(actual, generated) {
   return Object.keys(actual).length === Object.keys(generated).length
     && actual.source === generated.source
     && actual.template === generated.template
+    && canonicalJson(actual.templateOptions) === canonicalJson(generated.templateOptions)
     && canonicalJson(actual.context) === canonicalJson(generated.context)
-    && actual.expected?.text === generated.expected.text;
+    && canonicalJson(actual.expected) === canonicalJson(generated.expected);
 }
 
 function canonicalJson(value) {
@@ -166,7 +336,7 @@ function canonicalJson(value) {
 }
 
 function fixtureId(name) {
-  return name.toLowerCase().replaceAll('_', '-');
+  return name.toLowerCase().replaceAll('_', '-').replaceAll(/[^a-z0-9]+/g, '-').replaceAll(/^-|-$/g, '');
 }
 
 function containsFunction(value) {
@@ -196,7 +366,7 @@ async function writeCoverage(path, generated, upstreamFixtureCount, committedRec
     '# Differential corpus coverage', '',
     `Vendored non-model unit sources: ${testFiles.length}`,
     `Vendored template fixture definitions: ${upstreamFixtureCount}`,
-    `Automatically extracted fixture definitions: ${generated.length} (${interpreterGenerated.length} interpreter whitespace vectors)`,
+    `Automatically extracted fixture definitions: ${generated.length} (${interpreterGenerated.length} interpreter whitespace vectors, ${upstreamErrorCategories.size} error vectors)`,
     `Schema-excluded fixture definitions: ${unsupportedContextFixtures.size}`,
     `Committed template-bearing corpus records: ${committedTemplateRecords} (executed by both the pinned Node oracle and Java differential runner)`,
     `Policy-excluded test sources: ${excludedTestFiles.length}${excludedTestFiles.length ? ` (${excludedTestFiles.join(', ')})` : ''}`, '',

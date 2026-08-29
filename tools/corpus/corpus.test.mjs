@@ -83,6 +83,17 @@ test('fails loudly for an unmatched upstream error', async () => {
     assert.equal(classify(`Unknown ${type} filter: frob`), 'TYPE');
   }
   assert.equal(classify('Cannot apply filter "abs" to type: FloatValue'), 'TYPE');
+  assert.equal(classify('Unexpected end of input'), 'SYNTAX');
+  assert.equal(classify('Unexpected character: !'), 'SYNTAX');
+  assert.equal(classify('Unknown statement type: endfor'), 'SYNTAX');
+  assert.equal(classify('Unexpected token: CloseStatement'), 'SYNTAX');
+  assert.equal(
+    classify('Parser Error: Expected closing parenthesis, got ${tokens[current].type} instead.. CloseExpression !== CloseParen.'),
+    'SYNTAX',
+  );
+  assert.equal(classify('Invalid LHS inside assignment expression: {"type":"IntegerLiteral","value":42}'), 'SYNTAX');
+  assert.equal(classify('Cannot call something that is not a function: got BooleanValue'), 'TYPE');
+  assert.equal(classify('Expected iterable or object type in for loop: got IntegerValue'), 'TYPE');
   assert.equal(classify('`selectattr` can only be applied to array of objects'), 'TYPE');
   assert.equal(classify('`map` expressions without `attribute` set are not currently supported.'), 'TYPE');
   assert.equal(classify('wp7-eager-sentinel'), 'EXPLICIT_RAISE');
@@ -102,6 +113,14 @@ test('fails loudly for an unmatched upstream error', async () => {
   assert.equal(classify("Cannot read properties of undefined (reading 'toLowerCase')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'toString')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'type')"), 'TYPE');
+  assert.equal(
+    classify(
+      "Cannot read properties of undefined (reading 'type')",
+      'TypeError',
+      'parse',
+    ),
+    'SYNTAX',
+  );
   assert.equal(classify("Cannot read properties of undefined (reading 'value')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading '__bool__')"), 'TYPE');
   assert.equal(classify("Cannot read properties of undefined (reading 'builtins')"), 'TYPE');
@@ -127,6 +146,25 @@ test('fails loudly for an unmatched upstream error', async () => {
   await assert.rejects(
     errorClassifier('tools/corpus/error-patterns-0.5.9.json', '@huggingface/jinja@other'), /does not match/,
   );
+});
+
+test('rejects malformed error-pattern selectors', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hfjinja-error-patterns-'));
+  const path = join(directory, 'patterns.json');
+  const writePatterns = (pattern) => writeFile(path, JSON.stringify({version: 'test', patterns: [pattern]}), 'utf8');
+  const pattern = {regex: '^error$', category: 'TYPE'};
+  try {
+    await writePatterns({...pattern, constructors: []});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+    await writePatterns({...pattern, constructors: ['']});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+    await writePatterns({...pattern, phases: []});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+    await writePatterns({...pattern, phases: ['']});
+    await assert.rejects(errorClassifier(path, 'test'), /Invalid error pattern/);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });
 
 test('preserves physical JSONL line numbers across blank lines', async () => {
@@ -156,13 +194,13 @@ test('identifies valid non-object JSON separately from invalid JSON', async () =
 test('reports harness mismatches and unmatched upstream errors per record', async () => {
   const result = await runOracle([
     {id: 'expected-error', source: 'test', template: 'Hello', context: {}, expected: {errorCategory: 'SYNTAX'}},
-    {id: 'unmatched-error', source: 'test', template: '{% for %}', context: {}, expected: {errorCategory: 'SYNTAX'}},
+    {id: 'unmatched-error', source: 'test', template: "{{ raise_exception('unmapped upstream error') }}", context: {}, expected: {errorCategory: 'SYNTAX'}},
     {id: 'after-error', source: 'test', template: 'still runs', context: {}, expected: {text: 'still runs'}},
   ]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /expected error=SYNTAX, got output="Hello"/);
   assert.doesNotMatch(result.stderr, /FAIL .*expected-error.*output mismatch/);
-  assert.match(result.stderr, /Unmatched upstream error.*Unexpected token/);
+  assert.match(result.stderr, /Unmatched upstream error.*unmapped upstream error/);
   assert.match(result.stdout, /PASS after-error/);
 });
 

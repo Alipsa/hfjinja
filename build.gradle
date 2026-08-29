@@ -132,7 +132,7 @@ project.tasks.register('fuzzParserVerify', Exec) {
       '--report', fuzzParserVerifyReport.absolutePath
   inputs.files('tools/fuzz/generate-parser-cases.mjs', 'tools/fuzz/node-parser-runner.mjs',
       'tools/fuzz/compare-parser-results.mjs', 'tools/ast-snapshot/ast-serialize.mjs',
-      'upstream/upstream-lock.json', 'upstream/vendor/dist/index.js', sourceSets.test.runtimeClasspath)
+      'src/test/resources/corpus/v1.jsonl', 'upstream/upstream-lock.json', 'upstream/vendor/dist/index.js', sourceSets.test.runtimeClasspath)
   outputs.file(fuzzParserVerifyReport)
   outputs.upToDateWhen { false }
 }

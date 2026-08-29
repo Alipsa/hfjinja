@@ -30,6 +30,11 @@
       "category": "SYNTAX"
     },
     {
+      "regex": "^(?:Unexpected end of input|Unexpected character: .+|Unknown statement type: .+|Unexpected token: .+|Invalid LHS inside assignment expression: .+)$",
+      "category": "SYNTAX",
+      "comment": "Pinned templates.test.js lexer/parser error vectors"
+    },
+    {
       "regex": "^Invalid count value: (?<count>-?\\d+)$",
       "category": "VALUE",
       "comment": "tojson(indent) rejects a negative String.repeat count"
@@ -56,6 +61,14 @@
     },
     {
       "regex": "^Cannot apply filter \"(?<name>.+)\" to type: (?<type>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Cannot call something that is not a function: got (?<type>.+)$",
+      "category": "TYPE"
+    },
+    {
+      "regex": "^Expected iterable or object type in for loop: got (?<type>.+)$",
       "category": "TYPE"
     },
     {
@@ -107,6 +120,13 @@
       "category": "SYNTAX",
       "constructors": ["BreakControl", "ContinueControl"],
       "comment": "Raw BreakControl/ContinueControl escaping an upstream macro or call block outside a loop"
+    },
+    {
+      "regex": "^Cannot read properties of undefined \\(reading 'type'\\)$",
+      "category": "SYNTAX",
+      "constructors": ["TypeError"],
+      "phases": ["parse"],
+      "comment": "Pinned parser crashes whose generic TypeError text also occurs in runtime failures"
     },
     {
       "regex": "^Cannot read properties of undefined \\(reading '(?<property>toLowerCase|toUpperCase|toString|type|value|__bool__|builtins|includes|at|length)'\\)$",

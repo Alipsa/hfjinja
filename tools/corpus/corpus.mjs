@@ -98,19 +98,31 @@ export async function errorClassifier(path, expectedVersion) {
       throw new Error(`Invalid error pattern ${index + 1} in ${path}`);
     }
     if (pattern.constructors !== undefined
-        && (!Array.isArray(pattern.constructors) || pattern.constructors.some((name) => !nonBlank(name)))) {
+        && (!Array.isArray(pattern.constructors) || pattern.constructors.length === 0
+          || pattern.constructors.some((name) => !nonBlank(name)))) {
+      throw new Error(`Invalid error pattern ${index + 1} in ${path}`);
+    }
+    if (pattern.phases !== undefined
+        && (!Array.isArray(pattern.phases) || pattern.phases.length === 0
+          || pattern.phases.some((phase) => !nonBlank(phase)))) {
       throw new Error(`Invalid error pattern ${index + 1} in ${path}`);
     }
     try {
-      return {category: pattern.category, regex: new RegExp(pattern.regex), constructors: pattern.constructors};
+      return {
+        category: pattern.category,
+        regex: new RegExp(pattern.regex),
+        constructors: pattern.constructors,
+        phases: pattern.phases,
+      };
     } catch (error) {
       throw new Error(`Invalid error pattern ${index + 1} in ${path}: ${error.message}`);
     }
   });
-  return (message, constructorName) => {
+  return (message, constructorName, phase) => {
     for (const pattern of patterns) {
       if (pattern.regex.test(message)
-          && (pattern.constructors === undefined || pattern.constructors.includes(constructorName))) {
+          && (pattern.constructors === undefined || pattern.constructors.includes(constructorName))
+          && (pattern.phases === undefined || pattern.phases.includes(phase))) {
         return pattern.category;
       }
     }
