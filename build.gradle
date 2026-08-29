@@ -684,3 +684,10 @@ nexusReleasePlugin {
   password = providers.gradleProperty('sonatypePassword').orNull
   mavenPublication = publishing.publications.maven
 }
+
+// Publishing must not begin until the complete verification suite, including the parser fuzzer,
+// has passed. `release.sh` invokes `build release`, but independent requested tasks have no
+// ordering relationship unless the release task declares this dependency itself.
+tasks.named('release') {
+  dependsOn tasks.named('check')
+}

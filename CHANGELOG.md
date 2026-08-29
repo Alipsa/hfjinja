@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Require the complete verification suite, including parser fuzzing, before a Maven Central
+  release can begin.
 - Sign the primary, source, Javadoc, and POM artifacts in the Maven publication.
 - Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
   `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
