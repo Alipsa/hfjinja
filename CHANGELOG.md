@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Require the complete verification suite, including parser fuzzing, before a Maven Central
+  release can begin.
+
+## [0.5.0] - 2026-08-29
+
 ### Added
 
+- Initial release.
 - Add isolated clean-checkout release verification, publication metadata checks, and release-only
   reproducible archive evidence.
 
@@ -66,9 +74,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   upstream runtime.
 - Match upstream keyword-bag handling for `replace`, `get`, and `split`, including the
   positional-after-keyword diagnostic.
-
-## [0.5.0] - TBD
-
-### Added
-
-- Initial release.
