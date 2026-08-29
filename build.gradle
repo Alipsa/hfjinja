@@ -671,6 +671,14 @@ publishing {
   }
 }
 
+// A Central release signs every artifact in the Maven publication, including the source and
+// Javadoc archives. Enable signing only when its key is configured so local publishing and the
+// isolated release verification remain keyless; BundleValidator rejects unsigned release bundles.
+signing {
+  required = providers.gradleProperty('signing.keyId').present
+  sign publishing.publications.maven
+}
+
 nexusReleasePlugin {
   userName = providers.gradleProperty('sonatypeUsername').orNull
   password = providers.gradleProperty('sonatypePassword').orNull
