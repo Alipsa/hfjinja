@@ -33,44 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add pinned-oracle vectors for runtime filters and object members, including `reverse`, `bool`,
   `abs`, `keys`, `values`, and `dictsort`.
 
-### Changed
-
-- Change parser diagnostic wording for loop variables and expected tokens; truncated templates
-  retain hfjinja's descriptive end-of-input diagnostics rather than upstream's TypeError text.
-- Render Java-native callable forms that still have no ported upstream source (namespace, member
-  builtins, macros, and call blocks) consistently as `<function>` in coercion and exception paths.
-
-### Fixed
-
-- Sign the primary, source, Javadoc, and POM artifacts in the Maven publication.
-- Preserve the pinned JavaScript source rendering and coercion of converted callables (`range`,
-  `raise_exception`, `strftime_now`, and host functions), including bare interpolation, filters,
-  concatenation, joining, and explicit exception messages.
-- Align `namespace(...)` values with the pinned runtime's object members, filters, containment,
-  deferred builtin fallback, and public render-error contract.
-- Preserve stable identity for bound string, object, and namespace member builtins.
-- Match pinned JavaScript coercion and TypeError behavior for undefined-backed string filters,
-  members, and operators.
-- Preserve the pinned runtime's deferred undefined behavior for empty `first`/`last`, including
-  container reads, boolean and member dereferences, and filter/macro default arguments;
-  also align case-sensitive sorting and undefined-backed string tests.
-- Classify the pinned runtime's `Unknown FunctionValue filter` diagnostics as `TYPE` in the
-  differential oracle.
-- Classify the pinned runtime's undefined `value` access diagnostic as `TYPE`, covering the
-  `equalto` and `eq` test aliases when invoked without their required comparison value.
-- Compare raw upstream macro/call-block `break` and `continue` diagnostics by their documented
-  `SYNTAX` category.
-- Match upstream `TYPE` failures for empty `first`/`last` and undefined-backed `dictsort` and
-  `is lower` inputs.
-- Report `SourceLocation`s in terms of the caller's original template string: preprocessing
-  removals (`trim_blocks`, `lstrip_blocks`, the trailing newline strip, and `{% generation %}`
-  tag stripping) no longer shift the locations of later diagnostics, mapping stays linear for
-  templates with many whitespace-control removals, and CRLF-boundary locations remain consistent
-  with the scanner
+- Provide descriptive parser diagnostics for loop variables, expected tokens, and truncated
+  templates, as well as consistent `<function>` rendering for Java-native callable forms.
+- Publish signed primary, source, Javadoc, and POM artifacts.
+- Render and coerce converted callables (`range`, `raise_exception`, `strftime_now`, and host
+  functions) consistently through interpolation, filters, concatenation, joining, and errors.
+- Support the pinned runtime's namespace, object-member, builtin-identity, and deferred-undefined
+  behavior, including empty `first`/`last` values and undefined-backed string operations.
+- Classify pinned-runtime filter, test, macro, call-block, and TypeError diagnostics consistently
+  in the differential oracle.
+- Preserve source locations through whitespace preprocessing (`trim_blocks`, `lstrip_blocks`,
+  trailing-newline stripping, and `{% generation %}` stripping), including CRLF boundaries
   ([#27](https://github.com/Alipsa/hfjinja/issues/27)).
-- Propagate macro and call-block `break`/`continue` control to an enclosing loop like the pinned
-  upstream runtime.
-- Align call-form filter argument evaluation, error categories, and diagnostics with the pinned
-  upstream runtime.
-- Match upstream keyword-bag handling for `replace`, `get`, and `split`, including the
-  positional-after-keyword diagnostic.
+- Propagate macro and call-block `break`/`continue` control to enclosing loops.
+- Support call-form filter argument evaluation and keyword-bag handling for `replace`, `get`, and
+  `split`, including compatible error categories and diagnostics.
