@@ -1,5 +1,7 @@
 # hfjinja
 
+> NOTE: this project has moved to [jmlx](https://github.com/Alipsa/jmlx) and continues there as the jmlx-jinja module.
+
 `hfjinja` is a dependency-free Java 21+ implementation of the Hugging Face chat-template Jinja
 subset. It evaluates a model's `tokenizer_config.json` `chat_template` without a JavaScript engine,
 with compatibility pinned to a reviewed version of
